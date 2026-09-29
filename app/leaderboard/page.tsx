@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ensureSeason, getLeaderboard, getSeasonHistory } from "@/lib/queries";
+import { ensureSeason, getLeaderboard, getSeasonHistory, getSquads } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
 import { fmtMarks, fmtDate, fmtCountdown } from "@/lib/money";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Avatar, Badge, Card } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
-import { CalendarClock, Medal, Trophy } from "lucide-react";
+import { CalendarClock, Medal, Trophy, Users } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Leaderboard" };
@@ -22,6 +22,7 @@ export default async function LeaderboardPage() {
     getLang(),
   ]);
   const history = await getSeasonHistory(4);
+  const squads = await getSquads();
   const t = getT(lang);
 
   return (
@@ -87,6 +88,29 @@ export default async function LeaderboardPage() {
           </tbody>
         </table>
       </Card>
+
+      {squads.length > 0 && (
+        <section className="mt-6">
+          <h2 className="text-[15px] font-semibold mb-3 flex items-center gap-1.5">
+            <Users className="size-4" /> {t.squadsTitle}
+          </h2>
+          <Card className="p-1.5">
+            {squads.map((s, i) => (
+              <div key={s.id} className="flex items-center gap-3 px-3 py-2.5">
+                <span className={cn("num w-6 text-[13px] font-bold", i === 0 ? "text-amber-500" : "text-mute")}>{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13.5px] font-semibold">{s.name}</div>
+                  <div className="text-[11.5px] text-faint truncate">
+                    {s.memberCount} · {s.members.slice(0, 6).map((m) => `@${m}`).join(", ")}
+                    {s.memberCount > 6 ? "…" : ""}
+                  </div>
+                </div>
+                <span className="num text-[13px] font-bold">{fmtMarks(s.netWorthCents, { lang })}</span>
+              </div>
+            ))}
+          </Card>
+        </section>
+      )}
 
       {history.length > 0 && (
         <section className="mt-8">

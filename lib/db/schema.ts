@@ -39,6 +39,10 @@ export const user = pgTable("user", {
   bannedAt: timestamp("banned_at", { withTimezone: true }),
   banReason: text("ban_reason"),
   commentsBanned: boolean("comments_banned").notNull().default(false),
+  squadId: uuid("squad_id"),
+  // Notification prefs — resolve fan-out and closing-soon reminders.
+  notifResolve: boolean("notif_resolve").notNull().default(true),
+  notifClosing: boolean("notif_closing").notNull().default(true),
 });
 
 export const session = pgTable("session", {
@@ -186,6 +190,8 @@ export const comment = pgTable(
     userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
     body: text("body").notNull(),
     imageUrl: text("image_url"),
+    // One level of threading — replies attach to a top-level comment.
+    parentId: uuid("parent_id").references((): AnyPgColumn => comment.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("comment_market_idx").on(t.marketId, t.createdAt)]
@@ -286,6 +292,20 @@ export const resolutionVote = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.marketId, t.userId] })]
+);
+
+// ---------- squads ----------
+
+// A named group users join freely — the leaderboard shows combined net worth
+// per squad. One squad per user.
+export const squad = pgTable(
+  "squad",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull().unique(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  }
 );
 
 // ---------- duels (head-to-head) ----------

@@ -71,7 +71,7 @@ export async function SiteHeader() {
             >
               <AnimatedMoney cents={user.balanceCents} lang={lang} />
             </Link>
-            <NotifBell items={notifs} lang={lang} />
+            <NotifBell items={notifs} userId={user.id} lang={lang} />
             <UserMenu name={user.name} username={user.username} role={isAdmin(user) ? "admin" : user.role} image={user.image} lang={lang} />
           </div>
         ) : (

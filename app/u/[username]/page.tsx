@@ -6,6 +6,7 @@ import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Avatar, Badge, Card } from "@/components/ui/primitives";
+import { ProfileSettings } from "@/components/profile-settings";
 import { fmtMarks, fmtDate, fmtShares, timeAgo } from "@/lib/money";
 import { marketYesPrice } from "@/lib/queries";
 import { CheckCircle2, Lock, ShieldCheck, Trophy } from "lucide-react";
@@ -26,7 +27,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   ]);
   if (!profile) notFound();
   const t = getT(lang);
-  const { user: u, stats, positions, created, netWorthCents, rank, playPnlCents, games } = profile;
+  const { user: u, stats, positions, created, netWorthCents, rank, playPnlCents, games, squadName } = profile;
   const achievements = await getAchievements(u.id);
   const isSelf = viewer?.id === u.id;
 
@@ -63,6 +64,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-[20px] font-bold tracking-tight">@{u.username ?? u.name}</h1>
             {isAdmin(u) && <Badge tone="yes"><ShieldCheck className="size-3" /> {t.umAdmin}</Badge>}
+            {squadName && <Badge tone="warn">{squadName}</Badge>}
             {isSelf && <Badge tone="ink">{t.umYou}</Badge>}
             {rank > 0 && <Badge tone="warn"><Trophy className="size-3" /> #{rank}</Badge>}
           </div>
@@ -89,6 +91,17 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
         <Stat label={t.trades} value={String(stats.trades)} />
         <Stat label={t.markets} value={String(stats.markets)} />
       </div>
+
+      {isSelf && (
+        <div className="mt-4">
+          <ProfileSettings
+            squadName={squadName}
+            notifResolve={u.notifResolve}
+            notifClosing={u.notifClosing}
+            lang={lang}
+          />
+        </div>
+      )}
 
       {/* Achievements */}
       <section className="mt-8">
