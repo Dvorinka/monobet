@@ -283,6 +283,36 @@ const en = {
     "MonoBet is a demo project made for fun. Marks (Ɱ) are virtual play money with no monetary value — they cannot be bought, sold, deposited, or withdrawn. This is not a real prediction market, betting service, or financial product.",
   openSource: "Open source",
 
+  // terms of use
+  terms: "Terms",
+  termsLink: "Terms of Use",
+  authAgree: "By creating an account you agree to the",
+  termsTitle: "Terms of Use",
+  termsSub: "The short version: this is a toy. Have fun.",
+  termsS1T: "Made for fun, not for real",
+  termsS1B:
+    "MonoBet is a personal demo project built for entertainment. Nothing here is a real prediction market, betting service, exchange, or financial product. Market outcomes, prices, and payouts are simulated by software.",
+  termsS2T: "Virtual Marks only",
+  termsS2B:
+    "Marks (Ɱ) are virtual play money. They have no monetary value and cannot be bought, sold, deposited, withdrawn, exchanged, or redeemed for anything. Winning or losing Marks means nothing outside this site.",
+  termsS3T: "Accounts",
+  termsS3B:
+    "Accounts are identified by username and password; an email is optional. Passwords are stored hashed. Accounts may be suspended or deleted at any time, for any reason — including wiping the whole database on a whim.",
+  termsS4T: "Fair play",
+  termsS4B:
+    "Do not create markets or post content that is illegal, hateful, or harassing. Do not exploit bugs to print Marks — it is play money anyway. Admins can edit, resolve, or delete any market or comment.",
+  termsS5T: "No promises",
+  termsS5B:
+    "The site is provided as-is, with no warranty of any kind. Balances, markets, comments, and accounts can be wiped or reset at any time without notice. The project may change or disappear entirely.",
+  termsS6T: "Open source",
+  termsS6B:
+    "MonoBet is open source under the MIT license. Questions or issues: github.com/Dvorinka/monobet.",
+
+  // 404
+  notFoundTitle: "404 — off the chart",
+  notFoundBody: "This page resolved NO. Or maybe it never existed.",
+  backToMarkets: "Back to markets",
+
   // time
   rewards: "Rewards",
   rewardsTitle: "Earn Marks",
@@ -584,6 +614,34 @@ const cs: Dict = {
   legalNotice:
     "MonoBet je demo projekt pro zábavu. Marky (Ɱ) jsou virtuální herní peníze bez jakékoli hodnoty — nelze je koupit, prodat, vložit ani vybrat. Nejedná se o skutečný predikční trh, sázkovou službu ani finanční produkt.",
   openSource: "Open source",
+
+  terms: "Podmínky",
+  termsLink: "podmínkami použití",
+  authAgree: "Vytvořením účtu souhlasíte s",
+  termsTitle: "Podmínky použití",
+  termsSub: "Krátká verze: tohle je hračka. Bavte se.",
+  termsS1T: "Pro zábavu, ne doopravdy",
+  termsS1B:
+    "MonoBet je osobní demo projekt vytvořený pro zábavu. Nic zde není skutečný predikční trh, sázková služba, burza ani finanční produkt. Výsledky trhů, ceny a výplaty simuluje software.",
+  termsS2T: "Pouze virtuální Marky",
+  termsS2B:
+    "Marky (Ɱ) jsou virtuální herní peníze. Nemají žádnou peněžní hodnotu a nelze je koupit, prodat, vložit, vybrat, směnit ani uplatnit za cokoli. Výhra nebo prohra Marek nic neznamená mimo tyto stránky.",
+  termsS3T: "Účty",
+  termsS3B:
+    "Účty jsou identifikovány uživatelským jménem a heslem; e-mail je nepovinný. Hesla se ukládají hashovaná. Účty mohou být kdykoli pozastaveny nebo smazány, z jakéhokoli důvodu — včetně rozmaru vymazat celou databázi.",
+  termsS4T: "Fér hra",
+  termsS4B:
+    "Nevytvářejte trhy ani nezveřejňujte obsah, který je nezákonný, nenávistný nebo obtěžující. Nesnažte se zneužívat chyby k tisku Marek — stejně jsou to jen hrací peníze. Administrátoři mohou upravovat, uzavírat nebo mazat jakýkoli trh či komentář.",
+  termsS5T: "Žádné sliby",
+  termsS5B:
+    "Web je poskytován tak, jak je, bez jakékoli záruky. Zůstatky, trhy, komentáře a účty mohou být kdykoli vymazány nebo resetovány bez upozornění. Projekt se může změnit nebo zcela zmizet.",
+  termsS6T: "Open source",
+  termsS6B:
+    "MonoBet je open source pod licencí MIT. Dotazy nebo problémy: github.com/Dvorinka/monobet.",
+
+  notFoundTitle: "404 — mimo graf",
+  notFoundBody: "Tato stránka se vyhodnotila jako NE. Nebo možná nikdy neexistovala.",
+  backToMarkets: "Zpět na trhy",
 
   rewards: "Odměny",
   rewardsTitle: "Získejte Marky",

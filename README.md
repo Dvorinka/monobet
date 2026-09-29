@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
-  <a href="https://monomark-weld.vercel.app">Live app</a> ·
+  <a href="https://monobet.tdvorak.dev">Live app</a> ·
   <a href="https://github.com/Dvorinka/monobet/releases">Releases</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
@@ -19,7 +19,7 @@
 <p align="center">
   <a href="https://github.com/Dvorinka/monobet/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Dvorinka/monobet" alt="License"></a>
   <a href="https://github.com/Dvorinka/monobet"><img src="https://img.shields.io/github/stars/Dvorinka/monobet" alt="Stars"></a>
-  <a href="https://monomark-weld.vercel.app"><img src="https://img.shields.io/badge/demo-live-0f9d58" alt="Demo"></a>
+  <a href="https://monobet.tdvorak.dev"><img src="https://img.shields.io/badge/demo-live-0f9d58" alt="Demo"></a>
 </p>
 
 ## What is MonoBet?
@@ -52,6 +52,7 @@ exists for fun, bragging rights, and settling arguments.
 - **Dark & light themes** — system-aware, persisted, no flash on load
 - **Portfolio & leaderboard** — positions, trade history, auditable cash-flow ledger, net-worth ranking
 - **Admin panel** — resolve/cancel/delete any market, create users, grant balances, manage categories; `SUPER_ADMIN_EMAIL` pins the owner account
+- **Terms of Use** — `/terms` states plainly: fun-only demo, virtual Marks, no real market; linked in the footer and on signup
 
 ## Architecture
 
@@ -85,12 +86,12 @@ npm run dev
 | `DATABASE_URL` | Neon **pooled** connection (app queries) |
 | `DATABASE_URL_UNPOOLED` | Neon **direct** connection (migrations only) |
 | `BETTER_AUTH_SECRET` | Session signing secret |
-| `BETTER_AUTH_URL` | App base URL (e.g. `https://monomark-weld.vercel.app`) |
+| `BETTER_AUTH_URL` | App base URL (e.g. `https://monobet.tdvorak.dev`) |
 | `SUPER_ADMIN_EMAIL` | Always-admin account email (default: `info@tdvorak.dev`) |
 
 ## Deploy
 
-Live at **https://monomark-weld.vercel.app** — Neon Postgres + Vercel.
+Live at **https://monobet.tdvorak.dev** — Neon Postgres + Vercel.
 `vercel.json` pins the `nextjs` framework preset so the Vercel builder emits
 serverless functions. Set the env vars above in the Vercel project, then
 `vercel --prod`.
