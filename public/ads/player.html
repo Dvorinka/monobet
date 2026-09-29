@@ -96,10 +96,44 @@ const ADS = [
     h: "Tidepool.fm", sub: "Ocean sounds engineered by retired submarine sonar operators. Certification: very wet.", cta: "Dive in" },
   { layout: "center", bg: ["#110d00", "#332600"], glow: "#fbbf24", mark: "#a16207", markColor: "#fef3c7", glyph: "◈",
     h: "Honeywire", sub: "The messaging app where every message is exactly seven words. No more, no less. Bee-lieve it.", cta: "Buzz now" },
+  { layout: "left", bg: ["#120818", "#2a1230"], glow: "#e879f9", mark: "#701a75", markColor: "#fae8ff", glyph: "♥",
+    h: "SecondDate", sub: "Meet people who also bought YES at 12%. Shared delusion is the strongest foundation.", cta: "Match delusions" },
+  { layout: "center", bg: ["#0d0d0f", "#232330"], glow: "#94a3b8", mark: "#334155", markColor: "#e2e8f0", glyph: "▣",
+    h: "IronVault Bank", sub: "Your money sleeps in a vault. Our interest rates sleep even deeper.", cta: "Open a vault" },
+  { layout: "left", bg: ["#030f14", "#0a2a33"], glow: "#22d3ee", mark: "#155e75", markColor: "#cffafe", glyph: "✈",
+    h: "CloudCouch Air", sub: "Legroom sold separately. Turbulence included at no extra charge.", cta: "Fly upright" },
+  { layout: "center", bg: ["#0d0500", "#2b1200"], glow: "#fb923c", mark: "#9a3412", markColor: "#ffedd5", glyph: "◉",
+    h: "HexFlakes", sub: "The cereal with six sides per flake and zero regrets per bowl. Part of a suspiciously complete breakfast.", cta: "Pour a bowl" },
+  { layout: "left", bg: ["#070d04", "#15240c"], glow: "#4ade80", mark: "#166534", markColor: "#dcfce7", glyph: "❋",
+    h: "Meadow Lane", sub: "The farming sim where your crops bet on rain. Harvest profits — or harvest lessons.", cta: "Plant a take" },
 ];
 const params = new URLSearchParams(location.search);
 let i = Number(params.get("i"));
-if (!Number.isInteger(i) || i < 0 || i >= ADS.length) i = Math.floor(Math.random() * ADS.length);
+if (!Number.isInteger(i) || i < 0 || i >= ADS.length) {
+  // Shuffle-bag: every creative plays once before any repeats, and a refill
+  // never opens with the ad that just closed the last bag.
+  try {
+    const last = Number(localStorage.getItem("mb.adLast"));
+    let bag = (JSON.parse(localStorage.getItem("mb.adBag") || "[]") || [])
+      .filter((n) => Number.isInteger(n) && n >= 0 && n < ADS.length);
+    if (!bag.length) {
+      bag = ADS.map((_, k) => k);
+      for (let k = bag.length - 1; k > 0; k--) {
+        const j = Math.floor(Math.random() * (k + 1));
+        [bag[k], bag[j]] = [bag[j], bag[k]];
+      }
+      if (bag.length > 1 && bag[bag.length - 1] === last) {
+        const j = bag.findIndex((n) => n !== last);
+        [bag[j], bag[bag.length - 1]] = [bag[bag.length - 1], bag[j]];
+      }
+    }
+    i = bag.pop();
+    localStorage.setItem("mb.adBag", JSON.stringify(bag));
+    localStorage.setItem("mb.adLast", String(i));
+  } catch {
+    i = Math.floor(Math.random() * ADS.length);
+  }
+}
 const ad = ADS[i];
 const s = document.getElementById("s");
 s.classList.add(ad.layout === "left" ? "left" : "center");
