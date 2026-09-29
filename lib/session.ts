@@ -1,14 +1,20 @@
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { auth, SUPER_ADMIN_EMAIL } from "@/lib/auth";
 
 export type CurrentUser = {
   id: string;
   name: string;
   username: string | null;
+  email: string | null;
   role: string;
   balanceCents: number;
   lastClaimAt: Date | null;
 };
+
+export function isAdmin(u: Pick<CurrentUser, "role" | "email"> | null | undefined): boolean {
+  if (!u) return false;
+  return u.role === "admin" || (u.email ?? "").toLowerCase() === SUPER_ADMIN_EMAIL;
+}
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -23,7 +29,8 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     id: u.id,
     name: u.name,
     username: u.username ?? null,
-    role: u.role ?? "user",
+    email: u.email ?? null,
+    role: u.email?.toLowerCase() === SUPER_ADMIN_EMAIL ? "admin" : (u.role ?? "user"),
     balanceCents: u.balanceCents ?? 0,
     lastClaimAt: u.lastClaimAt ?? null,
   };
@@ -37,6 +44,6 @@ export async function requireUser(): Promise<CurrentUser> {
 
 export async function requireAdmin(): Promise<CurrentUser> {
   const u = await requireUser();
-  if (u.role !== "admin") throw new Error("Admin only");
+  if (!isAdmin(u)) throw new Error("Admin only");
   return u;
 }

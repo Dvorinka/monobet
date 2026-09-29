@@ -15,6 +15,7 @@ export function AuthForm({ lang }: { lang?: Lang }) {
     params.get("mode") === "signup" ? "signup" : "login"
   );
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, start] = useTransition();
   const router = useRouter();
@@ -24,10 +25,12 @@ export function AuthForm({ lang }: { lang?: Lang }) {
     if (password.length < 6) return toast.error(t.authPassShort);
     start(async () => {
       if (mode === "signup") {
+        const customEmail = email.trim().toLowerCase();
         const r = await signUp.email({
           // username plugin stores username; email is required by core, so a
-          // local placeholder keeps signups friction-free.
-          email: `${username.trim().toLowerCase()}@monomark.local`,
+          // local placeholder keeps signups friction-free unless a real one
+          // is given (e.g. the owner's superadmin email).
+          email: customEmail || `${username.trim().toLowerCase()}@monomark.local`,
           name: username.trim(),
           username: username.trim().toLowerCase(),
           password,
@@ -85,6 +88,22 @@ export function AuthForm({ lang }: { lang?: Lang }) {
             className="mt-1"
           />
         </div>
+        {mode === "signup" && (
+          <div>
+            <label className="text-[13px] font-medium text-mute" htmlFor="e">
+              {t.emailOptional}
+            </label>
+            <Input
+              id="e"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+              className="mt-1"
+            />
+          </div>
+        )}
         <div>
           <label className="text-[13px] font-medium text-mute" htmlFor="p">
             {t.password}

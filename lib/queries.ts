@@ -323,6 +323,17 @@ export async function getSparklines(marketIds: string[]) {
   return map;
 }
 
+// Real placed bets on a market — or, for a group, across all its options.
+// Used to gate creator self-deletion ("no bets yet").
+export async function getMarketBetCount(marketId: string): Promise<number> {
+  const [r] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.trade)
+    .innerJoin(schema.market, eq(schema.trade.marketId, schema.market.id))
+    .where(sql`${schema.market.id} = ${marketId} OR ${schema.market.parentId} = ${marketId}`);
+  return r?.n ?? 0;
+}
+
 export async function getCommentCount(marketIds: string[]) {
   if (marketIds.length === 0) return new Map<string, number>();
   const rows = await db

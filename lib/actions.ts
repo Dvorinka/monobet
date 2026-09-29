@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, and, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { requireUser, requireAdmin } from "@/lib/session";
+import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { yesPrice, tradeCost, sharesForSpend, qForProb } from "@/lib/lmsr";
 import { marketYesPrice } from "@/lib/queries";
 
@@ -574,6 +574,117 @@ export async function resolveMarket(input: {
     return { ok: true, paidOut };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Resolve failed" };
+  }
+}
+
+// Hard-delete a market and everything attached (group parents take their
+// options with them via cascade). Admins can delete anything — holders are
+// refunded at the current mark first, so nobody loses Marks to a deletion.
+// Creators may delete only their own market while nobody has bet on it.
+export async function deleteMarket(marketId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const slug = await db.transaction(async (tx) => {
+      const m = await lockMarket(tx, marketId);
+      const targets = await tx
+        .select()
+        .from(schema.market)
+        .where(sql`${schema.market.id} = ${m.id} OR ${schema.market.parentId} = ${m.id}`)
+        .for("update");
+      const ids = targets.map((x) => x.id);
+      const [bets] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.trade)
+        .where(sql`${schema.trade.marketId} in (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`);
+
+      const admin = isAdmin(u);
+      if (!admin) {
+        if (m.creatorId !== u.id) throw new Error("Only the creator can delete this market");
+        if ((bets?.n ?? 0) > 0) throw new Error("Cannot delete — bets were already placed");
+      } else {
+        // Admin nuke: refund open positions at mark before wiping.
+        for (const t of targets) {
+          const py = marketYesPrice(t);
+          const positions = await tx
+            .select()
+            .from(schema.position)
+            .where(eq(schema.position.marketId, t.id))
+            .for("update");
+          for (const p of positions) {
+            const refund = Math.round((toNum(p.yesShares) * py + toNum(p.noShares) * (1 - py)) * 100);
+            if (refund > 0) {
+              await lockUser(tx, p.userId);
+              await credit(tx, p.userId, refund, "refund", t.id, `Removed: ${t.question.slice(0, 60)}`);
+            }
+          }
+        }
+      }
+      // Deleting the parent cascades children; for singles it's just the row.
+      await tx.delete(schema.market).where(eq(schema.market.id, m.id));
+      return m.slug;
+    });
+    revalidatePath("/");
+    revalidatePath("/admin");
+    revalidatePath(`/market/${slug}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Delete failed" };
+  }
+}
+
+// Admin-only: create a user account directly (username + password). The
+// welcome-bonus ledger entry is inserted manually because direct inserts skip
+// the Better Auth database hooks.
+export async function adminCreateUser(input: {
+  username: string;
+  password: string;
+  role?: "user" | "admin";
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const { hashPassword } = await import("better-auth/crypto");
+    const username = input.username.trim().toLowerCase();
+    if (username.length < 3) throw new Error("Username too short (min 3)");
+    if (!/^[a-z0-9_.-]+$/.test(username)) throw new Error("Username: letters, digits, _ . - only");
+    if (input.password.length < 6) throw new Error("Password too short (min 6)");
+    const role = input.role === "admin" ? "admin" : "user";
+
+    await db.transaction(async (tx) => {
+      const dupe = await tx
+        .select({ id: schema.user.id })
+        .from(schema.user)
+        .where(sql`lower(${schema.user.username}) = ${username}`)
+        .limit(1);
+      if (dupe.length) throw new Error("Username taken");
+      const id = crypto.randomUUID();
+      const email = `${username}@monomark.local`;
+      await tx.insert(schema.user).values({
+        id,
+        name: username,
+        email,
+        username,
+        displayUsername: username,
+        role,
+      });
+      await tx.insert(schema.account).values({
+        id: crypto.randomUUID(),
+        accountId: id,
+        providerId: "credential",
+        userId: id,
+        password: await hashPassword(input.password),
+      });
+      await tx.insert(schema.ledger).values({
+        userId: id,
+        amountCents: 100_000,
+        balanceAfterCents: 100_000,
+        kind: "signup",
+        memo: "Welcome bonus",
+      });
+    });
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Create user failed" };
   }
 }
 

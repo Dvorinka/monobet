@@ -5,7 +5,7 @@ import { TradeTicker } from "@/components/trade-ticker";
 import { MarketCard } from "@/components/market-card";
 import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor, listCategories } from "@/lib/queries";
 import { fmtMarks } from "@/lib/money";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT, LOCALES } from "@/lib/i18n";
 import type { Metadata } from "next";
@@ -29,7 +29,7 @@ export default async function Home({
     category: cat,
     q,
     sort: cat === "new" ? "new" : "trending",
-    includePendingForUser: user?.role === "admin" ? user.id : undefined,
+    includePendingForUser: isAdmin(user) ? user!.id : undefined,
   });
   const ids = markets.map((m) => m.id);
   const groupIds = markets.filter((m) => m.kind === "group").map((m) => m.id);

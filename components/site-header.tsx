@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { LogoMark } from "@/components/logo";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { SearchBox } from "@/components/search-box";
@@ -36,7 +36,7 @@ export async function SiteHeader() {
               {t.portfolio}
             </Link>
           )}
-          {user?.role === "admin" && (
+          {isAdmin(user) && (
             <Link href="/admin" className="px-2.5 py-1.5 rounded-md text-ink font-semibold hover:bg-surface-2">
               {t.admin}
             </Link>
@@ -66,7 +66,7 @@ export async function SiteHeader() {
             >
               <AnimatedMoney cents={user.balanceCents} lang={lang} />
             </Link>
-            <UserMenu name={user.name} username={user.username} role={user.role} lang={lang} />
+            <UserMenu name={user.name} username={user.username} role={isAdmin(user) ? "admin" : user.role} lang={lang} />
           </div>
         ) : (
           <div className="flex items-center gap-2 shrink-0">

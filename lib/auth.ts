@@ -5,6 +5,9 @@ import { nextCookies } from "better-auth/next-js";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 
+// Site owner — always admin on auth, regardless of the stored role.
+export const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL ?? "info@tdvorak.dev").toLowerCase();
+
 export const auth = betterAuth({
   appName: "MonoMark",
   database: drizzleAdapter(db, {
@@ -34,8 +37,9 @@ export const auth = betterAuth({
         // First registered user becomes admin; every signup gets a ledger entry
         // so the cash-flow history is complete from day one.
         after: async (u) => {
-          const all = await db.select({ id: schema.user.id }).from(schema.user);
-          if (all.length === 1) {
+          const isOwner = (u.email ?? "").toLowerCase() === SUPER_ADMIN_EMAIL;
+          const all = isOwner ? [] : await db.select({ id: schema.user.id }).from(schema.user);
+          if (isOwner || all.length === 1) {
             await db.update(schema.user).set({ role: "admin" }).where(eq(schema.user.id, u.id));
           }
           await db.insert(schema.ledger).values({

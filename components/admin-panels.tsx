@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, Input, Select } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory } from "@/lib/actions";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, deleteMarket, adminCreateUser } from "@/lib/actions";
 import { fmtMarks, fmtDate } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { Check, X, CircleCheck, Ban, Pencil, Trash2 } from "lucide-react";
@@ -51,6 +51,17 @@ export function PendingList({
           </Button>
           <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => rejectMarket(m.id), t.rejectedToast)}>
             <X className="size-3.5" /> {t.reject}
+          </Button>
+          <Button
+            size="sm"
+            variant="no"
+            disabled={pending}
+            title={t.deleteMarket}
+            onClick={() => {
+              if (confirm(t.deleteMarketConfirm(m.question))) run(() => deleteMarket(m.id), t.marketDeleted);
+            }}
+          >
+            <Trash2 className="size-3.5" />
           </Button>
         </div>
       ))}
@@ -110,6 +121,17 @@ export function LiveMarketList({
             >
               <Ban className="size-3" /> {t.cancelRefund}
             </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={pending}
+              className="text-no-strong hover:bg-no-soft border-no/30"
+              onClick={() => {
+                if (confirm(t.deleteMarketConfirm(m.question))) run(() => deleteMarket(m.id), t.marketDeleted);
+              }}
+            >
+              <Trash2 className="size-3" /> {t.delete}
+            </Button>
           </div>
         </div>
       ))}
@@ -153,6 +175,50 @@ export function GrantPanel({ users, lang }: { users: { id: string; username: str
         {pending ? "…" : t.grant}
       </Button>
       <p className="text-[11.5px] text-faint">{t.grantNote}</p>
+    </form>
+  );
+}
+
+// Admin user creation — username + password, optional admin role.
+export function UsersPanel({ lang }: { lang?: Lang }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [admin, setAdmin] = useState(false);
+  const { pending, run } = useAction(lang);
+  const t = getT(lang ?? "en");
+
+  return (
+    <form
+      className="p-4 space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        run(
+          () => adminCreateUser({ username, password, role: admin ? "admin" : "user" }),
+          t.userCreated(username.trim().toLowerCase())
+        );
+        setUsername("");
+        setPassword("");
+        setAdmin(false);
+      }}
+    >
+      <div className="grid grid-cols-[1fr_140px] gap-3">
+        <Input placeholder={t.createUserPh} value={username} onChange={(e) => setUsername(e.target.value)} required />
+        <Input type="password" placeholder={t.password} value={password} onChange={(e) => setPassword(e.target.value)} required />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <label className="inline-flex items-center gap-2 text-[13px] text-mute cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={admin}
+            onChange={(e) => setAdmin(e.target.checked)}
+            className="size-4 accent-brand"
+          />
+          {t.makeAdmin}
+        </label>
+        <Button size="sm" disabled={pending || !username.trim() || password.length < 6}>
+          {pending ? "…" : t.createUserBtn}
+        </Button>
+      </div>
     </form>
   );
 }

@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getPendingMarkets, listMarkets, getAllUsers, listCategories, listCategoryRows } from "@/lib/queries";
-import { PendingList, LiveMarketList, GrantPanel, CategoriesPanel } from "@/components/admin-panels";
+import { PendingList, LiveMarketList, GrantPanel, CategoriesPanel, UsersPanel } from "@/components/admin-panels";
 import { MarketForm } from "@/components/market-form";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Card } from "@/components/ui/primitives";
-import { ShieldCheck, Inbox, Radio, Users, PlusCircle, Tags } from "lucide-react";
+import { ShieldCheck, Inbox, Radio, Users, PlusCircle, Tags, UserPlus } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Admin" };
@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: "Admin" };
 export default async function AdminPage() {
   const [user, lang] = await Promise.all([getCurrentUser(), getLang()]);
   if (!user) redirect("/login");
-  if (user.role !== "admin") redirect("/");
+  if (!isAdmin(user)) redirect("/");
   const t = getT(lang);
 
   const [pending, live, users, categories, categoryRows] = await Promise.all([
@@ -85,6 +85,13 @@ export default async function AdminPage() {
             <SectionTitle icon={<Users className="size-4" />} title={t.grantBalance} />
             <Card>
               <GrantPanel users={users.map((u) => ({ id: u.id, username: u.username, balanceCents: u.balanceCents }))} lang={lang} />
+            </Card>
+          </section>
+
+          <section>
+            <SectionTitle icon={<UserPlus className="size-4" />} title={t.usersTitle} />
+            <Card>
+              <UsersPanel lang={lang} />
             </Card>
           </section>
         </div>
