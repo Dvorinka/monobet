@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* MonoBet brand: the logo's green — Yes energy, never Vercel black */
+  --color-brand: #0f9d58;
+  --color-brand-strong: #0b7a44;
+  --color-brand-soft: #e5f5ec;
+  --color-brand-on: #ffffff;
+
+  --color-ink: #131a15;
+  --color-ink-2: #3c453e;
+  --color-mute: #6d746e;
+  --color-faint: #9aa29c;
+  --color-line: #e5e9e6;
+  --color-line-2: #eef1ef;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f7f5;
+  --color-surface-3: #ebeef0;
+
+  --color-yes: #0f9d58;
+  --color-yes-soft: #e5f5ec;
+  --color-yes-strong: #0b7a44;
+  --color-yes-on: #ffffff;
+  --color-no: #e03c31;
+  --color-no-soft: #fdecea;
+  --color-no-strong: #b8281f;
+  --color-no-on: #ffffff;
+
+  --color-warn-soft: #fef3d7;
+  --color-warn-strong: #92600a;
+
+  --radius-card: 14px;
+}
+
+/* Dark theme — same tokens, inverted values. Every component adapts. */
+.dark {
+  --color-brand: #34c47a;
+  --color-brand-strong: #4fe096;
+  --color-brand-soft: #12291d;
+  --color-brand-on: #0c140f;
+
+  --color-ink: #eef3ee;
+  --color-ink-2: #c2cbc3;
+  --color-mute: #899289;
+  --color-faint: #59625b;
+  --color-line: #252c27;
+  --color-line-2: #1c221d;
+  --color-surface: #10140f;
+  --color-surface-2: #171d18;
+  --color-surface-3: #212820;
+
+  --color-yes: #34c47a;
+  --color-yes-soft: #12291d;
+  --color-yes-strong: #4fe096;
+  --color-yes-on: #0c140f;
+  --color-no: #f0604f;
+  --color-no-soft: #341d1b;
+  --color-no-strong: #ff9387;
+  --color-no-on: #ffffff;
+
+  --color-warn-soft: #2e2410;
+  --color-warn-strong: #e0a93f;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+/* Polymarket-style ticker tabs scroll */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ---------- chart & micro animations ---------- */
+
+@keyframes draw-line {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ping-dot {
+  0% { r: 3.5; opacity: 0.55; }
+  80%, 100% { r: 14; opacity: 0; }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ticker-scroll {
+  to { transform: translateX(-50%); }
+}
+
+@keyframes shimmer {
+  0% { opacity: 0.55; }
+  50% { opacity: 1; }
+  100% { opacity: 0.55; }
+}
+
+.anim-ticker {
+  animation: ticker-scroll 55s linear infinite;
+}
+
+.anim-shimmer {
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.anim-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw-line 900ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+.anim-fade {
+  animation: fade-in 900ms ease-out both;
+}
+
+.anim-ping {
+  animation: ping-dot 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.anim-rise {
+  animation: rise-in 400ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: var(--color-yes);
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-draw, .anim-fade, .anim-ping, .anim-rise, .anim-ticker, .anim-shimmer, .live-dot {
+    animation: none;
+  }
+}

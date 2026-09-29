@@ -1,0 +1,256 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import { getT, LOCALES, type Lang } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
+
+type Pt = { t: string; p: number };
+export type Series = { key: string; label: string; color: string; points: Pt[] };
+
+const RANGES = [
+  { key: "1H", ms: 3600_000 },
+  { key: "6H", ms: 6 * 3600_000 },
+  { key: "1D", ms: 86400_000 },
+  { key: "1W", ms: 7 * 86400_000 },
+  { key: "ALL", ms: Infinity },
+] as const;
+
+const W = 720;
+const H = 280;
+const PAD_L = 44;
+const PAD_R = 12;
+const PAD_T = 14;
+const PAD_B = 26;
+
+// Same midpoint-quadratic smoothing as the single-market chart.
+function smoothPath(coords: readonly (readonly [number, number])[]): string {
+  if (coords.length < 2) return "";
+  if (coords.length === 2) return `M${coords[0][0]},${coords[0][1]} L${coords[1][0]},${coords[1][1]}`;
+  let d = `M${coords[0][0].toFixed(1)},${coords[0][1].toFixed(1)}`;
+  for (let i = 1; i < coords.length - 1; i++) {
+    const [x1, y1] = coords[i];
+    const [x2, y2] = coords[i + 1];
+    d += ` Q${x1.toFixed(1)},${y1.toFixed(1)} ${((x1 + x2) / 2).toFixed(1)},${((y1 + y2) / 2).toFixed(1)}`;
+  }
+  const [lx, ly] = coords[coords.length - 1];
+  d += ` L${lx.toFixed(1)},${ly.toFixed(1)}`;
+  return d;
+}
+
+function fmtTick(t: number, span: number, locale: string): string {
+  const d = new Date(t);
+  if (span <= 6 * 3600_000) return d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  if (span <= 2 * 86400_000) return d.toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric" });
+  return d.toLocaleDateString(locale, { month: "short", day: "numeric" });
+}
+
+// Nearest point index to timestamp t (points sorted by time).
+function nearestIndex(points: Pt[], t: number): number {
+  let lo = 0;
+  let hi = points.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (new Date(points[mid].t).getTime() <= t) lo = mid;
+    else hi = mid;
+  }
+  const dLo = Math.abs(new Date(points[lo].t).getTime() - t);
+  const dHi = Math.abs(new Date(points[hi].t).getTime() - t);
+  return dLo <= dHi ? lo : hi;
+}
+
+// Polymarket-style multi-outcome chart: one colored line per option on a
+// shared time axis, crosshair + legend of latest percentages.
+export function MultiPriceChart({
+  series,
+  now,
+  live,
+  lang,
+}: {
+  series: Series[];
+  now: number;
+  live?: boolean;
+  lang?: Lang;
+}) {
+  const t = getT(lang ?? "en");
+  const locale = LOCALES[lang ?? "en"];
+  const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("ALL");
+  const [hoverT, setHoverT] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const data = useMemo(() => {
+    const r = RANGES.find((x) => x.key === range)!;
+    const cutoff = now - r.ms;
+    return series
+      .map((s) => {
+        const filtered = s.points.filter((p) => new Date(p.t).getTime() >= cutoff);
+        const base = filtered.length >= 2 ? filtered : s.points;
+        // flat extension to now so every line reaches the edge
+        const pts =
+          base.length > 0 && now - new Date(base[base.length - 1].t).getTime() > 1000
+            ? [...base, { t: new Date(now).toISOString(), p: base[base.length - 1].p }]
+            : base;
+        return { ...s, pts };
+      })
+      .filter((s) => s.pts.length > 0);
+  }, [series, range, now]);
+
+  const { t0, t1, paths } = useMemo(() => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const s of data) {
+      for (const p of s.pts) {
+        const v = new Date(p.t).getTime();
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+    }
+    if (!isFinite(lo)) return { t0: 0, t1: 0, paths: new Map<string, { line: string; last: Pt }>() };
+    const span = Math.max(hi - lo, 1);
+    const x = (v: number) => PAD_L + ((v - lo) / span) * (W - PAD_L - PAD_R);
+    const y = (p: number) => PAD_T + (1 - Math.min(1, Math.max(0, p))) * (H - PAD_T - PAD_B);
+    const m = new Map<string, { line: string; last: Pt }>();
+    for (const s of data) {
+      const coords = s.pts.map((p) => [x(new Date(p.t).getTime()), y(p.p)] as const);
+      m.set(s.key, { line: smoothPath(coords), last: s.pts[s.pts.length - 1] });
+    }
+    return { t0: lo, t1: hi, paths: m };
+  }, [data]);
+
+  const span = Math.max(t1 - t0, 1);
+  const x = (v: number) => PAD_L + ((v - t0) / span) * (W - PAD_L - PAD_R);
+  const y = (p: number) => PAD_T + (1 - Math.min(1, Math.max(0, p))) * (H - PAD_T - PAD_B);
+
+  const onMove = (e: React.PointerEvent) => {
+    if (!svgRef.current || data.length === 0) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * W;
+    setHoverT(t0 + ((px - PAD_L) / (W - PAD_L - PAD_R)) * span);
+  };
+
+  // At hover time, each series' nearest point.
+  const hoverPts = useMemo(() => {
+    if (hoverT === null) return null;
+    return data.map((s) => ({ s, p: s.pts[nearestIndex(s.pts, hoverT)] }));
+  }, [hoverT, data]);
+
+  const hoverX = hoverT !== null ? Math.min(W - PAD_R, Math.max(PAD_L, x(hoverT))) : 0;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {data.map((s) => (
+            <span key={s.key} className="inline-flex items-center gap-1.5 text-[12px] font-semibold">
+              <span className="size-2 rounded-full" style={{ background: s.color }} />
+              <span className="text-ink-2 max-w-36 truncate">{s.label}</span>
+              <span className="num text-ink">{Math.round(s.pts[s.pts.length - 1].p * 100)}%</span>
+            </span>
+          ))}
+          {live && (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mute">
+              <span className="live-dot" />
+              {t.live}
+            </span>
+          )}
+        </div>
+        <div className="flex gap-0.5 rounded-lg bg-surface-2 p-0.5 shrink-0">
+          {RANGES.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setRange(r.key)}
+              className={cn(
+                "px-2.5 h-7 rounded-md text-[11.5px] font-semibold cursor-pointer transition-colors",
+                range === r.key ? "bg-surface shadow-sm text-ink" : "text-mute hover:text-ink"
+              )}
+            >
+              {r.key}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="relative">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full select-none"
+          onPointerMove={onMove}
+          onPointerLeave={() => setHoverT(null)}
+        >
+          {[0, 0.25, 0.5, 0.75, 1].map((g) => (
+            <g key={g}>
+              <line x1={PAD_L} x2={W - PAD_R} y1={y(g)} y2={y(g)} stroke="var(--color-line-2)" strokeDasharray={g === 0 ? "" : "3 4"} />
+              <text x={PAD_L - 8} y={y(g) + 4} textAnchor="end" fontSize="11" fill="var(--color-faint)" className="num">
+                {Math.round(g * 100)}%
+              </text>
+            </g>
+          ))}
+
+          <g key={range}>
+            {data.map((s) => {
+              const p = paths.get(s.key);
+              if (!p) return null;
+              if (s.pts.length === 1)
+                return <circle key={s.key} cx={x(new Date(s.pts[0].t).getTime())} cy={y(s.pts[0].p)} r="4" fill={s.color} />;
+              return (
+                <path
+                  key={s.key}
+                  d={p.line}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  pathLength={1}
+                  className="anim-draw"
+                />
+              );
+            })}
+            {live &&
+              data.map((s) => {
+                const last = s.pts[s.pts.length - 1];
+                return <circle key={s.key} cx={x(new Date(last.t).getTime())} cy={y(last.p)} r="3" fill={s.color} stroke="var(--color-surface)" strokeWidth="1.5" />;
+              })}
+          </g>
+
+          {hoverPts && (
+            <g>
+              <line x1={hoverX} x2={hoverX} y1={PAD_T} y2={H - PAD_B} stroke="var(--color-faint)" strokeDasharray="3 3" />
+              {hoverPts.map(({ s, p }) => (
+                <circle key={s.key} cx={x(new Date(p.t).getTime())} cy={y(p.p)} r="4" fill={s.color} stroke="var(--color-surface)" strokeWidth="2" />
+              ))}
+            </g>
+          )}
+        </svg>
+
+        {hoverPts && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-ink shadow-lg"
+            style={{ left: `${(hoverX / W) * 100}%`, top: "0", transform: "translateX(-50%)" }}
+          >
+            <div className="space-y-0.5">
+              {hoverPts.map(({ s, p }) => (
+                <div key={s.key} className="flex items-center gap-1.5 text-[11.5px] whitespace-nowrap">
+                  <span className="size-1.5 rounded-full" style={{ background: s.color }} />
+                  <span className="text-mute max-w-32 truncate">{s.label}</span>
+                  <span className="num font-bold ml-auto pl-2">{Math.round(p.p * 100)}%</span>
+                </div>
+              ))}
+            </div>
+            <div className="num mt-1 pt-1 border-t border-line-2 text-[10px] font-medium text-mute whitespace-nowrap">
+              {new Date(hoverPts[0].p.t).toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-between text-[11px] text-faint num -mt-1 pl-11 pr-3">
+        {t1 > 0 &&
+          [0, 0.25, 0.5, 0.75, 1].map((k) => {
+            const v = t0 + (t1 - t0) * k;
+            return <span key={k}>{fmtTick(v, span, locale)}</span>;
+          })}
+      </div>
+    </div>
+  );
+}

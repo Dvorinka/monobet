@@ -1,0 +1,1 @@
+ALTER TABLE "market" ADD COLUMN "sort_index" integer DEFAULT 0 NOT NULL;
