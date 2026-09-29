@@ -30,6 +30,20 @@ function mix(...tracks) {
 
 const T = (samples, atMs = 0) => ({ samples, at: sec(atMs / 1000) });
 
+// Filtered noise burst — whooshes and rattles.
+function noise(dur, { vol = 0.2, bright = false } = {}) {
+  const n = sec(dur);
+  const out = new Float32Array(n);
+  let lp = 0;
+  for (let i = 0; i < n; i++) {
+    const w = Math.random() * 2 - 1;
+    lp = bright ? w : lp * 0.72 + w * 0.28;
+    const t = i / SR;
+    out[i] = lp * vol * Math.min(1, t / 0.008) * Math.exp(-3.2 * t);
+  }
+  return out;
+}
+
 function wav(samples) {
   const n = samples.length;
   const buf = Buffer.alloc(44 + n * 2);
@@ -67,6 +81,35 @@ const SFX = {
   lose: mix(
     T(tone(392, 0.16, { vol: 0.34, bend: -1 })),
     T(tone(261.6, 0.3, { vol: 0.36, bend: -0.5 }), 140)
+  ),
+  // Coin flip — a soft whoosh under a quick metallic ping.
+  flip: mix(
+    T(noise(0.32, { vol: 0.16, bright: false })),
+    T(tone(2093, 0.12, { vol: 0.3, bend: 0.7 }), 60),
+    T(tone(2637, 0.14, { vol: 0.26 }), 190)
+  ),
+  // Dice rattle — six quick fading clicks.
+  roll: mix(
+    ...[0, 60, 125, 195, 275, 360].map((at, i) =>
+      T(tone(2400 - i * 160, 0.05, { vol: 0.3, type: "square", decay: 2.6 }), at)
+    )
+  ),
+  // Wheel spin — a decelerating tick train (~2.8s to match the spin CSS).
+  spin: (() => {
+    const ticks = [];
+    let at = 0;
+    for (let i = 0; i < 26; i++) {
+      const dur = 0.045;
+      ticks.push(T(tone(1500 - i * 22, dur, { vol: Math.max(0.08, 0.3 - i * 0.008), type: "square", decay: 3 }), at));
+      at += 45 + i * i * 0.55;
+    }
+    return mix(...ticks);
+  })(),
+  // Limbo launch — rising sweep with a lift-off shimmer.
+  launch: mix(
+    T(tone(440, 0.4, { vol: 0.3, bend: 1.6 })),
+    T(noise(0.35, { vol: 0.1, bright: true }), 40),
+    T(tone(1318, 0.18, { vol: 0.3 }), 300)
   ),
 };
 

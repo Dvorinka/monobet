@@ -1514,7 +1514,7 @@ export async function stopTimerRound(input: {
     if (elapsed < 400) throw new Error("Stopped suspiciously fast");
     if (elapsed > target + 4000) throw new Error("Round expired — press Stop sooner");
     const err = Math.abs(elapsed - target);
-    const mult = timerMult(err);
+    const mult = timerMult(err, target);
     const won = mult > 0;
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, mult, `Timer ${target / 1000}s off by ${err}ms`)

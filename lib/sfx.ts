@@ -5,7 +5,16 @@
 // gesture, and that's fine — the catch swallows the rejection silently.
 const cache = new Map<string, HTMLAudioElement>();
 
-export type SfxName = "notify" | "claim" | "trade" | "win" | "lose";
+export type SfxName =
+  | "notify"
+  | "claim"
+  | "trade"
+  | "win"
+  | "lose"
+  | "flip"
+  | "roll"
+  | "spin"
+  | "launch";
 
 export function playSfx(name: SfxName, volume = 0.5) {
   try {

@@ -17,15 +17,32 @@ export function diceWinChance(over: number) {
 }
 
 // Stop-the-timer: digits hide after this long; hit windows pay by precision.
-export const TIMER_TARGETS = [5000, 10000] as const;
+// Longer targets pay more — holding a hidden count for 30s is harder.
+export const TIMER_TARGETS = [5000, 10000, 15000, 30000] as const;
 export const TIMER_REVEAL_MS = 2000;
 export const TIMER_TIERS = [
-  { errMs: 120, mult: 6 },
-  { errMs: 300, mult: 2.5 },
-  { errMs: 600, mult: 1.4 },
+  { errMs: 150, mult: 6 },
+  { errMs: 350, mult: 2.5 },
+  { errMs: 700, mult: 1.4 },
 ] as const;
-export function timerMult(errMs: number) {
-  return TIMER_TIERS.find((t) => errMs <= t.errMs)?.mult ?? 0;
+export const TIMER_TARGET_MULT: Record<number, number> = {
+  5000: 1,
+  10000: 1.5,
+  15000: 2,
+  30000: 3,
+};
+export function timerMult(errMs: number, targetMs: number) {
+  const tier = TIMER_TIERS.find((t) => errMs <= t.errMs)?.mult ?? 0;
+  return tier * (TIMER_TARGET_MULT[targetMs] ?? 1);
+}
+// Max multiplier for a target — shown in the UI as the payout ceiling.
+export function timerTopMult(targetMs: number) {
+  return timerMult(0, targetMs);
+}
+// Digits stay visible for 40% of the target (capped at 8s) — longer targets
+// get a proportionally longer pacing window.
+export function timerRevealMs(targetMs: number) {
+  return Math.min(targetMs * 0.4, 8000);
 }
 
 // Limbo: pick a target multiplier; the crash point follows 0.99/(1−u) so
