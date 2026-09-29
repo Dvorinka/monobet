@@ -22,6 +22,7 @@ import {
   getLikeCounts,
   marketYesPrice,
   getResolutionState,
+  getResolutionStates,
   getTopHolders,
   getGroupHolders,
   getUserPublic,
@@ -195,7 +196,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               </p>
             </div>
           )}
-          {market.status === "live" && market.closesAt && market.closesAt < new Date() && (
+          {market.status === "live" && (
             <div className="mt-5">
               <ResolutionPanel
                 marketId={market.id}
@@ -207,6 +208,8 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
                 confirms={res.confirms}
                 disputes={res.disputes}
                 myVote={res.myVote}
+                closed={!!market.closesAt && market.closesAt <= new Date()}
+                isResolver={!!user && (isAdmin(user) || market.creatorId === user.id)}
                 lang={lang}
               />
             </div>
@@ -468,7 +471,7 @@ async function GroupMarketView({
   const t: Dict = getT(lang);
   const optionIds = options.map((o) => o.id);
   const live = options.filter((o) => o.status === "live");
-  const [optionSparks, histories, betCount, categories, posRows, myPositions, creator, res, holders] = await Promise.all([
+  const [optionSparks, histories, betCount, categories, posRows, myPositions, creator, res, holders, resStates] = await Promise.all([
     getSparklines(optionIds),
     getGroupHistories(optionIds),
     getMarketBetCount(market.id),
@@ -478,6 +481,7 @@ async function GroupMarketView({
     getUserPublic(market.creatorId),
     getResolutionState(market.id, user?.id),
     getGroupHolders(optionIds),
+    getResolutionStates(optionIds, user?.id),
   ]);
   // Comment badges: each commenter's dominant option position. YES-side holders
   // get the option color, NO-side holders a red "No <option>" tag.
@@ -571,6 +575,9 @@ async function GroupMarketView({
           volumeCents: o.volumeCents,
           traderCount: o.traderCount,
           index: i,
+          proposedOutcome: o.proposedOutcome,
+          proposedById: o.proposedById,
+          resolutionReason: o.resolutionReason,
         }))}
         sparks={Object.fromEntries(optionSparks)}
         positions={myPositions}
@@ -580,6 +587,10 @@ async function GroupMarketView({
         lang={lang}
         initialOpt={selOpt}
         initialSide={selSide}
+        resStates={Object.fromEntries(resStates)}
+        viewerId={user?.id}
+        isResolver={canManage}
+        parentClosed={!!market.closesAt && market.closesAt <= new Date()}
         chart={
           <div className="rounded-[14px] border border-line bg-surface p-4">
             {series.length > 0 ? (

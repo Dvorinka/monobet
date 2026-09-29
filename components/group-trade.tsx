@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/primitives";
 import { OptionChip } from "@/components/market-icon";
 import { Sparkline } from "@/components/sparkline";
 import { TradeTicket } from "@/components/trade-ticket";
+import { ResolutionPanel } from "@/components/resolution-panel";
 import { yesPrice } from "@/lib/lmsr";
 import { fmtMarks } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
@@ -24,7 +25,12 @@ export type GroupOption = {
   volumeCents: number;
   traderCount: number;
   index: number;
+  proposedOutcome?: string | null;
+  proposedById?: string | null;
+  resolutionReason?: string | null;
 };
+
+export type ResolutionState = { confirms: number; disputes: number; myVote: string | null; proposer: string | null };
 
 // Client-side option selection — picking an outcome swaps the ticket without a
 // server round-trip, so it feels instant. ?opt= stays in the URL via
@@ -40,6 +46,10 @@ export function GroupTrade({
   lang,
   initialOpt,
   initialSide,
+  resStates,
+  viewerId,
+  isResolver,
+  parentClosed,
   chart,
   left,
   rail,
@@ -54,6 +64,10 @@ export function GroupTrade({
   lang?: Lang;
   initialOpt?: string;
   initialSide?: string;
+  resStates?: Record<string, ResolutionState>;
+  viewerId?: string;
+  isResolver?: boolean;
+  parentClosed?: boolean;
   chart?: React.ReactNode;
   left?: React.ReactNode;
   rail?: React.ReactNode;
@@ -204,6 +218,28 @@ export function GroupTrade({
             </details>
           )}
         </div>
+
+        {/* Community resolution for the selected option — the poll is always
+            visible; the resolver declares, everyone else confirms/disputes. */}
+        {sel && (
+          <div className="mt-4">
+            <ResolutionPanel
+              marketId={sel.id}
+              proposedOutcome={sel.proposedOutcome ?? null}
+              reason={sel.resolutionReason ?? ""}
+              proposer={resStates?.[sel.id]?.proposer ?? null}
+              proposedById={sel.proposedById ?? null}
+              viewerId={viewerId}
+              confirms={resStates?.[sel.id]?.confirms ?? 0}
+              disputes={resStates?.[sel.id]?.disputes ?? 0}
+              myVote={resStates?.[sel.id]?.myVote ?? null}
+              closed={parentClosed ?? false}
+              isResolver={isResolver ?? false}
+              contextLabel={sel.label}
+              lang={lang}
+            />
+          </div>
+        )}
 
         {/* On phones the ticket and rail (other markets, manage) sit right
             under the options; on desktop they live in the sticky column. */}

@@ -356,7 +356,7 @@ export async function getSparklines(marketIds: string[]) {
       SELECT market_id, yes_price,
         ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY created_at DESC) AS rn
       FROM price_point
-      WHERE market_id = ANY(${marketIds})
+      WHERE market_id IN ${marketIds}
     ) s WHERE rn <= 40
     ORDER BY market_id, rn DESC`);
   for (const r of rows.rows) {
@@ -839,6 +839,40 @@ export async function getResolutionState(marketId: string, userId?: string) {
     myVote,
     proposer: proposer?.username ?? null,
   };
+}
+
+// Same data as getResolutionState but batched for a set of markets — used by
+// group pages where each option has its own community-resolution state.
+export async function getResolutionStates(marketIds: string[], userId?: string) {
+  const map = new Map<string, { confirms: number; disputes: number; myVote: string | null; proposer: string | null }>();
+  if (marketIds.length === 0) return map;
+  const votes = await db
+    .select({ marketId: schema.resolutionVote.marketId, vote: schema.resolutionVote.vote, n: sql<number>`count(*)::int` })
+    .from(schema.resolutionVote)
+    .where(inArray(schema.resolutionVote.marketId, marketIds))
+    .groupBy(schema.resolutionVote.marketId, schema.resolutionVote.vote);
+  const proposers = await db
+    .select({ id: schema.market.id, username: schema.user.username })
+    .from(schema.market)
+    .leftJoin(schema.user, eq(schema.market.proposedById, schema.user.id))
+    .where(inArray(schema.market.id, marketIds));
+  let mine: { marketId: string; vote: string }[] = [];
+  if (userId) {
+    mine = await db
+      .select({ marketId: schema.resolutionVote.marketId, vote: schema.resolutionVote.vote })
+      .from(schema.resolutionVote)
+      .where(and(inArray(schema.resolutionVote.marketId, marketIds), eq(schema.resolutionVote.userId, userId)));
+  }
+  for (const id of marketIds) {
+    const rows = votes.filter((v) => v.marketId === id);
+    map.set(id, {
+      confirms: rows.find((v) => v.vote === "confirm")?.n ?? 0,
+      disputes: rows.find((v) => v.vote === "dispute")?.n ?? 0,
+      myVote: mine.find((v) => v.marketId === id)?.vote ?? null,
+      proposer: proposers.find((p) => p.id === id)?.username ?? null,
+    });
+  }
+  return map;
 }
 
 // Duels involving this user — opponent/creator names joined for display.

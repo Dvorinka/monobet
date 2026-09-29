@@ -952,8 +952,9 @@ export async function resolveMarket(input: {
   }
 }
 
-// Community resolution — once a market is expired anyone signed in may propose
-// the outcome; two confirm votes settle it, disputes send it to admins.
+// Community resolution — the resolver (creator/admin) may declare the outcome
+// at any time; once the market has closed, anyone signed in may propose. Two
+// confirm votes settle it, disputes send it to admins.
 export async function proposeResolution(input: {
   marketId: string;
   outcome: "yes" | "no";
@@ -964,7 +965,8 @@ export async function proposeResolution(input: {
     await db.transaction(async (tx) => {
       const m = await lockMarket(tx, input.marketId);
       if (m.kind === "group" || m.status !== "live") throw new Error("Not resolvable");
-      if (!m.closesAt || m.closesAt > new Date()) throw new Error("Market hasn't closed yet");
+      const closed = !!m.closesAt && m.closesAt <= new Date();
+      if (!closed && !isAdmin(u) && m.creatorId !== u.id) throw new Error("Market hasn't closed yet");
       // A new proposal resets the vote tally.
       await tx.delete(schema.resolutionVote).where(eq(schema.resolutionVote.marketId, m.id));
       await tx

@@ -8,8 +8,10 @@ import { Button, Card, Input, Segmented } from "@/components/ui/primitives";
 import { proposeResolution, voteResolution } from "@/lib/actions";
 import { getT, type Lang } from "@/lib/i18n";
 
-// Community-resolution card: once a market expires anyone may propose an
-// outcome; two confirms settle it, disputes hand it to the admins.
+// Community-resolution card — always present on live markets. Before a
+// proposal it explains the flow; the resolver (creator/admin) can declare the
+// outcome at any time, everyone else once the market closes. Two confirms
+// settle it, disputes hand it to the admins.
 export function ResolutionPanel({
   marketId,
   proposedOutcome,
@@ -20,6 +22,9 @@ export function ResolutionPanel({
   confirms,
   disputes,
   myVote,
+  closed,
+  isResolver,
+  contextLabel,
   lang,
 }: {
   marketId: string;
@@ -31,6 +36,10 @@ export function ResolutionPanel({
   confirms: number;
   disputes: number;
   myVote: string | null;
+  closed: boolean;
+  isResolver: boolean;
+  // Option context on group markets, e.g. "1 - 2 roky".
+  contextLabel?: string;
   lang?: Lang;
 }) {
   const t = getT(lang ?? "en");
@@ -49,15 +58,24 @@ export function ResolutionPanel({
     });
 
   const disputed = disputes > 0;
+  const heading = (
+    <h3 className="text-[13px] font-semibold flex items-center gap-1.5 min-w-0">
+      <Scale className="size-3.5 shrink-0" />
+      <span className="truncate">
+        {t.resolutionPoll}
+        {contextLabel ? ` — ${contextLabel}` : ""}
+      </span>
+    </h3>
+  );
 
   if (proposedOutcome) {
     const isProposer = !!viewerId && viewerId === proposedById;
     return (
       <Card className={`p-4 border ${disputed ? "border-no/40" : "border-amber-500/40"}`}>
-        <h3 className="text-[13px] font-semibold flex items-center gap-1.5">
-          <Scale className="size-3.5" />
+        {heading}
+        <p className="text-[12.5px] font-semibold mt-2">
           {t.proposalHeading((proposedOutcome === "yes" ? t.yes : t.no).toUpperCase())}
-        </h3>
+        </p>
         <p className="text-[12.5px] text-mute mt-1">
           {t.proposedBy(proposer ?? "?")}
           {reason ? ` — ${reason}` : ""}
@@ -90,39 +108,43 @@ export function ResolutionPanel({
     );
   }
 
-  if (!viewerId) return null;
+  const canPropose = !!viewerId && (closed || isResolver);
   return (
     <Card className="p-4">
-      <h3 className="text-[13px] font-semibold flex items-center gap-1.5">
-        <Scale className="size-3.5" /> {t.proposeOutcomeTitle}
-      </h3>
-      <p className="text-[11.5px] text-mute mt-1">{t.proposeHint}</p>
-      <div className="mt-2.5">
-        <Segmented
-          value={outcome}
-          onChange={(v) => setOutcome(v as "yes" | "no")}
-          options={[
-            { value: "yes", label: t.yes },
-            { value: "no", label: t.no },
-          ]}
-        />
-      </div>
-      <div className="flex gap-1.5 mt-2.5">
-        <Input
-          value={r}
-          onChange={(e) => setR(e.target.value)}
-          placeholder={t.reasonPh}
-          maxLength={500}
-          className="text-[13px]"
-        />
-        <Button
-          size="sm"
-          disabled={pending}
-          onClick={() => run(() => proposeResolution({ marketId, outcome, reason: r }), t.proposedToast)}
-        >
-          <Send className="size-3" /> {t.propose}
-        </Button>
-      </div>
+      {heading}
+      <p className="text-[11.5px] text-mute mt-1.5">
+        {isResolver && !closed ? t.resolutionResolverHint : t.resolutionIdle}
+      </p>
+      {canPropose && (
+        <>
+          <div className="mt-2.5">
+            <Segmented
+              value={outcome}
+              onChange={(v) => setOutcome(v as "yes" | "no")}
+              options={[
+                { value: "yes", label: t.yes },
+                { value: "no", label: t.no },
+              ]}
+            />
+          </div>
+          <div className="flex gap-1.5 mt-2.5">
+            <Input
+              value={r}
+              onChange={(e) => setR(e.target.value)}
+              placeholder={t.reasonPh}
+              maxLength={500}
+              className="text-[13px]"
+            />
+            <Button
+              size="sm"
+              disabled={pending}
+              onClick={() => run(() => proposeResolution({ marketId, outcome, reason: r }), t.proposedToast)}
+            >
+              <Send className="size-3" /> {t.propose}
+            </Button>
+          </div>
+        </>
+      )}
     </Card>
   );
 }
