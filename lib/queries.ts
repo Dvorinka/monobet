@@ -905,3 +905,36 @@ export async function getSquadInvites(userId: string) {
     .where(eq(schema.squadInvite.inviteeId, userId))
     .orderBy(desc(schema.squadInvite.createdAt));
 }
+
+// Largest open positions on a market — join user for display.
+export async function getTopHolders(marketId: string, limit = 8) {
+  return db
+    .select({
+      username: schema.user.username,
+      name: schema.user.name,
+      image: schema.user.image,
+      yesShares: schema.position.yesShares,
+      noShares: schema.position.noShares,
+    })
+    .from(schema.position)
+    .innerJoin(schema.user, eq(schema.position.userId, schema.user.id))
+    .where(
+      and(
+        eq(schema.position.marketId, marketId),
+        sql`(${schema.position.yesShares}::numeric > 0.01 OR ${schema.position.noShares}::numeric > 0.01)`
+      )
+    )
+    .orderBy(sql`GREATEST(${schema.position.yesShares}::numeric, ${schema.position.noShares}::numeric) DESC`)
+    .limit(limit);
+}
+
+// Public creator/last-resolver identity for the market context card.
+export async function getUserPublic(id: string | null | undefined) {
+  if (!id) return null;
+  const [u] = await db
+    .select({ username: schema.user.username, name: schema.user.name, image: schema.user.image })
+    .from(schema.user)
+    .where(eq(schema.user.id, id))
+    .limit(1);
+  return u ?? null;
+}

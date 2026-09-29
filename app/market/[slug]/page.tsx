@@ -21,6 +21,8 @@ import {
   getLikeCounts,
   marketYesPrice,
   getResolutionState,
+  getTopHolders,
+  getUserPublic,
 } from "@/lib/queries";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
@@ -35,8 +37,8 @@ import { TradeTicket } from "@/components/trade-ticket";
 import { MarketTabs } from "@/components/market-tabs";
 import { Comments } from "@/components/comments";
 import { ActivityFeed } from "@/components/activity-feed";
-import { Badge, Card } from "@/components/ui/primitives";
-import { MarketCard, MarketIcon, OptionChip } from "@/components/market-card";
+import { Badge, Card, Avatar } from "@/components/ui/primitives";
+import { MarketIcon, OptionChip } from "@/components/market-card";
 import { MultiPriceChart } from "@/components/multi-chart";
 import { DeleteMarketButton } from "@/components/delete-market-button";
 import { MarketManagePanel } from "@/components/market-manage";
@@ -90,7 +92,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
 
   const parent = market.parentId ? await getMarketById(market.parentId) : null;
 
-  const [history, trades, comments, position, related, betCount, categories, watching, res, liked, likes] = await Promise.all([
+  const [history, trades, comments, position, related, betCount, categories, watching, res, liked, likes, holders, creator] = await Promise.all([
     getPriceHistory(market.id),
     getRecentTrades(market.id),
     getComments(market.id, user?.id),
@@ -102,8 +104,9 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
     getResolutionState(market.id, user?.id),
     user ? isLiked(user.id, market.id) : false,
     getLikeCounts([market.id]),
+    getTopHolders(market.id),
+    getUserPublic(market.creatorId),
   ]);
-  const relatedSparks = await getSparklines(related.map((m) => m.id));
   const canDelete = !!user && (isAdmin(user) || (market.creatorId === user.id && betCount === 0));
   const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
 
@@ -136,7 +139,8 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
       <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_340px]">
         {/* left column */}
         <div className="min-w-0">
-          <div className="flex items-start gap-3">
+          <div className="flex items-start gap-3.5">
+            <MarketIcon market={market} size="size-12" />
             <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight leading-tight flex-1">
               {market.question}
             </h1>
@@ -157,18 +161,6 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             {canDelete && (
               <DeleteMarketButton marketId={market.id} question={market.question} admin={isAdmin(user)} lang={lang} />
             )}
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-4 text-[12.5px] text-mute font-medium">
-            <span className="num">{fmtMarks(market.volumeCents, { lang })} {t.volume}</span>
-            <span className="inline-flex items-center gap-1.5">
-              <Users className="size-3.5" /> {market.traderCount} {t.tradersW}
-            </span>
-            <CopyLink path={`/market/${market.slug}`} lang={lang} />
-            <span className="inline-flex items-center gap-1.5">
-              <Clock className="size-3.5" />
-              {market.closesAt ? `${t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
-            </span>
           </div>
 
           {market.status === "resolved" && (
@@ -209,21 +201,102 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             </div>
           )}
 
-          <div className="mt-6">
+          {/* chart + the Polymarket-style stats strip underneath */}
+          <div className="mt-5 rounded-[14px] border border-line bg-surface p-4">
             <PriceChart
               points={history.map((h) => ({ t: h.t.toISOString(), p: Number(h.p) }))}
               // eslint-disable-next-line react-hooks/purity -- server component renders once per request
               now={Date.now()}
               live={market.status === "live"}
             />
+            <div className="mt-3 pt-3 border-t border-line-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-mute font-medium">
+              <span className="num font-semibold text-ink-2">{fmtMarks(market.volumeCents, { lang })} {t.volume}</span>
+              <span className="inline-flex items-center gap-1.5">
+                <Users className="size-3.5" /> {market.traderCount} {t.tradersW}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Clock className="size-3.5" />
+                {market.closesAt ? `${t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                {t.openedAt} {fmtDate(market.createdAt, lang)}
+              </span>
+              <CopyLink path={`/market/${market.slug}`} lang={lang} />
+            </div>
           </div>
 
-          {market.description && (
-            <div className="mt-8">
-              <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
-                <Scale className="size-4" /> {t.rules}
-              </h2>
+          {/* rules + market context, Polymarket-style tabs block */}
+          <div className="mt-8">
+            <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
+              <Scale className="size-4" /> {t.rules} · {t.marketContext}
+            </h2>
+            {market.description ? (
               <p className="text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">{market.description}</p>
+            ) : (
+              <p className="text-sm text-faint">{t.resolverNote}.</p>
+            )}
+            <Card className="mt-3 p-4">
+              <dl className="grid gap-2.5 text-[13px] sm:grid-cols-2">
+                <div className="flex items-center gap-2.5">
+                  {creator && <Avatar name={creator.name} image={creator.image} className="size-7" />}
+                  <div className="min-w-0">
+                    <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.creator}</dt>
+                    <dd className="font-medium truncate">
+                      {creator ? (
+                        <Link href={`/u/${creator.username ?? ""}`} className="hover:text-brand-strong">
+                          @{creator.username ?? creator.name}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </dd>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  {creator && <Avatar name={creator.name} image={creator.image} className="size-7" />}
+                  <div className="min-w-0">
+                    <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.resolver}</dt>
+                    <dd className="font-medium truncate">
+                      {res.proposer ? `@${res.proposer}` : creator ? `@${creator.username ?? creator.name}` : "—"}
+                      <span className="block text-[11px] font-normal text-faint">{t.resolverNote}</span>
+                    </dd>
+                  </div>
+                </div>
+                <div>
+                  <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.openedAt}</dt>
+                  <dd className="font-medium num">{fmtDate(market.createdAt, lang)}</dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.closes}</dt>
+                  <dd className="font-medium num">
+                    {market.closesAt ? fmtDate(market.closesAt, lang) : t.noCloseDate}
+                  </dd>
+                </div>
+              </dl>
+            </Card>
+          </div>
+
+          {holders.length > 0 && (
+            <div className="mt-8">
+              <h2 className="text-[15px] font-semibold mb-2">{t.topHolders}</h2>
+              <Card className="p-1.5">
+                {holders.slice(0, 8).map((h) => {
+                  const yes = Number(h.yesShares);
+                  const no = Number(h.noShares);
+                  const side = yes >= no;
+                  return (
+                    <div key={h.username ?? h.name} className="flex items-center gap-3 px-3 py-2">
+                      <Avatar name={h.name} image={h.image} className="size-7" />
+                      <Link href={`/u/${h.username ?? ""}`} className="text-[13px] font-medium truncate flex-1 hover:text-brand-strong">
+                        @{h.username ?? h.name}
+                      </Link>
+                      <span className={cn("num text-[12.5px] font-semibold", side ? "text-yes-strong" : "text-no-strong")}>
+                        {fmtShares(side ? yes : no, lang)} {side ? t.yes : t.no}
+                      </span>
+                    </div>
+                  );
+                })}
+              </Card>
             </div>
           )}
 
@@ -265,10 +338,6 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             lang={lang}
           />
 
-          {canManage && market.status !== "resolved" && (
-            <MarketManagePanel market={market} categories={categories} betCount={betCount} lang={lang} />
-          )}
-
           {(heldYes > 0.001 || heldNo > 0.001) && (
             <Card className="p-4 anim-rise">
               <h3 className="text-[13px] font-semibold text-mute uppercase tracking-wide">{t.yourPosition}</h3>
@@ -292,19 +361,35 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
               </div>
             </Card>
           )}
+
+          {canManage && market.status !== "resolved" && (
+            <MarketManagePanel market={market} categories={categories} betCount={betCount} lang={lang} />
+          )}
+
+          {related.length > 0 && (
+            <Card className="p-1.5">
+              <h3 className="px-2.5 pt-2 pb-1 text-[12px] font-semibold uppercase tracking-wide text-faint">
+                {t.relatedMarkets}
+              </h3>
+              <div className="divide-y divide-line-2">
+                {related.slice(0, 6).map((m) => (
+                  <Link
+                    key={m.id}
+                    href={`/market/${m.slug}`}
+                    className="flex items-center gap-2.5 px-2.5 py-2.5 hover:bg-surface-2 rounded-lg transition-colors"
+                  >
+                    <MarketIcon market={m} size="size-8" />
+                    <span className="min-w-0 flex-1 text-[13px] font-medium leading-snug line-clamp-2">{m.question}</span>
+                    <span className="num text-[13px] font-bold text-ink-2 shrink-0">
+                      {Math.round(marketYesPrice(m) * 100)}%
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
       </div>
-
-      {related.length > 0 && (
-        <div className="mt-12 border-t border-line pt-8">
-          <h2 className="text-[15px] font-bold tracking-tight mb-4">{t.moreMarkets(market.category)}</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {related.map((m, i) => (
-              <MarketCard key={m.id} market={m} spark={relatedSparks.get(m.id) ?? []} index={i} lang={lang} />
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -336,8 +421,7 @@ async function GroupMarketView({
 }) {
   const t: Dict = getT(lang);
   const optionIds = options.map((o) => o.id);
-  const [relatedSparks, optionSparks, histories, betCount, categories] = await Promise.all([
-    getSparklines(related.map((m) => m.id)),
+  const [optionSparks, histories, betCount, categories] = await Promise.all([
     getSparklines(optionIds),
     getGroupHistories(optionIds),
     getMarketBetCount(market.id),
@@ -405,8 +489,10 @@ async function GroupMarketView({
         )}
       </div>
 
+      <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_340px]">
+        <div className="min-w-0">
       {series.length > 0 && (
-        <div className="mt-7 rounded-[14px] border border-line bg-surface p-4">
+        <div className="rounded-[14px] border border-line bg-surface p-4">
           <MultiPriceChart
             series={series}
             // eslint-disable-next-line react-hooks/purity -- server component renders once per request
@@ -496,12 +582,6 @@ async function GroupMarketView({
         </div>
       )}
 
-      {canManage && market.status !== "resolved" && (
-        <div className="mt-6 max-w-md">
-          <MarketManagePanel market={market} categories={categories} betCount={betCount} lang={lang} />
-        </div>
-      )}
-
       <div className="mt-8">
         <MarketTabs
           lang={lang}
@@ -522,17 +602,38 @@ async function GroupMarketView({
           tradeCount={trades.length}
         />
       </div>
-
-      {related.length > 0 && (
-        <div className="mt-12 border-t border-line pt-8">
-          <h2 className="text-[15px] font-bold tracking-tight mb-4">{t.moreMarkets(market.category)}</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {related.map((m, i) => (
-              <MarketCard key={m.id} market={m} spark={relatedSparks.get(m.id) ?? []} index={i} lang={lang} />
-            ))}
-          </div>
         </div>
-      )}
+
+        {/* right column — related rail + manage panel */}
+        <div className="space-y-4 lg:sticky lg:top-20 self-start">
+          {related.length > 0 && (
+            <Card className="p-1.5">
+              <h3 className="px-2.5 pt-2 pb-1 text-[12px] font-semibold uppercase tracking-wide text-faint">
+                {t.relatedMarkets}
+              </h3>
+              <div className="divide-y divide-line-2">
+                {related.slice(0, 6).map((m) => (
+                  <Link
+                    key={m.id}
+                    href={`/market/${m.slug}`}
+                    className="flex items-center gap-2.5 px-2.5 py-2.5 hover:bg-surface-2 rounded-lg transition-colors"
+                  >
+                    <MarketIcon market={m} size="size-8" />
+                    <span className="min-w-0 flex-1 text-[13px] font-medium leading-snug line-clamp-2">{m.question}</span>
+                    <span className="num text-[13px] font-bold text-ink-2 shrink-0">
+                      {Math.round(marketYesPrice(m) * 100)}%
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {canManage && market.status !== "resolved" && (
+            <MarketManagePanel market={market} categories={categories} betCount={betCount} lang={lang} />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
