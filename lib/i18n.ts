@@ -535,6 +535,10 @@ const en = {
   notifPrefsTitle: "Notifications",
   notifResolveLabel: "Market resolved (watched & created)",
   notifClosingLabel: "Closing soon (watched markets)",
+  markAllRead: "Mark all read",
+  markRead: "Mark as read",
+  markUnread: "Mark as unread",
+  clearNotifs: "Clear all",
 };
 
 export type Dict = typeof en;
@@ -1044,6 +1048,10 @@ const cs: Dict = {
   notifPrefsTitle: "Notifikace",
   notifResolveLabel: "Vyhodnocení trhu (sledované a vlastní)",
   notifClosingLabel: "Brzké uzavření (sledované trhy)",
+  markAllRead: "Označit vše jako přečtené",
+  markRead: "Označit jako přečtené",
+  markUnread: "Označit jako nepřečtené",
+  clearNotifs: "Vymazat vše",
 };
 
 const dict: Record<Lang, Dict> = { en, cs };
