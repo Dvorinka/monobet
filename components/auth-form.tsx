@@ -75,6 +75,12 @@ export function AuthForm({ lang }: { lang?: Lang }) {
         onChange={setMode}
       />
 
+      {mode === "signup" && params.get("ref") && (
+        <div className="mt-3 rounded-lg bg-yes-soft px-3 py-2 text-[12.5px] font-medium text-yes-strong">
+          {t.invitedBy(params.get("ref")!)}
+        </div>
+      )}
+
       <form
         className="mt-5 space-y-3"
         onSubmit={(e) => {

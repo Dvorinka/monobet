@@ -456,6 +456,7 @@ const en = {
   resolveQueue: (n: number) => `${n} market${n === 1 ? "" : "s"} ready to resolve`,
   watchAdd: "Add to watchlist",
   watchRemove: "Remove from watchlist",
+  invitedBy: (name: string) => `Invited by @${name} — you'll get Ɱ100, they'll get Ɱ200`,
 };
 
 export type Dict = typeof en;
@@ -886,6 +887,7 @@ const cs: Dict = {
   resolveQueue: (n) => `${n} ${n === 1 ? "trh čeká" : n < 5 ? "trhy čekají" : "trhů čeká"} na vyhodnocení`,
   watchAdd: "Přidat do sledovaných",
   watchRemove: "Odebrat ze sledovaných",
+  invitedBy: (name) => `Pozvánka od @${name} — ty dostaneš Ɱ100, on Ɱ200`,
 };
 
 const dict: Record<Lang, Dict> = { en, cs };
