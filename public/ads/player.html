@@ -50,7 +50,7 @@
 </style>
 </head>
 <body>
-<video id="v" autoplay muted loop playsinline style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none"></video>
+<video id="v" autoplay muted playsinline style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none"></video>
 <div class="stage" id="s" style="display:none">
   <div class="glow" id="glow"></div>
   <div class="grain"></div>
@@ -108,9 +108,9 @@ const ADS = [
   { layout: "left", bg: ["#070d04", "#15240c"], glow: "#4ade80", mark: "#166534", markColor: "#dcfce7", glyph: "❋",
     h: "Meadow Lane", sub: "The farming sim where your crops bet on rain. Harvest profits — or harvest lessons.", cta: "Plant a take" },
 ];
-// Rendered MP4 creatives (generated, ~10s loops, muted). Video plays via
+// Rendered MP4 creatives (generated, ~20s each, muted). Video plays via
 // shuffle-bag; any failure falls back to a CSS creative from ADS.
-const VIDEOS = 10;
+const VIDEOS = 18;
 const params = new URLSearchParams(location.search);
 const vEl = document.getElementById("v");
 const sEl = document.getElementById("s");
