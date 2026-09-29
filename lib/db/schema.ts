@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -104,6 +105,8 @@ export const market = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     slug: text("slug").notNull().unique(),
+    // Previous slugs — old URLs keep working via permanent redirect.
+    aliases: text("aliases").array().notNull().default(sql`'{}'::text[]`),
     question: text("question").notNull(),
     description: text("description").notNull().default(""),
     // Creator-provided background ("Market context" card) — optional.

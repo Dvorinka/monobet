@@ -75,7 +75,11 @@ export async function listMarkets(opts: {
 
 // generateMetadata and the page both hit this — cache() makes it one query.
 export const getMarketBySlug = cache(async (slug: string) => {
-  const rows = await db.select().from(schema.market).where(eq(schema.market.slug, slug)).limit(1);
+  const rows = await db
+    .select()
+    .from(schema.market)
+    .where(or(eq(schema.market.slug, slug), sql`${slug} = ANY(${schema.market.aliases})`))
+    .limit(1);
   return rows[0] ?? null;
 });
 

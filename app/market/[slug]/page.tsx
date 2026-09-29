@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
 import { Clock, Users, Scale, CheckCircle2, XCircle, Hourglass } from "lucide-react";
 import type { Metadata } from "next";
@@ -72,6 +72,11 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
   const { opt: selOpt, side: selSide } = await searchParams;
   const market = await getMarketBySlug(slug);
   if (!market) notFound();
+  // Old/alias URL — send to the canonical slug, keeping ?opt=&side=.
+  if (market.slug !== slug) {
+    const qs = [selOpt && `opt=${selOpt}`, selSide && `side=${selSide}`].filter(Boolean).join("&");
+    permanentRedirect(`/market/${market.slug}${qs ? `?${qs}` : ""}`);
+  }
 
   const [user, lang] = await Promise.all([getCurrentUser(), getLang()]);
   const t = getT(lang);
