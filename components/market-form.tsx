@@ -32,6 +32,8 @@ export function MarketForm({
   const [rangeMin, setRangeMin] = useState("0");
   const [rangeMax, setRangeMax] = useState("100");
   const [rangeStep, setRangeStep] = useState("10");
+  const [rangeCustom, setRangeCustom] = useState(false);
+  const [rangeText, setRangeText] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<string>(categories[0] ?? NEW_CATEGORY);
   const [newCategory, setNewCategory] = useState("");
@@ -40,6 +42,7 @@ export function MarketForm({
   const [odds, setOdds] = useState(50);
   const [optionOdds, setOptionOdds] = useState<Record<number, number>>({});
   const [liquidity, setLiquidity] = useState<number>(300);
+  const [maxLeverage, setMaxLeverage] = useState(10);
   const [pending, start] = useTransition();
   const router = useRouter();
 
@@ -63,7 +66,9 @@ export function MarketForm({
   }, [marketType, rangeLo, rangeHi, rangeSt]);
 
   const manualLines = optionsText.split("\n").map((o) => o.trim()).filter(Boolean);
-  const optionLines = marketType === "range" ? rangeBuckets : manualLines;
+  const rangeLines = rangeText.split("\n").map((o) => o.trim()).filter(Boolean);
+  const optionLines =
+    marketType === "range" ? (rangeCustom ? rangeLines : rangeBuckets) : manualLines;
   // Display label is the part before the optional "| image-url".
   const optionLabels = optionLines.map((l) => l.split("|")[0].trim());
   const multi = marketType !== "binary";
@@ -89,6 +94,7 @@ export function MarketForm({
               outcomes: multi ? optionLines : undefined, // range buckets arrive as ordinary options
               optionProbs: multi ? optionLines.map((_, i) => probFor(i)) : undefined,
               recurDays: multi ? undefined : Number(recurDays),
+              maxLeverage,
             });
             if (r.ok) {
               toast.success(t.live);
@@ -134,21 +140,44 @@ export function MarketForm({
 
         {marketType === "range" && (
           <div>
-            <label className="text-[13px] font-medium text-mute">{t.rangeBounds}</label>
-            <div className="mt-1.5 grid grid-cols-3 gap-2">
-              <Input value={rangeMin} onChange={(e) => setRangeMin(e.target.value)} placeholder={t.rangeMin} inputMode="decimal" />
-              <Input value={rangeMax} onChange={(e) => setRangeMax(e.target.value)} placeholder={t.rangeMax} inputMode="decimal" />
-              <Input value={rangeStep} onChange={(e) => setRangeStep(e.target.value)} placeholder={t.rangeStep} inputMode="decimal" />
+            <div className="flex items-center justify-between">
+              <label className="text-[13px] font-medium text-mute">{t.rangeBounds}</label>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!rangeCustom) setRangeText(rangeBuckets.join("\n"));
+                  setRangeCustom(!rangeCustom);
+                }}
+                className="text-[12px] font-semibold text-brand hover:text-brand-strong cursor-pointer"
+              >
+                {rangeCustom ? t.rangeAuto : t.rangeEdit}
+              </button>
             </div>
-            <p className="mt-1 text-[11.5px] text-faint">
-              {rangeBuckets.length >= 2
-                ? t.rangePreview(rangeBuckets.length)
-                : t.rangeInvalid}
-            </p>
-            {rangeBuckets.length >= 2 && (
+            {!rangeCustom && (
+              <div className="mt-1.5 grid grid-cols-3 gap-2">
+                <Input value={rangeMin} onChange={(e) => setRangeMin(e.target.value)} placeholder={t.rangeMin} inputMode="decimal" />
+                <Input value={rangeMax} onChange={(e) => setRangeMax(e.target.value)} placeholder={t.rangeMax} inputMode="decimal" />
+                <Input value={rangeStep} onChange={(e) => setRangeStep(e.target.value)} placeholder={t.rangeStep} inputMode="decimal" />
+              </div>
+            )}
+            {rangeCustom ? (
+              <Textarea
+                value={rangeText}
+                onChange={(e) => setRangeText(e.target.value)}
+                placeholder={t.rangeCustomPh}
+                className="mt-1.5 min-h-28 font-mono text-[13px]"
+              />
+            ) : (
+              <p className="mt-1 text-[11.5px] text-faint">
+                {rangeBuckets.length >= 2
+                  ? t.rangePreview(rangeBuckets.length)
+                  : t.rangeInvalid}
+              </p>
+            )}
+            {optionLines.length >= 2 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {rangeBuckets.map((b) => (
-                  <span key={b} className="rounded-md bg-surface-2 px-2 py-1 text-[11.5px] font-semibold text-mute">{b}</span>
+                {optionLines.map((b, i) => (
+                  <span key={i} className="rounded-md bg-surface-2 px-2 py-1 text-[11.5px] font-semibold text-mute">{optionLabels[i] || b}</span>
                 ))}
               </div>
             )}
@@ -268,9 +297,23 @@ export function MarketForm({
                       className="w-28 sm:w-36 accent-brand cursor-pointer shrink-0"
                       aria-label={`${optionLabels[i]} ${t.startingOdds}`}
                     />
-                    <span className="num w-9 text-right text-[12.5px] font-bold shrink-0" style={{ color: optionColor(i) }}>
-                      {v}%
-                    </span>
+                    <div className="relative shrink-0">
+                      <input
+                        type="number"
+                        min={1}
+                        max={99}
+                        value={v}
+                        onChange={(e) => {
+                          const n = Math.round(Number(e.target.value));
+                          if (e.target.value !== "" && Number.isFinite(n))
+                            setOptionOdds((s) => ({ ...s, [i]: Math.min(99, Math.max(1, n)) }));
+                        }}
+                        className="num w-14 rounded-md border border-line bg-surface py-1 pl-1.5 pr-4 text-right text-[12.5px] font-bold focus:outline-2 focus:outline-brand"
+                        style={{ color: optionColor(i) }}
+                        aria-label={`${optionLabels[i]} odds %`}
+                      />
+                      <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[11px] text-faint">%</span>
+                    </div>
                   </div>
                 );
               })}
@@ -308,6 +351,20 @@ export function MarketForm({
             <p className="text-[11.5px] text-faint">{t.oddsHint(false)}</p>
           </div>
         )}
+
+        <div>
+          <label className="text-[13px] font-medium text-mute" htmlFor="maxlev">
+            {t.maxLev}
+          </label>
+          <Select id="maxlev" value={String(maxLeverage)} onChange={(e) => setMaxLeverage(Number(e.target.value))} className="mt-1">
+            {[1, 2, 3, 5, 10].map((v) => (
+              <option key={v} value={v}>
+                {v === 1 ? `${t.maxLevNone} (1×)` : `${v}×`}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-[11.5px] text-faint">{t.maxLevHint}</p>
+        </div>
 
         <div>
           <label className="text-[13px] font-medium text-mute">{t.liquidity}</label>
