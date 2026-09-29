@@ -221,6 +221,7 @@ export async function placeTrade(input: {
         const leverage = Math.round(input.leverage ?? 1);
         if (!Number.isFinite(spend) || spend < 100) throw new Error("Minimum trade is Ɱ1");
         if (!TRADE_LEVERAGES.includes(leverage)) throw new Error("Bad leverage");
+        if (leverage > m.maxLeverage) throw new Error(`Max leverage on this market is ${m.maxLeverage}×`);
         const notional = spend * leverage;
         shares = sharesForSpend(qYes, qNo, b, outcome, notional / 100);
         if (shares <= 0) throw new Error("Trade too small");
@@ -596,6 +597,7 @@ export async function proposeMarket(input: {
   outcomes?: string[];
   optionProbs?: number[]; // per-option opening odds in %, parallel to outcomes
   recurDays?: number; // auto-clone the market this many days after close
+  maxLeverage?: number; // leverage ceiling for buys — defaults to 10x
 }): Promise<{ ok: boolean; error?: string; slug?: string; live?: boolean }> {
   try {
     const u = await requireUser();
@@ -608,6 +610,7 @@ export async function proposeMarket(input: {
     const description = input.description.trim();
     const closesAt = input.closesAt ? new Date(input.closesAt) : null;
     const recurDays = [7, 14, 30].includes(input.recurDays ?? 0) ? input.recurDays! : null;
+    const maxLeverage = TRADE_LEVERAGES.includes(input.maxLeverage ?? 10) ? input.maxLeverage! : 10;
 
     // Options may carry an image: "Democratic Party | https://…/logo.png"
     const parsed = (input.outcomes ?? [])
@@ -639,6 +642,7 @@ export async function proposeMarket(input: {
             creatorId: u.id,
             b,
             closesAt,
+            maxLeverage,
           })
           .returning({ id: schema.market.id, slug: schema.market.slug });
         const base = question.replace(/[?？!.\s]+$/g, "");
@@ -665,6 +669,7 @@ export async function proposeMarket(input: {
               qYes: qForProb(pi, b).toFixed(6),
               qNo: "0",
               closesAt,
+              maxLeverage,
             })
             .returning({ id: schema.market.id });
           await tx.insert(schema.pricePoint).values({ marketId: child.id, yesPrice: pi.toFixed(5) });
@@ -686,6 +691,7 @@ export async function proposeMarket(input: {
           qNo: "0",
           closesAt,
           recurDays,
+          maxLeverage,
         })
         .returning({ id: schema.market.id, slug: schema.market.slug });
       await tx.insert(schema.pricePoint).values({ marketId: m.id, yesPrice: p.toFixed(5) });

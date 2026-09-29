@@ -22,6 +22,7 @@ export function TradeTicket({
   signedIn,
   heldYes,
   heldNo,
+  maxLeverage = 10,
   lang,
 }: {
   marketId: string;
@@ -33,6 +34,7 @@ export function TradeTicket({
   signedIn: boolean;
   heldYes: number;
   heldNo: number;
+  maxLeverage?: number;
   lang?: Lang;
 }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
@@ -48,7 +50,7 @@ export function TradeTicket({
   const spendCents = Math.round(parseFloat(amount || "0") * 100);
   const sellShares = parseFloat(amount || "0");
 
-  const lev = Number(leverage);
+  const lev = Math.min(Number(leverage), maxLeverage);
   const est = useMemo(() => {
     if (side === "buy") {
       if (spendCents < 100) return null;
@@ -143,11 +145,13 @@ export function TradeTicket({
         </div>
       </div>
 
-      {side === "buy" && (
+      {side === "buy" && maxLeverage > 1 && (
         <div className="mt-3">
           <div className="text-[13px] font-medium text-mute mb-1.5">{t.leverage}</div>
           <Segmented
-            options={["1", "2", "3", "5", "10"].map((v) => ({ value: v, label: `${v}×` }))}
+            options={["1", "2", "3", "5", "10"]
+              .filter((v) => Number(v) <= maxLeverage)
+              .map((v) => ({ value: v, label: `${v}×` }))}
             value={leverage}
             onChange={setLeverage}
           />

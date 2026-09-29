@@ -249,6 +249,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             userBalanceCents={user?.balanceCents ?? null}
             heldYes={heldYes}
             heldNo={heldNo}
+            maxLeverage={market.maxLeverage}
             lang={lang}
           />
 

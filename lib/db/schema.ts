@@ -128,6 +128,8 @@ export const market = pgTable(
     resolutionReason: text("resolution_reason").notNull().default(""),
     // Auto-clone: on resolve a fresh copy opens recurDays after this close.
     recurDays: integer("recur_days"),
+    // Creator-chosen leverage ceiling — options inherit the parent's value.
+    maxLeverage: integer("max_leverage").notNull().default(10),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     closesAt: timestamp("closes_at", { withTimezone: true }),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),

@@ -1,0 +1,1 @@
+ALTER TABLE "market" ADD COLUMN "max_leverage" integer DEFAULT 10 NOT NULL;
