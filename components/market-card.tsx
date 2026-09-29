@@ -4,6 +4,7 @@ import {
   MessageSquare,
   Users,
   Clock,
+  Flame,
   Landmark,
   Trophy,
   Bitcoin,
@@ -24,6 +25,7 @@ import { optionColor, optionSoftBg } from "@/lib/option-style";
 import { fmtCents, fmtMarks, fmtDate } from "@/lib/money";
 import { Sparkline } from "@/components/sparkline";
 import { WatchButton } from "@/components/watch-button";
+import { LikeButton } from "@/components/like-button";
 import { AnimatedPct } from "@/components/animated-number";
 import { Badge } from "@/components/ui/primitives";
 import { getT, type Lang } from "@/lib/i18n";
@@ -107,6 +109,9 @@ export function MarketCard({
   options,
   lang,
   watching,
+  liked,
+  likes = 0,
+  trending,
 }: {
   market: MarketRow;
   spark: number[];
@@ -115,9 +120,12 @@ export function MarketCard({
   options?: MarketRow[];
   lang?: Lang;
   watching?: boolean;
+  liked?: boolean;
+  likes?: number;
+  trending?: boolean;
 }) {
   const t = getT(lang ?? "en");
-  if (market.kind === "group") return <GroupCard market={market} options={options ?? []} index={index} lang={lang} watching={watching} />;
+  if (market.kind === "group") return <GroupCard market={market} options={options ?? []} index={index} lang={lang} watching={watching} liked={liked} likes={likes} trending={trending} />;
 
   const py = marketYesPrice(market);
   const resolved = market.status === "resolved";
@@ -128,6 +136,7 @@ export function MarketCard({
       <div className="flex gap-3">
         <MarketIcon market={market} />
         <h3 className="font-semibold text-[15px] leading-snug text-ink line-clamp-2 flex-1 group-hover:underline decoration-1 underline-offset-2">
+          {trending && <Flame className="inline size-3.5 -mt-0.5 mr-1 text-orange-500" aria-label={t.trendingBadge} />}
           {market.question}
         </h3>
         <Sparkline points={spark} className="shrink-0 self-start" />
@@ -173,12 +182,15 @@ export function MarketCard({
           <MessageSquare className="size-3" />
           {comments}
         </span>
-        <span className={cn("inline-flex items-center gap-1", watching === undefined && "ml-auto")}>
+        <span className={cn("inline-flex items-center gap-1", watching === undefined && liked === undefined && "ml-auto")}>
           <Clock className="size-3" />
           {fmtDate(market.closesAt, lang)}
         </span>
-        {watching !== undefined && (
-          <WatchButton marketId={market.id} watching={watching} lang={lang} className="ml-auto -my-0.5" />
+        {(watching !== undefined || liked !== undefined) && (
+          <span className="ml-auto inline-flex items-center gap-1">
+            {liked !== undefined && <LikeButton marketId={market.id} liked={liked} count={likes} lang={lang} />}
+            {watching !== undefined && <WatchButton marketId={market.id} watching={watching} lang={lang} />}
+          </span>
         )}
       </div>
     </Link>
@@ -187,7 +199,7 @@ export function MarketCard({
 
 // Multi-outcome card — Polymarket's "X by when?" style. Each option row links
 // to its own binary market; resolved options collapse under "View resolved".
-function GroupCard({ market, options, index, lang, watching }: { market: MarketRow; options: MarketRow[]; index: number; lang?: Lang; watching?: boolean }) {
+function GroupCard({ market, options, index, lang, watching, liked, likes = 0, trending }: { market: MarketRow; options: MarketRow[]; index: number; lang?: Lang; watching?: boolean; liked?: boolean; likes?: number; trending?: boolean }) {
   const t = getT(lang ?? "en");
   const live = options.filter((o) => o.status === "live");
   const closed = options.filter((o) => o.status !== "live");
@@ -203,6 +215,7 @@ function GroupCard({ market, options, index, lang, watching }: { market: MarketR
         <MarketIcon market={market} />
         <h3 className="font-semibold text-[15px] leading-snug text-ink line-clamp-2 flex-1">
           <Link href={`/market/${market.slug}`} className="hover:underline decoration-1 underline-offset-2">
+            {trending && <Flame className="inline size-3.5 -mt-0.5 mr-1 text-orange-500" aria-label={t.trendingBadge} />}
             {market.question}
           </Link>
         </h3>
@@ -242,12 +255,15 @@ function GroupCard({ market, options, index, lang, watching }: { market: MarketR
           <Users className="size-3" />
           {traders}
         </span>
-        <span className={cn("inline-flex items-center gap-1", watching === undefined && "ml-auto")}>
+        <span className={cn("inline-flex items-center gap-1", watching === undefined && liked === undefined && "ml-auto")}>
           <Clock className="size-3" />
           {fmtDate(market.closesAt, lang)}
         </span>
-        {watching !== undefined && (
-          <WatchButton marketId={market.id} watching={watching} lang={lang} className="ml-auto -my-0.5" />
+        {(watching !== undefined || liked !== undefined) && (
+          <span className="ml-auto inline-flex items-center gap-1">
+            {liked !== undefined && <LikeButton marketId={market.id} liked={liked} count={likes} lang={lang} />}
+            {watching !== undefined && <WatchButton marketId={market.id} watching={watching} lang={lang} />}
+          </span>
         )}
       </div>
     </div>

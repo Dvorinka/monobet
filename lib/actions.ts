@@ -1633,6 +1633,24 @@ export async function toggleWatchlist(input: { marketId: string }): Promise<{ ok
   }
 }
 
+// ---------- market likes ----------
+
+export async function toggleLike(input: { marketId: string }): Promise<{ ok: boolean; error?: string; liked?: boolean }> {
+  try {
+    const u = await requireUser();
+    const where = and(eq(schema.marketLike.userId, u.id), eq(schema.marketLike.marketId, input.marketId));
+    const [existing] = await db.select().from(schema.marketLike).where(where).limit(1);
+    if (existing) {
+      await db.delete(schema.marketLike).where(where);
+      return { ok: true, liked: false };
+    }
+    await db.insert(schema.marketLike).values({ userId: u.id, marketId: input.marketId });
+    return { ok: true, liked: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
 // ---------- duels ----------
 
 // A challenges B: the claim is just text both sides agreed on — settlement is

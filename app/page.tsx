@@ -4,7 +4,7 @@ import { CategoryTabs } from "@/components/category-tabs";
 import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicker } from "@/components/trade-ticker";
 import { MarketCard } from "@/components/market-card";
-import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor, listCategories, getWatchlistIds, getExpiredLive, maybeNotifyClosing } from "@/lib/queries";
+import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor, listCategories, getWatchlistIds, getLikedIds, getLikeCounts, getExpiredLive, maybeNotifyClosing } from "@/lib/queries";
 import { fmtMarks } from "@/lib/money";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
@@ -29,8 +29,10 @@ export default async function Home({
   // One parallel window: watchlist, the market list that may depend on it,
   // the expired queue, and closing reminders all resolve together.
   const watchIdsP = user ? getWatchlistIds(user.id) : Promise.resolve<string[]>([]);
-  const [watchIds, markets, expired] = await Promise.all([
+  const likedIdsP = user ? getLikedIds(user.id) : Promise.resolve<string[]>([]);
+  const [watchIds, likedIds, markets, expired] = await Promise.all([
     watchIdsP,
+    likedIdsP,
     watchIdsP.then((ids) =>
       listMarkets({
         category: cat,
@@ -46,15 +48,21 @@ export default async function Home({
   // streams so the fan-out never blocks the render.
   if (user) after(() => maybeNotifyClosing(user.id));
   const watchSet = new Set(watchIds);
+  const likedSet = new Set(likedIds);
   const ids = markets.map((m) => m.id);
   const groupIds = markets.filter((m) => m.kind === "group").map((m) => m.id);
-  const [sparks, comments, ticker, stats, groupOptions] = await Promise.all([
+  const [sparks, comments, ticker, stats, groupOptions, likeCounts] = await Promise.all([
     getSparklines(ids),
     getCommentCount(ids),
     getGlobalTrades(),
     getSiteStats(),
     getGroupOptionsFor(groupIds),
+    getLikeCounts(ids),
   ]);
+  // Flame badge for the three busiest live markets on the page.
+  const trendingIds = new Set(
+    [...markets].filter((m) => m.status === "live").sort((a, b) => b.volumeCents - a.volumeCents).slice(0, 3).map((m) => m.id)
+  );
 
   return (
     <div className="mx-auto max-w-6xl px-4">
@@ -102,7 +110,7 @@ export default async function Home({
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {markets.map((m, i) => (
-            <MarketCard key={m.id} market={m} spark={sparks.get(m.id) ?? []} comments={comments.get(m.id) ?? 0} index={i} options={groupOptions.get(m.id)} lang={lang} watching={user ? watchSet.has(m.id) : undefined} />
+            <MarketCard key={m.id} market={m} spark={sparks.get(m.id) ?? []} comments={comments.get(m.id) ?? 0} index={i} options={groupOptions.get(m.id)} lang={lang} watching={user ? watchSet.has(m.id) : undefined} liked={user ? likedSet.has(m.id) : undefined} likes={likeCounts.get(m.id) ?? 0} trending={trendingIds.has(m.id)} />
           ))}
         </div>
       )}

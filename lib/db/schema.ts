@@ -363,3 +363,17 @@ export const watchlist = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.marketId] })]
 );
+
+// ---------- market likes ----------
+
+// Hearts on markets — a public signal (count on cards), separate from the
+// private watchlist bookmark that drives the Watching tab.
+export const marketLike = pgTable(
+  "market_like",
+  {
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    marketId: uuid("market_id").notNull().references(() => market.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.marketId] }), index("market_like_market_idx").on(t.marketId)]
+);

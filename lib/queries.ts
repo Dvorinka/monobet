@@ -692,6 +692,29 @@ export async function getWatchlistIds(userId: string): Promise<string[]> {
   return rows.map((r) => r.marketId);
 }
 
+// ---------- market likes ----------
+
+export async function getLikedIds(userId: string): Promise<string[]> {
+  const rows = await db
+    .select({ marketId: schema.marketLike.marketId })
+    .from(schema.marketLike)
+    .where(eq(schema.marketLike.userId, userId));
+  return rows.map((r) => r.marketId);
+}
+
+// Batch: like counts for a set of market ids — one GROUP BY, no N+1.
+export async function getLikeCounts(marketIds: string[]) {
+  const map = new Map<string, number>();
+  if (!marketIds.length) return map;
+  const rows = await db
+    .select({ marketId: schema.marketLike.marketId, n: sql<number>`count(*)::int` })
+    .from(schema.marketLike)
+    .where(inArray(schema.marketLike.marketId, marketIds))
+    .groupBy(schema.marketLike.marketId);
+  for (const r of rows) map.set(r.marketId, r.n);
+  return map;
+}
+
 // Live markets past their close time — the "ready to resolve" queue.
 export async function getExpiredLive(limit = 5) {
   return db
@@ -707,6 +730,15 @@ export async function isWatching(userId: string, marketId: string): Promise<bool
     .select({ userId: schema.watchlist.userId })
     .from(schema.watchlist)
     .where(and(eq(schema.watchlist.userId, userId), eq(schema.watchlist.marketId, marketId)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+export async function isLiked(userId: string, marketId: string): Promise<boolean> {
+  const rows = await db
+    .select({ userId: schema.marketLike.userId })
+    .from(schema.marketLike)
+    .where(and(eq(schema.marketLike.userId, userId), eq(schema.marketLike.marketId, marketId)))
     .limit(1);
   return rows.length > 0;
 }
