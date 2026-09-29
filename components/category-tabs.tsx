@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 // Tabs come from the DB — "trending"/"new" are special filters, the rest are
 // user-creatable categories.
-export function CategoryTabs({ categories, lang }: { categories: string[]; lang?: Lang }) {
+export function CategoryTabs({ categories, lang, showWatching }: { categories: string[]; lang?: Lang; showWatching?: boolean }) {
   const t = getT(lang ?? "en");
   const params = useSearchParams();
   const active = params.get("cat") ?? "all";
@@ -16,6 +16,8 @@ export function CategoryTabs({ categories, lang }: { categories: string[]; lang?
     { key: "all", label: t.tabAll },
     { key: "trending", label: t.tabTrending },
     { key: "new", label: t.tabNew },
+    { key: "closing", label: t.tabClosing },
+    ...(showWatching ? [{ key: "watching", label: t.tabWatching }] : []),
     ...categories.map((c) => ({ key: c, label: c })),
   ];
 

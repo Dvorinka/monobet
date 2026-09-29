@@ -450,6 +450,12 @@ const en = {
   achPodiumDesc: "Finish a weekly season on the podium",
   achWhale: "Whale",
   achWhaleDesc: "Reach Ɱ10,000 net worth",
+
+  tabClosing: "Closing soon",
+  tabWatching: "Watching",
+  resolveQueue: (n: number) => `${n} market${n === 1 ? "" : "s"} ready to resolve`,
+  watchAdd: "Add to watchlist",
+  watchRemove: "Remove from watchlist",
 };
 
 export type Dict = typeof en;
@@ -874,6 +880,12 @@ const cs: Dict = {
   achPodiumDesc: "Skonči na stupni vítězů v týdenní sezóně",
   achWhale: "Velryba",
   achWhaleDesc: "Dosáhni čisté hodnoty Ɱ10 000",
+
+  tabClosing: "Brzy končí",
+  tabWatching: "Sledované",
+  resolveQueue: (n) => `${n} ${n === 1 ? "trh čeká" : n < 5 ? "trhy čekají" : "trhů čeká"} na vyhodnocení`,
+  watchAdd: "Přidat do sledovaných",
+  watchRemove: "Odebrat ze sledovaných",
 };
 
 const dict: Record<Lang, Dict> = { en, cs };

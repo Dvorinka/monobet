@@ -38,11 +38,15 @@ export async function listMarkets(opts: {
   status?: MarketStatus;
   includePendingForUser?: string;
   includeOptions?: boolean;
+  ids?: string[];
 }) {
   const { category, q, sort, status = "live" } = opts;
+  // Explicit id filter (watchlist) — empty list means "no results", not "all".
+  if (opts.ids && opts.ids.length === 0) return [];
   // Only top-level markets — group options surface through their parent.
   // Admin passes includeOptions to reach every resolvable market.
   const conds = opts.includeOptions ? [] : [isNull(schema.market.parentId)];
+  if (opts.ids) conds.push(inArray(schema.market.id, opts.ids));
   if (opts.includePendingForUser) {
     conds.push(
       or(
@@ -53,7 +57,7 @@ export async function listMarkets(opts: {
   } else {
     conds.push(eq(schema.market.status, status));
   }
-  if (category && category !== "all" && category !== "trending" && category !== "new") {
+  if (category && !["all", "trending", "new", "closing", "watching"].includes(category)) {
     conds.push(eq(schema.market.category, category));
   }
   if (q) conds.push(or(ilike(schema.market.question, `%${q}%`), ilike(schema.market.description, `%${q}%`))!);
@@ -61,7 +65,9 @@ export async function listMarkets(opts: {
   const order =
     sort === "new" || category === "new"
       ? [desc(schema.market.createdAt)]
-      : [desc(schema.market.volumeCents), desc(schema.market.createdAt)];
+      : sort === "closing"
+        ? [asc(schema.market.closesAt)]
+        : [desc(schema.market.volumeCents), desc(schema.market.createdAt)];
 
   return db.select().from(schema.market).where(and(...conds)).orderBy(...order).limit(100);
 }
@@ -634,4 +640,33 @@ export async function getAchievements(userId: string): Promise<Achievement[]> {
     { key: "season_podium", unlocked: podium.length > 0, progress: podium.length > 0 ? 1 : 0 },
     { key: "whale", ...done(netWorth, 1_000_000) },
   ];
+}
+
+// ---------- watchlist + resolve queue ----------
+
+export async function getWatchlistIds(userId: string): Promise<string[]> {
+  const rows = await db
+    .select({ marketId: schema.watchlist.marketId })
+    .from(schema.watchlist)
+    .where(eq(schema.watchlist.userId, userId));
+  return rows.map((r) => r.marketId);
+}
+
+// Live markets past their close time — the "ready to resolve" queue.
+export async function getExpiredLive(limit = 5) {
+  return db
+    .select()
+    .from(schema.market)
+    .where(and(eq(schema.market.status, "live"), isNull(schema.market.parentId), sql`${schema.market.closesAt} < now()`))
+    .orderBy(asc(schema.market.closesAt))
+    .limit(limit);
+}
+
+export async function isWatching(userId: string, marketId: string): Promise<boolean> {
+  const rows = await db
+    .select({ userId: schema.watchlist.userId })
+    .from(schema.watchlist)
+    .where(and(eq(schema.watchlist.userId, userId), eq(schema.watchlist.marketId, marketId)))
+    .limit(1);
+  return rows.length > 0;
 }

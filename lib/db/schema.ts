@@ -262,3 +262,16 @@ export const seasonResult = pgTable(
   },
   (t) => [index("season_result_season_idx").on(t.seasonId, t.rank)]
 );
+
+// ---------- watchlist ----------
+
+// Per-user starred markets — drives the "Watching" tab on the homepage.
+export const watchlist = pgTable(
+  "watchlist",
+  {
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    marketId: uuid("market_id").notNull().references(() => market.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.marketId] })]
+);
