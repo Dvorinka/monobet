@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS } from "@/lib/games";
+import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout } from "@/lib/games";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -1566,6 +1566,28 @@ export async function playWheel(input: {
     );
     revalidatePath("/games");
     return { ok: true, index, mult, netCents };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Spin failed" };
+  }
+}
+
+// Three reels from the weighted strip in lib/games.ts — same math both sides.
+export async function playSlots(input: {
+  betCents: number;
+  leverage: number;
+}): Promise<{ ok: boolean; error?: string; reels?: number[]; mult?: number; netCents?: number }> {
+  try {
+    const u = await requireUser();
+    await assertNotSpam(u.id, "game");
+    const { bet, lev } = checkBet(input.betCents, input.leverage);
+    const reels = [slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT))];
+    const mult = slotPayout(reels[0], reels[1], reels[2]);
+    const label = `Slots ${reels.map((i) => SLOT_SYMBOLS[i]).join(" ")}`;
+    const netCents = await db.transaction(async (tx) =>
+      settleGame(tx, u.id, bet, lev, mult > 0, mult, label)
+    );
+    revalidatePath("/games");
+    return { ok: true, reels, mult, netCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Spin failed" };
   }
