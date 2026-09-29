@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { MarketRow } from "@/lib/queries";
 import { marketYesPrice } from "@/lib/queries";
+import { optionColor, optionSoftBg } from "@/lib/option-style";
 import { fmtCents, fmtMarks, fmtDate } from "@/lib/money";
 import { Sparkline } from "@/components/sparkline";
 import { AnimatedPct } from "@/components/animated-number";
@@ -50,6 +51,28 @@ const KEYWORD_ICON: [RegExp, React.ComponentType<{ className?: string }>][] = [
 export function iconForMarket(m: { question: string; category: string }) {
   for (const [re, icon] of KEYWORD_ICON) if (re.test(m.question)) return icon;
   return CAT_ICON[m.category] ?? Shapes;
+}
+
+export function iconForOption(label: string) {
+  for (const [re, icon] of KEYWORD_ICON) if (re.test(label)) return icon;
+  return null;
+}
+
+// Per-option avatar: keyword icon when the label matches a topic, else a
+// monogram letter — like Polymarket's party/outcome logos. Color is fixed by
+// option index so the chip matches the row accent and chart line.
+export function OptionChip({ label, index }: { label: string; index: number }) {
+  const color = optionColor(index);
+  const icon = iconForOption(label);
+  return (
+    <span
+      className="grid place-items-center size-7 rounded-md shrink-0 select-none text-[13px] font-bold"
+      style={{ background: optionSoftBg(color), color }}
+      aria-hidden
+    >
+      {icon ? createElement(icon, { className: "size-4" }) : label.trim().charAt(0).toUpperCase()}
+    </span>
+  );
 }
 
 export function MarketIcon({ market, size = "size-10" }: { market: { question: string; category: string }; size?: string }) {
@@ -152,6 +175,9 @@ function GroupCard({ market, options, index, lang }: { market: MarketRow; option
   const closed = options.filter((o) => o.status !== "live");
   const volume = options.reduce((s, o) => s + o.volumeCents, 0);
   const traders = options.reduce((s, o) => s + o.traderCount, 0);
+  // Color index must match the option's position in the full list — same color
+  // on the card, the group page, and the chart.
+  const idxOf = new Map(options.map((o, i) => [o.id, i]));
 
   return (
     <div className={CARD} style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}>
@@ -170,7 +196,7 @@ function GroupCard({ market, options, index, lang }: { market: MarketRow; option
 
       <div className="mt-3 -mx-1 divide-y divide-line-2">
         {live.slice(0, 4).map((o) => (
-          <OptionRow key={o.id} option={o} lang={lang} />
+          <OptionRow key={o.id} option={o} index={idxOf.get(o.id) ?? 0} lang={lang} />
         ))}
         {live.length > 4 && (
           <Link href={`/market/${market.slug}`} className="block px-1 pt-2 text-[12px] font-semibold text-brand-strong hover:underline">
@@ -186,7 +212,7 @@ function GroupCard({ market, options, index, lang }: { market: MarketRow; option
           </summary>
           <div className="divide-y divide-line-2">
             {closed.map((o) => (
-              <OptionRow key={o.id} option={o} lang={lang} />
+              <OptionRow key={o.id} option={o} index={idxOf.get(o.id) ?? 0} lang={lang} />
             ))}
           </div>
         </details>
@@ -207,16 +233,24 @@ function GroupCard({ market, options, index, lang }: { market: MarketRow; option
   );
 }
 
-function OptionRow({ option: o, lang }: { option: MarketRow; lang?: Lang }) {
+function OptionRow({ option: o, index, lang }: { option: MarketRow; index: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   const py = marketYesPrice(o);
   const resolved = o.status === "resolved";
   return (
     <Link
       href={`/market/${o.slug}`}
-      className="flex items-center gap-3 px-1 py-2 rounded-md hover:bg-surface-2 transition-colors"
+      className="flex items-center gap-2.5 px-1 py-2 rounded-md hover:bg-surface-2 transition-colors"
     >
-      <span className="text-[13px] font-medium text-ink truncate min-w-0 flex-1">{o.label}</span>
+      <OptionChip label={o.label ?? o.question} index={index} />
+      <span className="text-[13px] font-medium text-ink truncate min-w-0 flex-1">
+        {o.label}
+        {o.volumeCents > 0 && (
+          <span className="num text-[10.5px] text-faint font-medium ml-1.5 whitespace-nowrap">
+            {fmtMarks(o.volumeCents, { lang })} {t.vol}
+          </span>
+        )}
+      </span>
       {resolved ? (
         <Badge tone={o.outcome === "yes" ? "yes" : "no"} className="shrink-0">
           {(o.outcome === "yes" ? t.yes : t.no).toUpperCase()}

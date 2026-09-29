@@ -13,6 +13,7 @@ import {
   getUserPosition,
   getRelatedMarkets,
   getSparklines,
+  getGroupHistories,
   marketYesPrice,
 } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
@@ -26,7 +27,9 @@ import { MarketTabs } from "@/components/market-tabs";
 import { Comments } from "@/components/comments";
 import { ActivityFeed } from "@/components/activity-feed";
 import { Badge, Card } from "@/components/ui/primitives";
-import { MarketCard, MarketIcon } from "@/components/market-card";
+import { MarketCard, MarketIcon, OptionChip } from "@/components/market-card";
+import { MultiPriceChart } from "@/components/multi-chart";
+import { optionColor } from "@/lib/option-style";
 import { Sparkline } from "@/components/sparkline";
 import { cn } from "@/lib/utils";
 
@@ -262,13 +265,27 @@ async function GroupMarketView({
   lang: "en" | "cs";
 }) {
   const t: Dict = getT(lang);
-  const relatedSparks = await getSparklines(related.map((m) => m.id));
-  const optionSparks = await getSparklines(options.map((o) => o.id));
+  const optionIds = options.map((o) => o.id);
+  const [relatedSparks, optionSparks, histories] = await Promise.all([
+    getSparklines(related.map((m) => m.id)),
+    getSparklines(optionIds),
+    getGroupHistories(optionIds),
+  ]);
   const live = options.filter((o) => o.status === "live");
   const closed = options.filter((o) => o.status !== "live");
   const volume = options.reduce((s, o) => s + o.volumeCents, 0);
   const traders = options.reduce((s, o) => s + o.traderCount, 0);
   const anyLive = live.length > 0;
+  // Multi-line chart: every option with a price history, colored by sort order
+  // — resolved options stay as flat lines pinned at 0%/100%.
+  const series = options
+    .map((o, i) => ({
+      key: o.id,
+      label: o.label ?? o.question,
+      color: optionColor(i),
+      points: histories.get(o.id) ?? [],
+    }))
+    .filter((s) => s.points.length > 0);
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-5">
@@ -305,6 +322,18 @@ async function GroupMarketView({
         </div>
       </div>
 
+      {series.length > 0 && (
+        <div className="mt-7 rounded-[14px] border border-line bg-surface p-4">
+          <MultiPriceChart
+            series={series}
+            // eslint-disable-next-line react-hooks/purity -- server component renders once per request
+            now={Date.now()}
+            live={anyLive}
+            lang={lang}
+          />
+        </div>
+      )}
+
       <div className="mt-8 rounded-[14px] border border-line bg-surface overflow-hidden">
         <div className="grid grid-cols-[1fr_auto_auto_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-2.5 border-b border-line text-[11px] font-semibold uppercase tracking-wide text-faint">
           <span>{t.option}</span>
@@ -316,6 +345,7 @@ async function GroupMarketView({
         <div className="divide-y divide-line-2">
           {live.map((o) => {
             const py = marketYesPrice(o);
+            const oi = options.indexOf(o);
             return (
               <Link
                 key={o.id}
@@ -323,6 +353,7 @@ async function GroupMarketView({
                 className="grid grid-cols-[1fr_auto_auto_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors"
               >
                 <span className="min-w-0 flex items-center gap-3">
+                  <OptionChip label={o.label ?? o.question} index={oi} />
                   <span className="text-[14px] font-semibold text-ink truncate">{o.label}</span>
                   <Sparkline points={optionSparks.get(o.id) ?? []} className="hidden md:block shrink-0 opacity-80" />
                 </span>
@@ -358,6 +389,7 @@ async function GroupMarketView({
                   href={`/market/${o.slug}`}
                   className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors"
                 >
+                  <OptionChip label={o.label ?? o.question} index={options.indexOf(o)} />
                   <span className="text-[14px] font-medium text-mute truncate flex-1">{o.label}</span>
                   <span className="num text-[12px] text-faint">{fmtMarks(o.volumeCents, { lang })} {t.vol}</span>
                   <Badge tone={o.status === "resolved" ? (o.outcome === "yes" ? "yes" : "no") : "mute"}>

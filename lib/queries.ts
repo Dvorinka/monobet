@@ -287,6 +287,24 @@ export async function getAllUsers() {
     .orderBy(asc(schema.user.createdAt));
 }
 
+// Timestamped price history for every option of a group — feeds the
+// multi-line chart on group pages. One query, grouped in JS.
+export async function getGroupHistories(marketIds: string[]) {
+  const map = new Map<string, { t: string; p: number }[]>();
+  if (marketIds.length === 0) return map;
+  const rows = await db
+    .select({ marketId: schema.pricePoint.marketId, p: schema.pricePoint.yesPrice, t: schema.pricePoint.createdAt })
+    .from(schema.pricePoint)
+    .where(inArray(schema.pricePoint.marketId, marketIds))
+    .orderBy(asc(schema.pricePoint.createdAt));
+  for (const r of rows) {
+    const arr = map.get(r.marketId) ?? [];
+    arr.push({ t: r.t.toISOString(), p: Number(r.p) });
+    map.set(r.marketId, arr);
+  }
+  return map;
+}
+
 // Last ~40 price points per market, for card sparklines. One query, grouped in JS.
 export async function getSparklines(marketIds: string[]) {
   const map = new Map<string, number[]>();
