@@ -29,6 +29,11 @@ type BonusState = {
   eligible: boolean;
 };
 
+// Wait label: minutes under an hour ("~24m"), hours above ("~20h").
+function waitLabel(ms: number, t: ReturnType<typeof getT>) {
+  return ms < 3_540_000 ? t.availableInMin(Math.ceil(ms / 60_000)) : t.availableIn(Math.ceil(ms / 3_600_000));
+}
+
 function useRemaining(nextAt: number | null) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -97,7 +102,7 @@ function RecurringCard({
         }
         className="mt-auto h-9 rounded-lg bg-brand text-brand-on text-[13px] font-semibold hover:bg-brand-strong transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
       >
-        {pending ? "…" : ready ? t.claimNow : t.availableIn(Math.ceil((remaining - 30_000) / 3600000))}
+        {pending ? "…" : ready ? t.claimNow : waitLabel(remaining - 30_000, t)}
       </button>
     </div>
   );
@@ -144,7 +149,7 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
         className="mt-auto h-9 rounded-lg bg-brand text-brand-on text-[13px] font-semibold hover:bg-brand-strong transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 inline-flex items-center justify-center gap-1.5"
       >
         <Play className="size-3.5" />
-        {ready ? t.watchAd : t.availableIn(Math.ceil((remaining - 30_000) / 3600000))}
+        {ready ? t.watchAd : waitLabel(remaining - 30_000, t)}
       </button>
 
       {open && (
