@@ -123,7 +123,7 @@ export function GroupTrade({
         {chart}
 
         <div className="mt-8 rounded-[14px] border border-line bg-surface overflow-hidden">
-          <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-2.5 border-b border-line text-[11px] font-semibold uppercase tracking-wide text-faint">
+          <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_90px_72px_56px_auto] items-center gap-3 px-4 py-2.5 border-b border-line text-[11px] font-semibold uppercase tracking-wide text-faint">
             <span>{t.option}</span>
             <span className="hidden sm:block text-right">{t.volume}</span>
             <span className="hidden sm:block text-right">{t.tradersW}</span>
@@ -147,7 +147,7 @@ export function GroupTrade({
                     }
                   }}
                   className={cn(
-                    "grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors cursor-pointer",
+                    "grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_90px_72px_56px_auto] items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors cursor-pointer",
                     active && "bg-surface-2 shadow-[inset_2px_0_0_var(--brand)]"
                   )}
                 >
@@ -170,7 +170,7 @@ export function GroupTrade({
                         e.stopPropagation();
                         select(o, "yes");
                       }}
-                      className="num grid place-items-center h-8 px-1.5 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold whitespace-nowrap hover:brightness-95 transition cursor-pointer"
+                      className="num grid place-items-center h-8 min-w-[4.25rem] px-2.5 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold whitespace-nowrap hover:brightness-95 transition cursor-pointer"
                     >
                       {t.yes} {fmtMonos(Math.round(py * 100), { lang })}
                     </button>
@@ -180,7 +180,7 @@ export function GroupTrade({
                         e.stopPropagation();
                         select(o, "no");
                       }}
-                      className="num grid place-items-center h-8 px-1.5 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold whitespace-nowrap hover:brightness-95 transition cursor-pointer"
+                      className="num grid place-items-center h-8 min-w-[4.25rem] px-2.5 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold whitespace-nowrap hover:brightness-95 transition cursor-pointer"
                     >
                       {t.no} {fmtMonos(Math.round((1 - py) * 100), { lang })}
                     </button>
