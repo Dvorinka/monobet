@@ -30,6 +30,7 @@ export function MarketForm({
   ] as const;
   const [marketType, setMarketType] = useState<"binary" | "multi" | "range">("binary");
   const [question, setQuestion] = useState("");
+  const [marketImage, setMarketImage] = useState("");
   const [options, setOptions] = useState<{ label: string; image: string }[]>([
     { label: "", image: "" },
     { label: "", image: "" },
@@ -96,6 +97,7 @@ export function MarketForm({
             const r = await proposeMarket({
               question,
               description,
+              imageUrl: marketImage || undefined,
               category,
               newCategory: category === NEW_CATEGORY ? newCategory : undefined,
               closesAt: closesAt || undefined,
@@ -146,6 +148,16 @@ export function MarketForm({
           <p className="mt-1 text-[11.5px] text-faint">
             {multi ? t.qHintMulti : t.qHintBinary} {t.charsLeft(200 - question.length)}
           </p>
+          <div className="mt-2 flex items-center gap-2">
+            <ImageCell
+              image={marketImage}
+              onImage={setMarketImage}
+              imageHint={t.optionImageHint}
+              onBadImage={() => toast.error(t.imageBad)}
+              className="size-10"
+            />
+            <p className="text-[11.5px] text-faint">{t.marketIconHint}</p>
+          </div>
         </div>
 
         {marketType === "range" && (
@@ -207,6 +219,17 @@ export function MarketForm({
                   placeholder={t.optionPh(i + 1)}
                   canRemove={options.length > 2}
                   onLabel={(v) => setOptions((s) => s.map((r, j) => (j === i ? { ...r, label: v } : r)))}
+                  onPasteList={(lines) =>
+                    setOptions((s) => {
+                      const next = [...s];
+                      lines.forEach((l, k) => {
+                        const j = i + k;
+                        if (j < next.length) next[j] = { ...next[j], label: l.slice(0, 60) };
+                        else if (next.length < 12) next.push({ label: l.slice(0, 60), image: "" });
+                      });
+                      return next;
+                    })
+                  }
                   onImage={(v) => setOptions((s) => s.map((r, j) => (j === i ? { ...r, image: v } : r)))}
                   onRemove={() => setOptions((s) => s.filter((_, j) => j !== i))}
                   imageHint={t.optionImageHint}
@@ -443,8 +466,8 @@ export function MarketForm({
   );
 }
 
-// One option row: label input + image cell (click to upload, paste an image or
-// a URL, or drop a file) + remove. Images land as compressed data-URLs.
+// One option row: label input + image cell + remove. Pasting a multi-line
+// value into the label spills the lines into following rows.
 function OptionRow({
   index,
   label,
@@ -452,6 +475,7 @@ function OptionRow({
   placeholder,
   canRemove,
   onLabel,
+  onPasteList,
   onImage,
   onRemove,
   imageHint,
@@ -463,99 +487,29 @@ function OptionRow({
   placeholder: string;
   canRemove: boolean;
   onLabel: (v: string) => void;
+  onPasteList: (lines: string[]) => void;
   onImage: (v: string) => void;
   onRemove: () => void;
   imageHint: string;
   onBadImage: () => void;
 }) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [urlMode, setUrlMode] = useState(false);
-
-  const acceptFile = async (f: File | undefined) => {
-    if (!f) return;
-    if (!f.type.startsWith("image/")) return onBadImage();
-    onImage(await compressImage(f));
-  };
-
   return (
     <div className="flex items-center gap-1.5">
       <span className="size-2.5 rounded-full shrink-0" style={{ background: optionColor(index) }} />
       <Input
         value={label}
         onChange={(e) => onLabel(e.target.value)}
+        onPaste={(e) => {
+          const txt = e.clipboardData?.getData("text") ?? "";
+          if (!txt.includes("\n")) return;
+          e.preventDefault();
+          onPasteList(txt.split("\n").map((l) => l.trim()).filter(Boolean));
+        }}
         placeholder={placeholder}
         maxLength={60}
         className="h-9 text-[13px] flex-1"
       />
-      {image ? (
-        <div className="relative size-9 shrink-0 group">
-          <img src={image} alt="" className="size-9 rounded-lg border border-line object-cover" />
-          <button
-            type="button"
-            onClick={() => onImage("")}
-            className="absolute -right-1.5 -top-1.5 size-4.5 rounded-full bg-ink text-surface grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-            aria-label="Remove image"
-          >
-            <X className="size-3" />
-          </button>
-        </div>
-      ) : urlMode ? (
-        <input
-          autoFocus
-          placeholder="https://…"
-          onBlur={(e) => {
-            const v = e.target.value.trim();
-            if (v && /^(https?:\/\/|\/)\S+$/.test(v)) onImage(v);
-            setUrlMode(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-            if (e.key === "Escape") { e.currentTarget.value = ""; e.currentTarget.blur(); }
-          }}
-          className="h-9 w-24 shrink-0 rounded-lg border border-line bg-surface px-2 text-[12px] focus:outline-2 focus:outline-brand"
-        />
-      ) : (
-        <button
-          type="button"
-          title={imageHint}
-          onClick={() => fileRef.current?.click()}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setUrlMode(true);
-          }}
-          onPaste={async (e) => {
-            const f = e.clipboardData?.files?.[0];
-            if (f) {
-              e.preventDefault();
-              await acceptFile(f);
-              return;
-            }
-            const txt = e.clipboardData?.getData("text")?.trim();
-            if (txt && /^(https?:\/\/|\/)\S+$/.test(txt)) {
-              e.preventDefault();
-              onImage(txt);
-            }
-          }}
-          onDrop={async (e) => {
-            e.preventDefault();
-            await acceptFile(e.dataTransfer?.files?.[0]);
-          }}
-          onDragOver={(e) => e.preventDefault()}
-          className="size-9 shrink-0 grid place-items-center rounded-lg border border-dashed border-line text-faint hover:text-ink hover:border-faint cursor-pointer"
-        >
-          <ImagePlus className="size-4" />
-        </button>
-      )}
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={async (e) => {
-          await acceptFile(e.target.files?.[0]);
-          e.target.value = "";
-        }}
-      />
+      <ImageCell image={image} onImage={onImage} imageHint={imageHint} onBadImage={onBadImage} />
       <button
         type="button"
         onClick={onRemove}
@@ -566,5 +520,108 @@ function OptionRow({
         <X className="size-4" />
       </button>
     </div>
+  );
+}
+
+// Compact image picker cell: click to upload, paste an image or URL, drop a
+// file, right-click for a URL field. Uploads compress to data-URLs.
+function ImageCell({
+  image,
+  onImage,
+  imageHint,
+  onBadImage,
+  className = "size-9",
+}: {
+  image: string;
+  onImage: (v: string) => void;
+  imageHint: string;
+  onBadImage: () => void;
+  className?: string;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [urlMode, setUrlMode] = useState(false);
+
+  const acceptFile = async (f: File | undefined) => {
+    if (!f) return;
+    if (!f.type.startsWith("image/")) return onBadImage();
+    onImage(await compressImage(f));
+  };
+
+  if (image)
+    return (
+      <div className={cn("relative shrink-0 group", className)}>
+        <img src={image} alt="" className="size-full rounded-lg border border-line object-cover" />
+        <button
+          type="button"
+          onClick={() => onImage("")}
+          className="absolute -right-1.5 -top-1.5 size-4.5 rounded-full bg-ink text-surface grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+          aria-label="Remove image"
+        >
+          <X className="size-3" />
+        </button>
+      </div>
+    );
+
+  if (urlMode)
+    return (
+      <input
+        autoFocus
+        placeholder="https://…"
+        onBlur={(e) => {
+          const v = e.target.value.trim();
+          if (v && /^(https?:\/\/|\/)\S+$/.test(v)) onImage(v);
+          setUrlMode(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") { e.currentTarget.value = ""; e.currentTarget.blur(); }
+        }}
+        className="h-9 w-24 shrink-0 rounded-lg border border-line bg-surface px-2 text-[12px] focus:outline-2 focus:outline-brand"
+      />
+    );
+
+  return (
+    <>
+      <button
+        type="button"
+        title={imageHint}
+        onClick={() => fileRef.current?.click()}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setUrlMode(true);
+        }}
+        onPaste={async (e) => {
+          const f = e.clipboardData?.files?.[0];
+          if (f) {
+            e.preventDefault();
+            await acceptFile(f);
+            return;
+          }
+          const txt = e.clipboardData?.getData("text")?.trim();
+          if (txt && /^(https?:\/\/|\/)\S+$/.test(txt)) {
+            e.preventDefault();
+            onImage(txt);
+          }
+        }}
+        onDrop={async (e) => {
+          e.preventDefault();
+          await acceptFile(e.dataTransfer?.files?.[0]);
+        }}
+        onDragOver={(e) => e.preventDefault()}
+        className={cn("shrink-0 grid place-items-center rounded-lg border border-dashed border-line text-faint hover:text-ink hover:border-faint cursor-pointer", className)}
+      >
+        <ImagePlus className="size-4" />
+      </button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={async (e) => {
+          await acceptFile(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+    </>
   );
 }

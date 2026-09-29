@@ -605,6 +605,7 @@ export async function deleteCategory(input: { name: string }): Promise<{ ok: boo
 export async function proposeMarket(input: {
   question: string;
   description: string;
+  imageUrl?: string; // market icon — URL or data:image from the form's cell
   category: string;
   newCategory?: string;
   closesAt?: string;
@@ -627,6 +628,12 @@ export async function proposeMarket(input: {
     const closesAt = input.closesAt ? new Date(input.closesAt) : null;
     const recurDays = [7, 14, 30].includes(input.recurDays ?? 0) ? input.recurDays! : null;
     const maxLeverage = TRADE_LEVERAGES.includes(input.maxLeverage ?? 10) ? input.maxLeverage! : 10;
+    const marketImage = input.imageUrl?.trim() || null;
+    if (marketImage) {
+      const isData = /^data:image\/(jpeg|png|webp);base64,/.test(marketImage);
+      if (!isData && !/^(https?:\/\/|\/)\S+$/.test(marketImage)) throw new Error("Bad image URL");
+      if (isData && marketImage.length > 450_000) throw new Error("Image too large");
+    }
 
     // Options may carry an image: "Democratic Party | https://…/logo.png" —
     // data URLs come from the form's upload/paste cell.
@@ -665,6 +672,7 @@ export async function proposeMarket(input: {
             b,
             closesAt,
             maxLeverage,
+            imageUrl: marketImage,
           })
           .returning({ id: schema.market.id, slug: schema.market.slug });
         const base = question.replace(/[?？!.\s]+$/g, "");
@@ -714,6 +722,7 @@ export async function proposeMarket(input: {
           closesAt,
           recurDays,
           maxLeverage,
+          imageUrl: marketImage,
         })
         .returning({ id: schema.market.id, slug: schema.market.slug });
       await tx.insert(schema.pricePoint).values({ marketId: m.id, yesPrice: p.toFixed(5) });
