@@ -100,6 +100,7 @@ function RecurringCard({
             }
           })
         }
+        suppressHydrationWarning // clock-derived label — SSR/CSR instants differ
         className="mt-auto h-9 rounded-lg bg-brand text-brand-on text-[13px] font-semibold hover:bg-brand-strong transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
       >
         {pending ? "…" : ready ? t.claimNow : waitLabel(remaining - 30_000, t)}
@@ -144,6 +145,7 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
         <div className="text-[12.5px] text-mute mt-0.5">{t.adDesc}</div>
       </div>
       <button
+        suppressHydrationWarning // clock-derived label
         disabled={!ready || pending}
         onClick={startAd}
         className="mt-auto h-9 rounded-lg bg-brand text-brand-on text-[13px] font-semibold hover:bg-brand-strong transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 inline-flex items-center justify-center gap-1.5"
