@@ -203,15 +203,16 @@ export function GroupTrade({
           )}
         </div>
 
-        {/* On phones the ticket sits right under the options; on desktop it
-            lives in the sticky right column. */}
+        {/* On phones the ticket and rail (other markets, manage) sit right
+            under the options; on desktop they live in the sticky column. */}
         {ticket && <div className="mt-4 lg:hidden">{ticket}</div>}
+        <div className="mt-4 space-y-4 lg:hidden">{rail}</div>
 
         {left}
       </div>
 
-      <div className="space-y-4 lg:sticky lg:top-20 self-start">
-        {ticket && <div className="hidden lg:block">{ticket}</div>}
+      <div className="space-y-4 lg:sticky lg:top-20 self-start max-lg:hidden">
+        {ticket}
         {rail}
       </div>
     </div>

@@ -936,6 +936,47 @@ export async function getTopHolders(marketId: string, limit = 8) {
     .limit(limit);
 }
 
+// Largest open positions across a group's options — one row per trader showing
+// their dominant option. Feeds the Holders tab on group markets.
+export async function getGroupHolders(optionIds: string[], limit = 12) {
+  if (!optionIds.length) return [];
+  const rows = await db
+    .select({
+      username: schema.user.username,
+      name: schema.user.name,
+      image: schema.user.image,
+      marketId: schema.position.marketId,
+      yesShares: schema.position.yesShares,
+      noShares: schema.position.noShares,
+    })
+    .from(schema.position)
+    .innerJoin(schema.user, eq(schema.position.userId, schema.user.id))
+    .where(
+      and(
+        inArray(schema.position.marketId, optionIds),
+        sql`(${schema.position.yesShares}::numeric > 0.01 OR ${schema.position.noShares}::numeric > 0.01)`
+      )
+    );
+  const best = new Map<string, { username: string | null; name: string; image: string | null; marketId: string; side: "yes" | "no"; shares: number }>();
+  for (const r of rows) {
+    const yes = Number(r.yesShares);
+    const no = Number(r.noShares);
+    const shares = Math.max(yes, no);
+    const key = r.username ?? r.name;
+    const prev = best.get(key);
+    if (!prev || prev.shares < shares)
+      best.set(key, {
+        username: r.username,
+        name: r.name,
+        image: r.image,
+        marketId: r.marketId,
+        side: yes >= no ? "yes" : "no",
+        shares,
+      });
+  }
+  return [...best.values()].sort((a, b) => b.shares - a.shares).slice(0, limit);
+}
+
 // Public creator/last-resolver identity for the market context card.
 export async function getUserPublic(id: string | null | undefined) {
   if (!id) return null;

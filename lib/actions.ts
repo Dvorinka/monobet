@@ -609,6 +609,7 @@ export async function deleteCategory(input: { name: string }): Promise<{ ok: boo
 export async function proposeMarket(input: {
   question: string;
   description: string;
+  context?: string; // background shown in the Market context card
   imageUrl?: string; // market icon — URL or data:image from the form's cell
   category: string;
   newCategory?: string;
@@ -626,6 +627,7 @@ export async function proposeMarket(input: {
     if (question.length < 10) throw new Error("Question too short (min 10 chars)");
     if (question.length > 200) throw new Error("Question too long (max 200)");
     if (input.description.length > 5000) throw new Error("Description too long");
+    const context = (input.context ?? "").trim().slice(0, 2000);
     const b = LIQUIDITY_OPTIONS.includes(input.liquidity as 100) ? input.liquidity! : 300;
     const p = Math.min(0.97, Math.max(0.03, input.initialProb ?? 0.5));
     const description = input.description.trim();
@@ -669,6 +671,7 @@ export async function proposeMarket(input: {
             slug: slugify(question),
             question,
             description,
+            context,
             category,
             status: "live",
             kind: "group",
@@ -717,6 +720,7 @@ export async function proposeMarket(input: {
           slug: slugify(question),
           question,
           description,
+          context,
           category,
           status: "live",
           creatorId: u.id,
@@ -780,6 +784,7 @@ export async function updateMarket(input: {
   marketId: string;
   question: string;
   description: string;
+  context?: string;
   category: string;
   imageUrl?: string;
   closesAt?: string;
@@ -804,6 +809,7 @@ export async function updateMarket(input: {
       .set({
         question,
         description: input.description.trim(),
+        context: input.context !== undefined ? input.context.trim().slice(0, 2000) : m[0].context,
         category: input.category,
         imageUrl: input.imageUrl !== undefined ? input.imageUrl.trim() || null : m[0].imageUrl,
         closesAt: input.closesAt ? new Date(input.closesAt) : null,
