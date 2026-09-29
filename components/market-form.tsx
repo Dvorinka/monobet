@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button, Input, Select, Textarea, Card, Segmented } from "@/components/ui/primitives";
@@ -26,9 +26,12 @@ export function MarketForm({
     { b: 300, label: t.liqStandard, hint: t.liqStandardHint },
     { b: 900, label: t.liqDeep, hint: t.liqDeepHint },
   ] as const;
-  const [marketType, setMarketType] = useState<"binary" | "multi">("binary");
+  const [marketType, setMarketType] = useState<"binary" | "multi" | "range">("binary");
   const [question, setQuestion] = useState("");
   const [optionsText, setOptionsText] = useState("");
+  const [rangeMin, setRangeMin] = useState("0");
+  const [rangeMax, setRangeMax] = useState("100");
+  const [rangeStep, setRangeStep] = useState("10");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<string>(categories[0] ?? NEW_CATEGORY);
   const [newCategory, setNewCategory] = useState("");
@@ -40,10 +43,30 @@ export function MarketForm({
   const [pending, start] = useTransition();
   const router = useRouter();
 
-  const optionLines = optionsText.split("\n").map((o) => o.trim()).filter(Boolean);
+  // Range markets are group markets whose options are generated numeric
+  // buckets — same AMM and resolution path, just a label convention.
+  const rangeLo = parseFloat(rangeMin);
+  const rangeHi = parseFloat(rangeMax);
+  const rangeSt = parseFloat(rangeStep);
+  const rangeBuckets = useMemo(() => {
+    if (marketType !== "range" || !Number.isFinite(rangeLo) || !Number.isFinite(rangeHi) || !Number.isFinite(rangeSt))
+      return [] as string[];
+    if (rangeSt <= 0 || rangeHi <= rangeLo) return [] as string[];
+    const n = Math.ceil((rangeHi - rangeLo) / rangeSt);
+    if (n < 2 || n > 12) return [] as string[];
+    const fmt = (x: number) => String(Math.round(x * 100) / 100);
+    return Array.from({ length: n }, (_, i) => {
+      const lo = rangeLo + i * rangeSt;
+      const hi = Math.min(rangeHi, lo + rangeSt);
+      return `${fmt(lo)} – ${fmt(hi)}`;
+    });
+  }, [marketType, rangeLo, rangeHi, rangeSt]);
+
+  const manualLines = optionsText.split("\n").map((o) => o.trim()).filter(Boolean);
+  const optionLines = marketType === "range" ? rangeBuckets : manualLines;
   // Display label is the part before the optional "| image-url".
   const optionLabels = optionLines.map((l) => l.split("|")[0].trim());
-  const multi = marketType === "multi";
+  const multi = marketType !== "binary";
   // Multi-option odds default to a uniform split — e.g. ~17% for 6 options.
   const uniformOdds = optionLines.length > 0 ? Math.max(1, Math.min(99, Math.round(100 / optionLines.length))) : 50;
   const probFor = (i: number) => optionOdds[i] ?? uniformOdds;
@@ -63,7 +86,7 @@ export function MarketForm({
               closesAt: closesAt || undefined,
               initialProb: odds / 100,
               liquidity,
-              outcomes: multi ? optionLines : undefined,
+              outcomes: multi ? optionLines : undefined, // range buckets arrive as ordinary options
               optionProbs: multi ? optionLines.map((_, i) => probFor(i)) : undefined,
               recurDays: multi ? undefined : Number(recurDays),
             });
@@ -81,12 +104,13 @@ export function MarketForm({
             options={[
               { value: "binary", label: t.typeBinary },
               { value: "multi", label: t.typeMulti },
+              { value: "range", label: t.typeRange },
             ]}
             value={marketType}
-            onChange={(v) => setMarketType(v as "binary" | "multi")}
+            onChange={(v) => setMarketType(v as "binary" | "multi" | "range")}
           />
           <p className="mt-1.5 text-[11.5px] text-faint">
-            {multi ? t.multiHint : t.binaryHint}
+            {marketType === "range" ? t.rangeHint : multi ? t.multiHint : t.binaryHint}
           </p>
         </div>
 
@@ -108,7 +132,30 @@ export function MarketForm({
           </p>
         </div>
 
-        {multi && (
+        {marketType === "range" && (
+          <div>
+            <label className="text-[13px] font-medium text-mute">{t.rangeBounds}</label>
+            <div className="mt-1.5 grid grid-cols-3 gap-2">
+              <Input value={rangeMin} onChange={(e) => setRangeMin(e.target.value)} placeholder={t.rangeMin} inputMode="decimal" />
+              <Input value={rangeMax} onChange={(e) => setRangeMax(e.target.value)} placeholder={t.rangeMax} inputMode="decimal" />
+              <Input value={rangeStep} onChange={(e) => setRangeStep(e.target.value)} placeholder={t.rangeStep} inputMode="decimal" />
+            </div>
+            <p className="mt-1 text-[11.5px] text-faint">
+              {rangeBuckets.length >= 2
+                ? t.rangePreview(rangeBuckets.length)
+                : t.rangeInvalid}
+            </p>
+            {rangeBuckets.length >= 2 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {rangeBuckets.map((b) => (
+                  <span key={b} className="rounded-md bg-surface-2 px-2 py-1 text-[11.5px] font-semibold text-mute">{b}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {marketType === "multi" && (
           <div>
             <label className="text-[13px] font-medium text-mute" htmlFor="opts">
               {t.optionsLabel}
