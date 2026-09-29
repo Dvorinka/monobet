@@ -2,9 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useSyncExternalStore } from "react";
-import { Globe } from "lucide-react";
 import { getT, isLang, LANG_COOKIE, LANGS, type Lang } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
 
 function readLang(): Lang {
   const m = document.cookie.match(new RegExp(`(?:^|; )${LANG_COOKIE}=([^;]*)`));
@@ -13,36 +11,26 @@ function readLang(): Lang {
 
 const noop = () => () => {};
 
+// Single compact button — cycles the language list instead of rendering a pill
+// per option, since there's only ever two.
 export function LangToggle() {
   const router = useRouter();
   const lang = useSyncExternalStore(noop, readLang, () => "en" as Lang);
   const t = getT(lang);
+  const next = LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length];
 
   return (
-    <div
-      className="inline-flex items-center gap-0.5 h-9 rounded-full border border-line bg-surface p-0.5"
-      role="group"
+    <button
+      type="button"
       aria-label={t.language}
       title={t.language}
+      onClick={() => {
+        document.cookie = `${LANG_COOKIE}=${next};path=/;max-age=31536000;SameSite=Lax`;
+        router.refresh();
+      }}
+      className="size-9 grid place-items-center rounded-lg text-[11px] font-bold uppercase tracking-wide text-mute hover:text-ink hover:bg-surface-2 transition cursor-pointer"
     >
-      <Globe className="size-3.5 text-faint ml-1.5 mr-0.5" aria-hidden />
-      {LANGS.map((l) => (
-        <button
-          key={l}
-          type="button"
-          aria-pressed={lang === l}
-          onClick={() => {
-            document.cookie = `${LANG_COOKIE}=${l};path=/;max-age=31536000;SameSite=Lax`;
-            router.refresh();
-          }}
-          className={cn(
-            "h-7 px-2 rounded-full text-[11px] font-bold uppercase tracking-wide cursor-pointer transition-colors",
-            lang === l ? "bg-brand text-brand-on" : "text-mute hover:text-ink"
-          )}
-        >
-          {l === "cs" ? "CZ" : "EN"}
-        </button>
-      ))}
-    </div>
+      {lang === "cs" ? "CZ" : "EN"}
+    </button>
   );
 }

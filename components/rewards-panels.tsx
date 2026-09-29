@@ -147,7 +147,7 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
 
       {open && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => adDone && setOpen(false)}>
-          <div className="w-full max-w-md rounded-2xl overflow-hidden border border-line bg-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-3xl rounded-2xl overflow-hidden border border-line bg-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="relative aspect-video">
               <iframe key={adKey} src="/ads/player.html" className="absolute inset-0 w-full h-full border-0" title="Ad" />
               <div className="absolute bottom-0 inset-x-0 h-1 bg-white/10">

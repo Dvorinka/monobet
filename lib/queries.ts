@@ -847,3 +847,19 @@ export async function getSquads() {
     .filter((s) => s.memberCount > 0)
     .sort((a, b) => b.netWorthCents - a.netWorthCents);
 }
+
+// Pending squad invites addressed to a user — shown on their own profile.
+export async function getSquadInvites(userId: string) {
+  return db
+    .select({
+      id: schema.squadInvite.id,
+      squadName: schema.squad.name,
+      inviterName: schema.user.username,
+      createdAt: schema.squadInvite.createdAt,
+    })
+    .from(schema.squadInvite)
+    .innerJoin(schema.squad, eq(schema.squadInvite.squadId, schema.squad.id))
+    .innerJoin(schema.user, eq(schema.squadInvite.inviterId, schema.user.id))
+    .where(eq(schema.squadInvite.inviteeId, userId))
+    .orderBy(desc(schema.squadInvite.createdAt));
+}

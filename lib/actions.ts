@@ -1788,7 +1788,76 @@ export async function joinSquad(name: string): Promise<{ ok: boolean; error?: st
 export async function leaveSquad(): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
-    await db.update(schema.user).set({ squadId: null }).where(eq(schema.user.id, u.id));
+    await db.transaction(async (tx) => {
+      await tx.update(schema.user).set({ squadId: null }).where(eq(schema.user.id, u.id));
+      await tx.delete(schema.squadInvite).where(eq(schema.squadInvite.inviteeId, u.id));
+    });
+    revalidatePath("/leaderboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
+// Invite a user by username — lands on their profile's squad card plus a
+// notification. Accepting joins the squad and clears all pending invites.
+export async function inviteToSquad(username: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const [me] = await db
+      .select({ squadId: schema.user.squadId })
+      .from(schema.user)
+      .where(eq(schema.user.id, u.id))
+      .limit(1);
+    if (!me?.squadId) throw new Error("Join a squad first");
+    const name = username.trim().replace(/^@/, "");
+    const [target] = await db
+      .select({ id: schema.user.id, username: schema.user.username, squadId: schema.user.squadId, balanceCents: schema.user.balanceCents })
+      .from(schema.user)
+      .where(sql`lower(${schema.user.username}) = lower(${name})`)
+      .limit(1);
+    if (!target) throw new Error("No such user");
+    if (target.id === u.id) throw new Error("That's you");
+    if (target.squadId === me.squadId) throw new Error("Already in your squad");
+    const [sq] = await db.select().from(schema.squad).where(eq(schema.squad.id, me.squadId)).limit(1);
+    await db
+      .insert(schema.squadInvite)
+      .values({ squadId: me.squadId, inviterId: u.id, inviteeId: target.id })
+      .onConflictDoNothing();
+    await db.insert(schema.ledger).values({
+      userId: target.id,
+      balanceAfterCents: target.balanceCents,
+      kind: "notify",
+      amountCents: 0,
+      memo: `@${u.username ?? u.name} invited you to squad “${sq.name}” — see your profile`,
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
+export async function respondSquadInvite(input: {
+  inviteId: string;
+  accept: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    await db.transaction(async (tx) => {
+      const [inv] = await tx
+        .select()
+        .from(schema.squadInvite)
+        .where(and(eq(schema.squadInvite.id, input.inviteId), eq(schema.squadInvite.inviteeId, u.id)))
+        .limit(1)
+        .for("update");
+      if (!inv) throw new Error("Invite not found");
+      if (input.accept) {
+        await tx.update(schema.user).set({ squadId: inv.squadId }).where(eq(schema.user.id, u.id));
+        await tx.delete(schema.squadInvite).where(eq(schema.squadInvite.inviteeId, u.id));
+      } else {
+        await tx.delete(schema.squadInvite).where(eq(schema.squadInvite.id, inv.id));
+      }
+    });
     revalidatePath("/leaderboard");
     return { ok: true };
   } catch (e) {
