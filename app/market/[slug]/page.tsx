@@ -16,6 +16,8 @@ import {
   marketYesPrice,
 } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
+import { getLang } from "@/lib/lang-server";
+import { getT, type Dict } from "@/lib/i18n";
 import { fmtMarks, fmtDate, fmtShares, fmtCents } from "@/lib/money";
 import { PriceChart } from "@/components/price-chart";
 import { LiveRefresher } from "@/components/live-refresher";
@@ -45,7 +47,8 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
   const market = await getMarketBySlug(slug);
   if (!market) notFound();
 
-  const user = await getCurrentUser();
+  const [user, lang] = await Promise.all([getCurrentUser(), getLang()]);
+  const t = getT(lang);
   // Pending markets are only visible to admin and their proposer.
   if (market.status === "pending" || market.status === "rejected") {
     const canSee = user && (user.role === "admin" || user.id === market.creatorId);
@@ -59,7 +62,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
       getComments(market.id),
       getRelatedMarkets(market.id, market.category),
     ]);
-    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} />;
+    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} />;
   }
 
   const parent = market.parentId ? await getMarketById(market.parentId) : null;
@@ -82,7 +85,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
     <div className="mx-auto max-w-6xl px-4 pt-5">
       {market.status === "live" && <LiveRefresher intervalMs={8000} />}
       <div className="text-[12.5px] text-mute font-medium">
-        <Link href="/" className="hover:text-ink">Markets</Link>
+        <Link href="/" className="hover:text-ink">{t.markets}</Link>
         <span className="mx-1.5">/</span>
         <Link href={`/?cat=${market.category}`} className="hover:text-ink">{market.category}</Link>
         {parent && (
@@ -108,22 +111,22 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             </h1>
             {market.status === "resolved" && (
               <Badge tone={market.outcome === "yes" ? "yes" : "no"} className="mt-1.5">
-                Resolved {market.outcome?.toUpperCase()}
+                {t.resolved} {(market.outcome === "yes" ? t.yes : t.no).toUpperCase()}
               </Badge>
             )}
-            {market.status === "cancelled" && <Badge tone="mute" className="mt-1.5">Cancelled</Badge>}
-            {market.status === "pending" && <Badge tone="warn" className="mt-1.5">Pending approval</Badge>}
-            {market.status === "rejected" && <Badge tone="no" className="mt-1.5">Rejected</Badge>}
+            {market.status === "cancelled" && <Badge tone="mute" className="mt-1.5">{t.cancelled}</Badge>}
+            {market.status === "pending" && <Badge tone="warn" className="mt-1.5">{t.pendingApproval}</Badge>}
+            {market.status === "rejected" && <Badge tone="no" className="mt-1.5">{t.rejected}</Badge>}
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[12.5px] text-mute font-medium">
-            <span className="num">{fmtMarks(market.volumeCents)} volume</span>
+            <span className="num">{fmtMarks(market.volumeCents, { lang })} {t.volume}</span>
             <span className="inline-flex items-center gap-1.5">
-              <Users className="size-3.5" /> {market.traderCount} traders
+              <Users className="size-3.5" /> {market.traderCount} {t.tradersW}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Clock className="size-3.5" />
-              {market.closesAt ? `Closes ${fmtDate(market.closesAt)}` : "No close date"}
+              {market.closesAt ? `${t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
             </span>
           </div>
 
@@ -135,15 +138,14 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
                 <XCircle className="size-5 text-no shrink-0" />
               )}
               <p className="text-sm">
-                This market resolved <strong>{market.outcome?.toUpperCase()}</strong> on{" "}
-                {fmtDate(market.resolvedAt)}. Winning shares paid out Ɱ1.00 each automatically.
+                {t.resolvedBanner((market.outcome === "yes" ? t.yes : t.no).toUpperCase(), fmtDate(market.resolvedAt, lang))}
               </p>
             </div>
           )}
           {market.status === "pending" && (
             <div className="mt-5 rounded-[14px] border border-dashed border-line p-4 flex items-center gap-3">
               <Hourglass className="size-5 text-amber-600 shrink-0" />
-              <p className="text-sm text-mute">Waiting for an admin to approve this market before trading opens.</p>
+              <p className="text-sm text-mute">{t.pendingBanner}</p>
             </div>
           )}
 
@@ -159,7 +161,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
           {market.description && (
             <div className="mt-8">
               <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
-                <Scale className="size-4" /> Rules
+                <Scale className="size-4" /> {t.rules}
               </h2>
               <p className="text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">{market.description}</p>
             </div>
@@ -167,7 +169,8 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
 
           <div className="mt-8">
             <MarketTabs
-              activity={<ActivityFeed trades={trades} />}
+              lang={lang}
+              activity={<ActivityFeed trades={trades} lang={lang} />}
               comments={
                 <Comments
                   marketId={market.id}
@@ -175,6 +178,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
                   signedIn={!!user}
                   currentUserId={user?.id}
                   isAdmin={user?.role === "admin"}
+                  lang={lang}
                 />
               }
               commentCount={comments.length}
@@ -195,27 +199,28 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             userBalanceCents={user?.balanceCents ?? null}
             heldYes={heldYes}
             heldNo={heldNo}
+            lang={lang}
           />
 
           {(heldYes > 0.001 || heldNo > 0.001) && (
             <Card className="p-4 anim-rise">
-              <h3 className="text-[13px] font-semibold text-mute uppercase tracking-wide">Your position</h3>
+              <h3 className="text-[13px] font-semibold text-mute uppercase tracking-wide">{t.yourPosition}</h3>
               <div className="mt-2.5 space-y-1.5 text-sm">
                 {heldYes > 0.001 && (
                   <div className="flex justify-between">
-                    <span className="text-yes-strong font-semibold">Yes</span>
-                    <span className="num">{fmtShares(heldYes)} shares</span>
+                    <span className="text-yes-strong font-semibold">{t.yes}</span>
+                    <span className="num">{fmtShares(heldYes, lang)} {t.sharesUnit}</span>
                   </div>
                 )}
                 {heldNo > 0.001 && (
                   <div className="flex justify-between">
-                    <span className="text-no-strong font-semibold">No</span>
-                    <span className="num">{fmtShares(heldNo)} shares</span>
+                    <span className="text-no-strong font-semibold">{t.no}</span>
+                    <span className="num">{fmtShares(heldNo, lang)} {t.sharesUnit}</span>
                   </div>
                 )}
                 <div className="flex justify-between pt-1.5 border-t border-line-2">
-                  <span className="text-mute">Current value</span>
-                  <span className="num font-bold">{fmtMarks(posValue)}</span>
+                  <span className="text-mute">{t.currentValue}</span>
+                  <span className="num font-bold">{fmtMarks(posValue, { lang })}</span>
                 </div>
               </div>
             </Card>
@@ -225,10 +230,10 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
 
       {related.length > 0 && (
         <div className="mt-12 border-t border-line pt-8">
-          <h2 className="text-[15px] font-bold tracking-tight mb-4">More {market.category} markets</h2>
+          <h2 className="text-[15px] font-bold tracking-tight mb-4">{t.moreMarkets(market.category)}</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {related.map((m, i) => (
-              <MarketCard key={m.id} market={m} spark={relatedSparks.get(m.id) ?? []} index={i} />
+              <MarketCard key={m.id} market={m} spark={relatedSparks.get(m.id) ?? []} index={i} lang={lang} />
             ))}
           </div>
         </div>
@@ -246,6 +251,7 @@ async function GroupMarketView({
   comments,
   related,
   user,
+  lang,
 }: {
   market: Awaited<ReturnType<typeof getMarketBySlug>> & object;
   options: Awaited<ReturnType<typeof getGroupOptions>>;
@@ -253,7 +259,9 @@ async function GroupMarketView({
   comments: Awaited<ReturnType<typeof getComments>>;
   related: Awaited<ReturnType<typeof getRelatedMarkets>>;
   user: Awaited<ReturnType<typeof getCurrentUser>>;
+  lang: "en" | "cs";
 }) {
+  const t: Dict = getT(lang);
   const relatedSparks = await getSparklines(related.map((m) => m.id));
   const optionSparks = await getSparklines(options.map((o) => o.id));
   const live = options.filter((o) => o.status === "live");
@@ -266,11 +274,11 @@ async function GroupMarketView({
     <div className="mx-auto max-w-6xl px-4 pt-5">
       {anyLive && <LiveRefresher intervalMs={8000} />}
       <div className="text-[12.5px] text-mute font-medium">
-        <Link href="/" className="hover:text-ink">Markets</Link>
+        <Link href="/" className="hover:text-ink">{t.markets}</Link>
         <span className="mx-1.5">/</span>
         <Link href={`/?cat=${market.category}`} className="hover:text-ink">{market.category}</Link>
         <span className="mx-1.5">/</span>
-        <span className="text-ink-2">{options.length} options</span>
+        <span className="text-ink-2">{options.length} {t.options}</span>
       </div>
 
       <div className="mt-6 flex items-start gap-4">
@@ -280,17 +288,17 @@ async function GroupMarketView({
             {market.question}
           </h1>
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[12.5px] text-mute font-medium">
-            <span className="num">{fmtMarks(volume)} volume</span>
+            <span className="num">{fmtMarks(volume, { lang })} {t.volume}</span>
             <span className="inline-flex items-center gap-1.5">
-              <Users className="size-3.5" /> {traders} traders
+              <Users className="size-3.5" /> {traders} {t.tradersW}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Clock className="size-3.5" />
-              {market.closesAt ? `Closes ${fmtDate(market.closesAt)}` : "No close date"}
+              {market.closesAt ? `${t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
             </span>
             {anyLive && (
               <Badge tone="yes" className="uppercase">
-                <span className="live-dot" /> Live
+                <span className="live-dot" /> {t.live}
               </Badge>
             )}
           </div>
@@ -299,10 +307,10 @@ async function GroupMarketView({
 
       <div className="mt-8 rounded-[14px] border border-line bg-surface overflow-hidden">
         <div className="grid grid-cols-[1fr_auto_auto_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-2.5 border-b border-line text-[11px] font-semibold uppercase tracking-wide text-faint">
-          <span>Option</span>
-          <span className="hidden sm:block text-right">Volume</span>
-          <span className="hidden sm:block text-right">Traders</span>
-          <span className="text-right">Chance</span>
+          <span>{t.option}</span>
+          <span className="hidden sm:block text-right">{t.volume}</span>
+          <span className="hidden sm:block text-right">{t.tradersW}</span>
+          <span className="text-right">{t.chance}</span>
           <span className="hidden sm:block" />
         </div>
         <div className="divide-y divide-line-2">
@@ -318,30 +326,30 @@ async function GroupMarketView({
                   <span className="text-[14px] font-semibold text-ink truncate">{o.label}</span>
                   <Sparkline points={optionSparks.get(o.id) ?? []} className="hidden md:block shrink-0 opacity-80" />
                 </span>
-                <span className="num hidden sm:block text-right text-[12.5px] text-mute">{fmtMarks(o.volumeCents)}</span>
+                <span className="num hidden sm:block text-right text-[12.5px] text-mute">{fmtMarks(o.volumeCents, { lang })}</span>
                 <span className="num hidden sm:block text-right text-[12.5px] text-mute">{o.traderCount}</span>
                 <span className={cn("num text-right text-[15px] font-bold", py >= 0.5 ? "text-yes" : "text-ink")}>
                   {Math.round(py * 100)}%
                 </span>
                 <span className="hidden sm:grid grid-cols-2 gap-1.5">
                   <span className="num grid place-items-center h-8 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold">
-                    Yes {fmtCents(py)}
+                    {t.yes} {fmtCents(py)}
                   </span>
                   <span className="num grid place-items-center h-8 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold">
-                    No {fmtCents(1 - py)}
+                    {t.no} {fmtCents(1 - py)}
                   </span>
                 </span>
               </Link>
             );
           })}
           {live.length === 0 && (
-            <p className="px-4 py-6 text-[13px] text-mute">All options are closed.</p>
+            <p className="px-4 py-6 text-[13px] text-mute">{t.allClosed}</p>
           )}
         </div>
         {closed.length > 0 && (
           <details className="border-t border-line">
             <summary className="cursor-pointer list-none px-4 py-3 text-[13px] font-semibold text-mute hover:text-ink select-none">
-              View resolved ({closed.length})
+              {t.viewResolved(closed.length)}
             </summary>
             <div className="divide-y divide-line-2 border-t border-line-2">
               {closed.map((o) => (
@@ -351,9 +359,11 @@ async function GroupMarketView({
                   className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors"
                 >
                   <span className="text-[14px] font-medium text-mute truncate flex-1">{o.label}</span>
-                  <span className="num text-[12px] text-faint">{fmtMarks(o.volumeCents)} Vol.</span>
+                  <span className="num text-[12px] text-faint">{fmtMarks(o.volumeCents, { lang })} {t.vol}</span>
                   <Badge tone={o.status === "resolved" ? (o.outcome === "yes" ? "yes" : "no") : "mute"}>
-                    {o.status === "resolved" ? `${o.outcome?.toUpperCase()} won` : "Cancelled"}
+                    {o.status === "resolved"
+                      ? `${(o.outcome === "yes" ? t.yes : t.no).toUpperCase()} ${t.won}`
+                      : t.cancelled}
                   </Badge>
                 </Link>
               ))}
@@ -365,7 +375,7 @@ async function GroupMarketView({
       {market.description && (
         <div className="mt-8">
           <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
-            <Scale className="size-4" /> Rules
+            <Scale className="size-4" /> {t.rules}
           </h2>
           <p className="text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">{market.description}</p>
         </div>
@@ -373,7 +383,8 @@ async function GroupMarketView({
 
       <div className="mt-8">
         <MarketTabs
-          activity={<ActivityFeed trades={trades} />}
+          lang={lang}
+          activity={<ActivityFeed trades={trades} lang={lang} />}
           comments={
             <Comments
               marketId={market.id}
@@ -381,6 +392,7 @@ async function GroupMarketView({
               signedIn={!!user}
               currentUserId={user?.id}
               isAdmin={user?.role === "admin"}
+              lang={lang}
             />
           }
           commentCount={comments.length}
@@ -390,10 +402,10 @@ async function GroupMarketView({
 
       {related.length > 0 && (
         <div className="mt-12 border-t border-line pt-8">
-          <h2 className="text-[15px] font-bold tracking-tight mb-4">More {market.category} markets</h2>
+          <h2 className="text-[15px] font-bold tracking-tight mb-4">{t.moreMarkets(market.category)}</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {related.map((m, i) => (
-              <MarketCard key={m.id} market={m} spark={relatedSparks.get(m.id) ?? []} index={i} />
+              <MarketCard key={m.id} market={m} spark={relatedSparks.get(m.id) ?? []} index={i} lang={lang} />
             ))}
           </div>
         </div>

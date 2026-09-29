@@ -2,11 +2,13 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
+import { getT, type Lang } from "@/lib/i18n";
 
-export function SearchBox() {
+export function SearchBox({ lang }: { lang?: Lang }) {
   const router = useRouter();
   const params = useSearchParams();
   const q = params.get("q") ?? "";
+  const t = getT(lang ?? "en");
 
   return (
     <form
@@ -24,7 +26,7 @@ export function SearchBox() {
       <input
         key={q}
         defaultValue={q}
-        placeholder="Search markets"
+        placeholder={t.search}
         className="h-9 w-full rounded-full border border-transparent bg-surface-2 pl-9 pr-3 text-sm text-ink placeholder:text-faint transition-all focus:bg-surface focus:border-brand/40 focus:ring-2 focus:ring-brand/20 focus:outline-none"
       />
     </form>

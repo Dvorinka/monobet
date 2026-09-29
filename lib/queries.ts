@@ -9,6 +9,27 @@ export function marketYesPrice(m: MarketRow): number {
   return yesPrice(Number(m.qYes), Number(m.qNo), m.b);
 }
 
+export async function listCategories() {
+  const rows = await db
+    .select()
+    .from(schema.category)
+    .orderBy(asc(schema.category.sortIndex), asc(schema.category.createdAt));
+  return rows.map((r) => r.name);
+}
+
+// Categories with their market count — for the admin manager (deleting is
+// only allowed when a category is empty).
+export async function listCategoryRows() {
+  const rows = await db
+    .select({
+      name: schema.category.name,
+      markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.category} = ${schema.category.name})`,
+    })
+    .from(schema.category)
+    .orderBy(asc(schema.category.sortIndex), asc(schema.category.createdAt));
+  return rows;
+}
+
 export async function listMarkets(opts: {
   category?: string;
   q?: string;

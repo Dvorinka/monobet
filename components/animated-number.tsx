@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtMarks } from "@/lib/money";
+import type { Lang } from "@/lib/i18n";
 
 // Tweens a number toward its target with easeOutCubic. Used so live-refresh
 // price updates glide instead of snapping.
@@ -38,7 +39,7 @@ export function AnimatedPct({ value, className }: { value: number; className?: s
 }
 
 // Marks balance that glides between values on refresh.
-export function AnimatedMoney({ cents, className }: { cents: number; className?: string }) {
+export function AnimatedMoney({ cents, className, lang }: { cents: number; className?: string; lang?: Lang }) {
   const v = useTweenedNumber(cents);
-  return <span className={className}>{fmtMarks(Math.round(v))}</span>;
+  return <span className={className}>{fmtMarks(Math.round(v), { lang })}</span>;
 }

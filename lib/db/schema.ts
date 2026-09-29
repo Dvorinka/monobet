@@ -70,21 +70,18 @@ export const verification = pgTable("verification", {
 
 // ---------- MonoMark tables ----------
 
-export const CATEGORIES = [
-  "Politics",
-  "Geopolitics",
-  "Sports",
-  "Crypto",
-  "Tech",
-  "Culture",
-  "Friends",
-  "Other",
-] as const;
-export type Category = (typeof CATEGORIES)[number];
-
 export type MarketStatus = "pending" | "live" | "resolved" | "cancelled" | "rejected";
 export type MarketOutcome = "yes" | "no";
 export type MarketKind = "binary" | "group" | "option";
+
+// User-creatable market categories — rows seeded by drizzle/0004_categories.sql;
+// anyone can add one when creating a market, admins rename/delete in /admin.
+export const category = pgTable("category", {
+  name: text("name").primaryKey(),
+  sortIndex: integer("sort_index").notNull().default(0),
+  creatorId: text("creator_id").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const market = pgTable(
   "market",

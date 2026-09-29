@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { fmtMarks } from "@/lib/money";
 import { cn } from "@/lib/utils";
+import { getT, type Lang } from "@/lib/i18n";
 import type { getGlobalTrades } from "@/lib/queries";
 
 type T = Awaited<ReturnType<typeof getGlobalTrades>>[number];
 
 // Scrolling "live bets" tape — pure CSS marquee, duplicated once for a
 // seamless loop. Pauses on hover; each item links to its market.
-export function TradeTicker({ trades }: { trades: T[] }) {
+export function TradeTicker({ trades, lang }: { trades: T[]; lang?: Lang }) {
+  const tt = getT(lang ?? "en");
   if (trades.length === 0) return null;
   const items = [...trades, ...trades];
   return (
@@ -22,16 +24,16 @@ export function TradeTicker({ trades }: { trades: T[] }) {
           >
             <span className={cn("size-1.5 rounded-full", t.side === "buy" ? "bg-yes" : "bg-no")} />
             <span className="font-semibold text-ink-2">@{t.username ?? t.name}</span>
-            <span className="text-mute">{t.side === "buy" ? "bought" : "sold"}</span>
+            <span className="text-mute">{t.side === "buy" ? tt.bought : tt.sold}</span>
             <span
               className={cn(
                 "font-bold",
                 t.outcome === "yes" ? "text-yes-strong" : "text-no-strong"
               )}
             >
-              {t.outcome.toUpperCase()}
+              {(t.outcome === "yes" ? tt.yes : tt.no).toUpperCase()}
             </span>
-            <span className="num font-semibold text-ink">{fmtMarks(t.amountCents)}</span>
+            <span className="num font-semibold text-ink">{fmtMarks(t.amountCents, { lang })}</span>
             <span className="text-faint max-w-52 truncate group-hover:text-mute transition-colors">
               {t.question}
             </span>

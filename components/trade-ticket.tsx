@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Segmented, Button } from "@/components/ui/primitives";
 import { sharesForSpend, tradeCost, yesPrice } from "@/lib/lmsr";
 import { fmtMarks, fmtCents, fmtShares } from "@/lib/money";
+import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { placeTrade } from "@/lib/actions";
 
@@ -20,6 +21,7 @@ export function TradeTicket({
   signedIn,
   heldYes,
   heldNo,
+  lang,
 }: {
   marketId: string;
   qYes: number;
@@ -30,12 +32,14 @@ export function TradeTicket({
   signedIn: boolean;
   heldYes: number;
   heldNo: number;
+  lang?: Lang;
 }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [outcome, setOutcome] = useState<"yes" | "no">("yes");
   const [amount, setAmount] = useState("");
   const [pending, start] = useTransition();
   const router = useRouter();
+  const t = getT(lang ?? "en");
 
   const py = yesPrice(qYes, qNo, b);
   const held = outcome === "yes" ? heldYes : heldNo;
@@ -58,10 +62,10 @@ export function TradeTicket({
   if (!signedIn) {
     return (
       <div className="rounded-[14px] border border-line bg-surface p-5 text-center">
-        <p className="text-sm font-medium text-ink">Log in to trade this market</p>
-        <p className="text-[13px] text-mute mt-1">You get Ɱ1,000 in play money on signup.</p>
+        <p className="text-sm font-medium text-ink">{t.loginToTrade}</p>
+        <p className="text-[13px] text-mute mt-1">{t.signupBonusNote}</p>
         <Link href="/login">
-          <Button className="mt-4 w-full">Log in / Sign up</Button>
+          <Button className="mt-4 w-full">{t.loginSignup}</Button>
         </Link>
       </div>
     );
@@ -71,8 +75,8 @@ export function TradeTicket({
     <div className="rounded-[14px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(16,16,20,0.04)]">
       <Segmented
         options={[
-          { value: "buy", label: "Buy" },
-          { value: "sell", label: "Sell" },
+          { value: "buy", label: t.buy },
+          { value: "sell", label: t.sell },
         ]}
         value={side}
         onChange={(v) => {
@@ -84,8 +88,8 @@ export function TradeTicket({
       <div className="mt-3">
         <Segmented
           options={[
-            { value: "yes", label: `Yes ${fmtCents(py)}`, tone: "yes" },
-            { value: "no", label: `No ${fmtCents(1 - py)}`, tone: "no" },
+            { value: "yes", label: `${t.yes} ${fmtCents(py)}`, tone: "yes" },
+            { value: "no", label: `${t.no} ${fmtCents(1 - py)}`, tone: "no" },
           ]}
           value={outcome}
           onChange={setOutcome}
@@ -94,9 +98,9 @@ export function TradeTicket({
 
       <div className="mt-4">
         <div className="flex items-center justify-between text-[13px] font-medium text-mute">
-          <label htmlFor="amt">{side === "buy" ? "Amount" : "Shares"}</label>
+          <label htmlFor="amt">{side === "buy" ? t.amount : t.sharesLabel}</label>
           <span className="num">
-            {side === "buy" ? `Balance ${fmtMarks(userBalanceCents ?? 0)}` : `Holding ${fmtShares(held)}`}
+            {side === "buy" ? `${t.balance} ${fmtMarks(userBalanceCents ?? 0, { lang })}` : `${t.holding} ${fmtShares(held, lang)}`}
           </span>
         </div>
         <div className="mt-1.5 relative">
@@ -131,19 +135,19 @@ export function TradeTicket({
             onClick={() => setAmount(side === "buy" ? String((userBalanceCents ?? 0) / 100) : held.toFixed(2))}
             className="flex-1 h-7 rounded-md bg-surface-2 text-[12px] font-semibold text-mute hover:bg-surface-3 hover:text-ink cursor-pointer"
           >
-            Max
+            {t.max}
           </button>
         </div>
       </div>
 
       {est && (
         <div className="mt-4 space-y-1.5 text-[13px]">
-          <Row k={side === "buy" ? "Est. shares" : "Selling"} v={fmtShares(est.shares)} />
-          <Row k="Avg. price" v={fmtCents(est.avg)} />
+          <Row k={side === "buy" ? t.estShares : t.selling} v={fmtShares(est.shares, lang)} />
+          <Row k={t.avgPrice} v={fmtCents(est.avg)} />
           {side === "buy" ? (
-            <Row k="To win" v={fmtMarks(est.toWin)} accent />
+            <Row k={t.toWin} v={fmtMarks(est.toWin, { lang })} accent />
           ) : (
-            <Row k="You receive" v={fmtMarks(est.toWin)} accent />
+            <Row k={t.youReceive} v={fmtMarks(est.toWin, { lang })} accent />
           )}
         </div>
       )}
@@ -163,8 +167,11 @@ export function TradeTicket({
               shares: side === "sell" ? sellShares : undefined,
             });
             if (r.ok) {
+              const oc = (outcome === "yes" ? t.yes : t.no).toUpperCase();
               toast.success(
-                `${side === "buy" ? "Bought" : "Sold"} ${fmtShares(r.shares)} ${outcome.toUpperCase()} for ${fmtMarks(r.costCents)}`
+                side === "buy"
+                  ? t.boughtToast(fmtShares(r.shares, lang), oc, fmtMarks(r.costCents, { lang }))
+                  : t.soldToast(fmtShares(r.shares, lang), oc, fmtMarks(r.costCents, { lang }))
               );
               setAmount("");
               router.refresh();
@@ -174,10 +181,12 @@ export function TradeTicket({
           })
         }
       >
-        {pending ? "Placing…" : side === "buy" ? `Buy ${outcome.toUpperCase()}` : `Sell ${outcome.toUpperCase()}`}
+        {pending
+          ? t.placing
+          : `${side === "buy" ? t.buy : t.sell} ${(outcome === "yes" ? t.yes : t.no).toUpperCase()}`}
       </Button>
 
-      <p className="mt-3 text-center text-[11px] text-faint">Play money only. Priced by automated market maker.</p>
+      <p className="mt-3 text-center text-[11px] text-faint">{t.playMoneyNote}</p>
     </div>
   );
 }

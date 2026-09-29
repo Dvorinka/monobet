@@ -5,19 +5,23 @@ import { useRouter } from "next/navigation";
 import { signOut } from "@/lib/auth-client";
 import { Avatar } from "@/components/ui/primitives";
 import { useEffect, useRef, useState } from "react";
+import { getT, type Lang } from "@/lib/i18n";
 
 export function UserMenu({
   name,
   username,
   role,
+  lang,
 }: {
   name: string;
   username: string | null;
   role: string;
+  lang?: Lang;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const t = getT(lang ?? "en");
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -34,7 +38,7 @@ export function UserMenu({
       <button
         onClick={() => setOpen((v) => !v)}
         className="rounded-full ring-2 ring-transparent hover:ring-line transition cursor-pointer"
-        aria-label="Account menu"
+        aria-label={t.accountMenu}
       >
         <Avatar name={username ?? name} />
       </button>
@@ -42,17 +46,17 @@ export function UserMenu({
         <div className="absolute right-0 top-11 w-52 rounded-xl border border-line bg-surface shadow-lg p-1.5 z-50 anim-rise">
           <div className="px-3.5 py-2 border-b border-line-2 mb-1">
             <div className="text-sm font-semibold truncate">@{username ?? name}</div>
-            <div className="text-xs text-mute">{role === "admin" ? "Admin" : "Trader"}</div>
+            <div className="text-xs text-mute">{role === "admin" ? t.admin : t.trader}</div>
           </div>
           <Link href="/portfolio" className={item} onClick={() => setOpen(false)}>
-            Portfolio
+            {t.portfolio}
           </Link>
           <Link href="/propose" className={item} onClick={() => setOpen(false)}>
-            New market
+            {t.newMarket}
           </Link>
           {role === "admin" && (
             <Link href="/admin" className={item} onClick={() => setOpen(false)}>
-              Admin panel
+              {t.adminPanel}
             </Link>
           )}
           <button
@@ -64,7 +68,7 @@ export function UserMenu({
               router.push("/");
             }}
           >
-            Log out
+            {t.logOut}
           </button>
         </div>
       )}

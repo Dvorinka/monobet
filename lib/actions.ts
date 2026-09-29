@@ -271,11 +271,98 @@ export async function grantBalance(input: {
 // Everyone can open a live market. The creator sets the starting odds and
 // liquidity; the LMSR takes it from there.
 const LIQUIDITY_OPTIONS = [100, 300, 900] as const;
+const NEW_CATEGORY = "__new__";
+
+function normalizeCategory(raw: string): string {
+  const s = raw.trim().replace(/\s+/g, " ");
+  if (!s) throw new Error("Category required");
+  if (s.length > 24) throw new Error("Category name too long (max 24)");
+  return s;
+}
+
+// Resolves the market's category: an existing one, or a brand-new user-defined
+// one created on the fly (case-insensitive dedupe).
+async function resolveCategory(tx: Tx, input: { category: string; newCategory?: string }, userId: string) {
+  if (input.category !== NEW_CATEGORY) return input.category;
+  const name = normalizeCategory(input.newCategory ?? "");
+  const [existing] = await tx
+    .select({ name: schema.category.name })
+    .from(schema.category)
+    .where(sql`lower(${schema.category.name}) = lower(${name})`)
+    .limit(1);
+  if (existing) return existing.name;
+  const [max] = await tx.select({ n: sql<number>`coalesce(max(${schema.category.sortIndex}),0)::int` }).from(schema.category);
+  await tx.insert(schema.category).values({ name, sortIndex: (max?.n ?? 0) + 1, creatorId: userId });
+  return name;
+}
+
+export async function createCategory(input: { name: string }): Promise<{ ok: boolean; error?: string; name?: string }> {
+  try {
+    const u = await requireUser();
+    const name = await db.transaction(async (tx) => {
+      const n = normalizeCategory(input.name);
+      const [existing] = await tx
+        .select({ name: schema.category.name })
+        .from(schema.category)
+        .where(sql`lower(${schema.category.name}) = lower(${n})`)
+        .limit(1);
+      if (existing) return existing.name;
+      const [max] = await tx.select({ n: sql<number>`coalesce(max(${schema.category.sortIndex}),0)::int` }).from(schema.category);
+      await tx.insert(schema.category).values({ name: n, sortIndex: (max?.n ?? 0) + 1, creatorId: u.id });
+      return n;
+    });
+    revalidatePath("/");
+    revalidatePath("/admin");
+    return { ok: true, name };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed to create category" };
+  }
+}
+
+export async function renameCategory(input: { from: string; to: string }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const to = normalizeCategory(input.to);
+    await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ name: schema.category.name })
+        .from(schema.category)
+        .where(sql`lower(${schema.category.name}) = lower(${to})`)
+        .limit(1);
+      if (existing && existing.name !== input.from) throw new Error("A category with that name exists");
+      await tx.update(schema.category).set({ name: to }).where(eq(schema.category.name, input.from));
+      await tx.update(schema.market).set({ category: to }).where(eq(schema.market.category, input.from));
+    });
+    revalidatePath("/");
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Rename failed" };
+  }
+}
+
+export async function deleteCategory(input: { name: string }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const [used] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.market)
+      .where(eq(schema.market.category, input.name));
+    if ((used?.n ?? 0) > 0) throw new Error(`Category is used by ${used.n} market(s)`);
+    await db.delete(schema.category).where(eq(schema.category.name, input.name));
+    revalidatePath("/");
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Delete failed" };
+  }
+}
 
 export async function proposeMarket(input: {
   question: string;
   description: string;
   category: string;
+  newCategory?: string;
   closesAt?: string;
   initialProb?: number;
   liquidity?: number;
@@ -298,6 +385,7 @@ export async function proposeMarket(input: {
     if (options.some((o) => o.length > 60)) throw new Error("Option labels max 60 chars");
 
     const slug = await db.transaction(async (tx) => {
+      const category = await resolveCategory(tx, input, u.id);
       if (options.length >= 2) {
         const [parent] = await tx
           .insert(schema.market)
@@ -305,7 +393,7 @@ export async function proposeMarket(input: {
             slug: slugify(question),
             question,
             description,
-            category: input.category,
+            category,
             status: "live",
             kind: "group",
             creatorId: u.id,
@@ -321,7 +409,7 @@ export async function proposeMarket(input: {
               slug: slugify(`${base} ${label}`),
               question: `${base} — ${label}?`,
               description,
-              category: input.category,
+              category,
               status: "live",
               kind: "option",
               parentId: parent.id,
@@ -345,7 +433,7 @@ export async function proposeMarket(input: {
           slug: slugify(question),
           question,
           description,
-          category: input.category,
+          category,
           status: "live",
           creatorId: u.id,
           b,

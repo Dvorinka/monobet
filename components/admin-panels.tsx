@@ -5,18 +5,19 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, Input, Select } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance } from "@/lib/actions";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory } from "@/lib/actions";
 import { fmtMarks, fmtDate } from "@/lib/money";
-import { Check, X, CircleCheck, Ban } from "lucide-react";
+import { getT, type Lang } from "@/lib/i18n";
+import { Check, X, CircleCheck, Ban, Pencil, Trash2 } from "lucide-react";
 
-function useAction() {
+function useAction(lang?: Lang) {
   const [pending, start] = useTransition();
   const router = useRouter();
   const run = (fn: () => Promise<{ ok: boolean; error?: string; paidOut?: number }>, ok: string) =>
     start(async () => {
       const r = await fn();
       if (r.ok) {
-        toast.success(r.paidOut ? `${ok} — paid out ${fmtMarks(r.paidOut)}` : ok);
+        toast.success(r.paidOut ? `${ok} — ${fmtMarks(r.paidOut, { lang })}` : ok);
         router.refresh();
       } else toast.error(r.error);
     });
@@ -25,11 +26,14 @@ function useAction() {
 
 export function PendingList({
   items,
+  lang,
 }: {
   items: { id: string; slug: string; question: string; category: string; createdAt: Date; username: string | null }[];
+  lang?: Lang;
 }) {
-  const { pending, run } = useAction();
-  if (items.length === 0) return <p className="p-4 text-sm text-mute">No proposals waiting.</p>;
+  const { pending, run } = useAction(lang);
+  const t = getT(lang ?? "en");
+  if (items.length === 0) return <p className="p-4 text-sm text-mute">{t.noPending}</p>;
   return (
     <div className="divide-y divide-line-2">
       {items.map((m) => (
@@ -39,14 +43,14 @@ export function PendingList({
               {m.question}
             </Link>
             <div className="text-[11.5px] text-faint mt-0.5">
-              {m.category} · by @{m.username ?? "?"} · {fmtDate(m.createdAt)}
+              {m.category} · {t.pendingBy} @{m.username ?? "?"} · {fmtDate(m.createdAt, lang)}
             </div>
           </div>
-          <Button size="sm" variant="yes" disabled={pending} onClick={() => run(() => approveMarket(m.id), "Market approved")}>
-            <Check className="size-3.5" /> Approve
+          <Button size="sm" variant="yes" disabled={pending} onClick={() => run(() => approveMarket(m.id), t.approvedToast)}>
+            <Check className="size-3.5" /> {t.approve}
           </Button>
-          <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => rejectMarket(m.id), "Rejected")}>
-            <X className="size-3.5" /> Reject
+          <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => rejectMarket(m.id), t.rejectedToast)}>
+            <X className="size-3.5" /> {t.reject}
           </Button>
         </div>
       ))}
@@ -56,11 +60,14 @@ export function PendingList({
 
 export function LiveMarketList({
   items,
+  lang,
 }: {
   items: { id: string; slug: string; question: string; category: string; volumeCents: number; traderCount: number; closesAt: Date | null }[];
+  lang?: Lang;
 }) {
-  const { pending, run } = useAction();
-  if (items.length === 0) return <p className="p-4 text-sm text-mute">No live markets.</p>;
+  const { pending, run } = useAction(lang);
+  const t = getT(lang ?? "en");
+  if (items.length === 0) return <p className="p-4 text-sm text-mute">{t.noLive}</p>;
   return (
     <div className="divide-y divide-line-2">
       {items.map((m) => (
@@ -71,7 +78,7 @@ export function LiveMarketList({
                 {m.question}
               </Link>
               <div className="text-[11.5px] text-faint mt-0.5">
-                {fmtMarks(m.volumeCents)} vol · {m.traderCount} traders · closes {fmtDate(m.closesAt)}
+                {fmtMarks(m.volumeCents, { lang })} {t.vol.toLowerCase()} · {m.traderCount} {t.tradersW} · {t.closes.toLowerCase()} {fmtDate(m.closesAt, lang)}
               </div>
             </div>
           </div>
@@ -80,28 +87,28 @@ export function LiveMarketList({
               size="xs"
               variant="yes"
               disabled={pending}
-              onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "yes" }), "Resolved YES")}
+              onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "yes" }), t.resolvedYesToast)}
             >
-              <CircleCheck className="size-3" /> Resolve Yes
+              <CircleCheck className="size-3" /> {t.resolveYes}
             </Button>
             <Button
               size="xs"
               variant="no"
               disabled={pending}
-              onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "no" }), "Resolved NO")}
+              onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "no" }), t.resolvedNoToast)}
             >
-              <CircleCheck className="size-3" /> Resolve No
+              <CircleCheck className="size-3" /> {t.resolveNo}
             </Button>
             <Button
               size="xs"
               variant="outline"
               disabled={pending}
               onClick={() => {
-                if (confirm("Cancel this market? Positions are refunded at current value."))
-                  run(() => cancelMarket(m.id), "Market cancelled & refunded");
+                if (confirm(t.cancelConfirm))
+                  run(() => cancelMarket(m.id), t.cancelledToast);
               }}
             >
-              <Ban className="size-3" /> Cancel & refund
+              <Ban className="size-3" /> {t.cancelRefund}
             </Button>
           </div>
         </div>
@@ -110,11 +117,12 @@ export function LiveMarketList({
   );
 }
 
-export function GrantPanel({ users }: { users: { id: string; username: string | null; balanceCents: number }[] }) {
+export function GrantPanel({ users, lang }: { users: { id: string; username: string | null; balanceCents: number }[]; lang?: Lang }) {
   const [userId, setUserId] = useState(users[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
-  const { pending, run } = useAction();
+  const { pending, run } = useAction(lang);
+  const t = getT(lang ?? "en");
 
   return (
     <form
@@ -124,7 +132,7 @@ export function GrantPanel({ users }: { users: { id: string; username: string | 
         const cents = Math.round(parseFloat(amount || "0") * 100);
         run(
           () => grantBalance({ userId, amountCents: cents, memo }),
-          `Granted ${fmtMarks(cents)}`
+          t.grantedToast(fmtMarks(cents, { lang }))
         );
         setAmount("");
         setMemo("");
@@ -134,17 +142,121 @@ export function GrantPanel({ users }: { users: { id: string; username: string | 
         <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
           {users.map((u) => (
             <option key={u.id} value={u.id}>
-              @{u.username ?? u.id.slice(0, 8)} ({fmtMarks(u.balanceCents)})
+              @{u.username ?? u.id.slice(0, 8)} ({fmtMarks(u.balanceCents, { lang })})
             </option>
           ))}
         </Select>
-        <Input type="number" step="0.01" placeholder="Ɱ amount" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+        <Input type="number" step="0.01" placeholder="Ɱ" value={amount} onChange={(e) => setAmount(e.target.value)} required />
       </div>
-      <Input placeholder="Memo (optional)" value={memo} onChange={(e) => setMemo(e.target.value)} maxLength={100} />
+      <Input placeholder={t.memoPh} value={memo} onChange={(e) => setMemo(e.target.value)} maxLength={100} />
       <Button size="sm" disabled={pending || !userId}>
-        {pending ? "…" : "Grant / deduct"}
+        {pending ? "…" : t.grant}
       </Button>
-      <p className="text-[11.5px] text-faint">Negative amounts deduct. Every grant is logged in the member&rsquo;s cash flow.</p>
+      <p className="text-[11.5px] text-faint">{t.grantNote}</p>
     </form>
+  );
+}
+
+// Admin category manager — rename carries markets over; delete only allowed on
+// empty categories (the server enforces both).
+export function CategoriesPanel({
+  categories,
+  lang,
+}: {
+  categories: { name: string; markets: number }[];
+  lang?: Lang;
+}) {
+  const t = getT(lang ?? "en");
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [newName, setNewName] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  const act = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string, after?: () => void) =>
+    start(async () => {
+      const r = await fn();
+      if (r.ok) {
+        toast.success(ok);
+        after?.();
+        router.refresh();
+      } else toast.error(r.error);
+    });
+
+  return (
+    <div className="p-4 space-y-2">
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!newName.trim()) return;
+          act(() => createCategory({ name: newName }), t.catCreated(newName.trim()), () => setNewName(""));
+        }}
+      >
+        <Input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder={t.addCategoryPh}
+          maxLength={24}
+          className="h-9 text-[13px]"
+        />
+        <Button size="sm" className="h-9 shrink-0" disabled={pending || !newName.trim()}>
+          {t.addCategory}
+        </Button>
+      </form>
+
+      <div className="divide-y divide-line-2">
+        {categories.map((c) => (
+          <div key={c.name} className="flex items-center gap-2 py-2">
+            {editing === c.name ? (
+              <form
+                className="flex flex-1 items-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!editValue.trim() || editValue.trim() === c.name) return setEditing(null);
+                  act(
+                    () => renameCategory({ from: c.name, to: editValue }),
+                    t.catRenamed,
+                    () => setEditing(null)
+                  );
+                }}
+              >
+                <Input value={editValue} onChange={(e) => setEditValue(e.target.value)} maxLength={24} className="h-8 text-[13px]" autoFocus />
+                <Button size="xs" className="h-8" disabled={pending}>{t.rename}</Button>
+                <Button size="xs" variant="outline" className="h-8" type="button" onClick={() => setEditing(null)}>✕</Button>
+              </form>
+            ) : (
+              <>
+                <span className="flex-1 text-[13.5px] font-medium">{c.name}</span>
+                <span className="text-[11px] text-faint num">{c.markets} {t.marketsN}</span>
+                <button
+                  type="button"
+                  className="size-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-surface-2 cursor-pointer"
+                  title={t.rename}
+                  onClick={() => {
+                    setEditing(c.name);
+                    setEditValue(c.name);
+                  }}
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  className="size-7 grid place-items-center rounded-md text-faint hover:text-no-strong hover:bg-no-soft cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  title={c.markets > 0 ? `${c.markets} ${t.categoryInUse}` : t.delete}
+                  disabled={pending || c.markets > 0}
+                  onClick={() => {
+                    if (confirm(t.deleteCatConfirm(c.name)))
+                      act(() => deleteCategory({ name: c.name }), t.catDeleted);
+                  }}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

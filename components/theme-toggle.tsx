@@ -1,34 +1,37 @@
 "use client";
 
-import { useReducer, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { Moon, Sun } from "lucide-react";
+import { getT, type Lang } from "@/lib/i18n";
 
-const KEY = "mm-theme";
-
-const noop = () => () => {};
+// Subscribe to the <html> class — the external source of truth — plus a
+// local rerender trigger so toggling re-reads the DOM.
+function subscribe(cb: () => void) {
+  const mo = new MutationObserver(cb);
+  mo.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+  return () => mo.disconnect();
+}
 const isDark = () => document.documentElement.classList.contains("dark");
 
-export function ThemeToggle() {
-  const [, rerender] = useReducer((c: number) => c + 1, 0);
-  const dark = useSyncExternalStore(noop, isDark, () => false);
+export function ThemeToggle({ lang }: { lang?: Lang }) {
+  const dark = useSyncExternalStore(subscribe, isDark, () => false);
+  const t = getT(lang ?? "en");
 
   return (
     <button
       type="button"
-      aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-      title={dark ? "Light mode" : "Dark mode"}
       onClick={() => {
-        const next = !isDark();
+        const next = !dark;
         document.documentElement.classList.toggle("dark", next);
-        document.documentElement.style.colorScheme = next ? "dark" : "light";
         try {
-          localStorage.setItem(KEY, next ? "dark" : "light");
+          localStorage.setItem("mm-theme", next ? "dark" : "light");
         } catch {}
-        rerender();
       }}
-      className="grid place-items-center size-9 rounded-full border border-line bg-surface text-mute cursor-pointer transition-all duration-150 hover:text-ink hover:border-faint/60 active:scale-[0.94] focus-visible:outline-2 focus-visible:outline-brand"
+      title={dark ? t.themeToLight : t.themeToDark}
+      aria-label={dark ? t.themeLight : t.themeDark}
+      className="size-9 inline-flex items-center justify-center rounded-lg text-mute hover:text-ink hover:bg-surface-2 active:scale-95 transition-all cursor-pointer"
     >
-      {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+      {dark ? <Sun className="size-[17px]" /> : <Moon className="size-[17px]" />}
     </button>
   );
 }

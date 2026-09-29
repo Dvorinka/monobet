@@ -6,9 +6,11 @@ import { toast } from "sonner";
 import { signIn, signUp } from "@/lib/auth-client";
 import { Button, Card, Input, Segmented } from "@/components/ui/primitives";
 import { LogoMark } from "@/components/logo";
+import { getT, type Lang } from "@/lib/i18n";
 
-export function AuthForm() {
+export function AuthForm({ lang }: { lang?: Lang }) {
   const params = useSearchParams();
+  const t = getT(lang ?? "en");
   const [mode, setMode] = useState<"login" | "signup">(
     params.get("mode") === "signup" ? "signup" : "login"
   );
@@ -18,8 +20,8 @@ export function AuthForm() {
   const router = useRouter();
 
   const submit = () => {
-    if (username.trim().length < 3) return toast.error("Username needs at least 3 characters");
-    if (password.length < 6) return toast.error("Password needs at least 6 characters");
+    if (username.trim().length < 3) return toast.error(t.authUserShort);
+    if (password.length < 6) return toast.error(t.authPassShort);
     start(async () => {
       if (mode === "signup") {
         const r = await signUp.email({
@@ -31,14 +33,14 @@ export function AuthForm() {
           password,
         });
         if (r.error) {
-          toast.error(r.error.message ?? "Sign up failed");
+          toast.error(r.error.message ?? t.authSignupFailed);
           return;
         }
-        toast.success("Welcome to MonoMark — Ɱ1,000 credited");
+        toast.success(t.authWelcome);
       } else {
         const r = await signIn.username({ username: username.trim().toLowerCase(), password });
         if (r.error) {
-          toast.error("Wrong username or password");
+          toast.error(t.authWrongCreds);
           return;
         }
       }
@@ -56,8 +58,8 @@ export function AuthForm() {
 
       <Segmented
         options={[
-          { value: "login", label: "Log in" },
-          { value: "signup", label: "Sign up" },
+          { value: "login", label: t.logIn },
+          { value: "signup", label: t.signUp },
         ]}
         value={mode}
         onChange={setMode}
@@ -72,7 +74,7 @@ export function AuthForm() {
       >
         <div>
           <label className="text-[13px] font-medium text-mute" htmlFor="u">
-            Username
+            {t.username}
           </label>
           <Input
             id="u"
@@ -85,26 +87,26 @@ export function AuthForm() {
         </div>
         <div>
           <label className="text-[13px] font-medium text-mute" htmlFor="p">
-            Password
+            {t.password}
           </label>
           <Input
             id="p"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder={mode === "signup" ? "min 6 characters" : "••••••••"}
+            placeholder={mode === "signup" ? t.passwordPh : "••••••••"}
             autoComplete={mode === "signup" ? "new-password" : "current-password"}
             className="mt-1"
           />
         </div>
 
         <Button className="w-full" size="lg" disabled={pending}>
-          {pending ? "…" : mode === "login" ? "Log in" : "Create account — get Ɱ1,000"}
+          {pending ? "…" : mode === "login" ? t.logIn : t.createAccountBtn}
         </Button>
       </form>
 
       <p className="mt-4 text-center text-[12px] text-faint">
-        Play money only. No deposits, no withdrawals, no regrets.
+        {t.authPlayMoney}
       </p>
     </Card>
   );

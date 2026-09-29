@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { getLeaderboard } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
 import { fmtMarks } from "@/lib/money";
+import { getLang } from "@/lib/lang-server";
+import { getT } from "@/lib/i18n";
 import { Avatar, Card } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 import { Trophy } from "lucide-react";
@@ -10,24 +12,25 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Leaderboard" };
 
 export default async function LeaderboardPage() {
-  const [rows, user] = await Promise.all([getLeaderboard(), getCurrentUser()]);
+  const [rows, user, lang] = await Promise.all([getLeaderboard(), getCurrentUser(), getLang()]);
+  const t = getT(lang);
 
   return (
     <div className="mx-auto max-w-3xl px-4 pt-8">
       <h1 className="text-[22px] font-bold tracking-tight flex items-center gap-2">
-        <Trophy className="size-5" /> Leaderboard
+        <Trophy className="size-5" /> {t.lbTitle}
       </h1>
-      <p className="text-[13px] text-mute mt-1">Net worth = cash balance + current value of open positions.</p>
+      <p className="text-[13px] text-mute mt-1">{t.lbSub}</p>
 
       <Card className="mt-6 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line text-left text-[11.5px] uppercase tracking-wide text-mute">
               <th className="px-4 py-2.5 w-12">#</th>
-              <th className="px-4 py-2.5">Trader</th>
-              <th className="px-4 py-2.5 text-right">Positions</th>
-              <th className="px-4 py-2.5 text-right">Cash</th>
-              <th className="px-4 py-2.5 text-right">Net worth</th>
+              <th className="px-4 py-2.5">{t.lbTrader}</th>
+              <th className="px-4 py-2.5 text-right">{t.lbPositions}</th>
+              <th className="px-4 py-2.5 text-right">{t.lbBalance}</th>
+              <th className="px-4 py-2.5 text-right">{t.lbNetWorth}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line-2">
@@ -43,19 +46,19 @@ export default async function LeaderboardPage() {
                     <Avatar name={r.username ?? r.name} className="size-7" />
                     <span className="font-medium">
                       @{r.username ?? r.name}
-                      {user?.id === r.id && <span className="text-yes-strong text-[11px] font-semibold ml-1.5">you</span>}
+                      {user?.id === r.id && <span className="text-yes-strong text-[11px] font-semibold ml-1.5">{t.lbYou}</span>}
                     </span>
                   </div>
                 </td>
-                <td className="num px-4 py-3 text-right text-mute">{fmtMarks(r.portfolioCents)}</td>
-                <td className="num px-4 py-3 text-right text-mute">{fmtMarks(r.balanceCents)}</td>
-                <td className="num px-4 py-3 text-right font-bold">{fmtMarks(r.netWorthCents)}</td>
+                <td className="num px-4 py-3 text-right text-mute">{fmtMarks(r.portfolioCents, { lang })}</td>
+                <td className="num px-4 py-3 text-right text-mute">{fmtMarks(r.balanceCents, { lang })}</td>
+                <td className="num px-4 py-3 text-right font-bold">{fmtMarks(r.netWorthCents, { lang })}</td>
               </tr>
             ))}
             {rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-mute">
-                  No traders yet.
+                  {t.lbEmpty}
                 </td>
               </tr>
             )}

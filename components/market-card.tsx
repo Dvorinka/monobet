@@ -24,6 +24,7 @@ import { fmtCents, fmtMarks, fmtDate } from "@/lib/money";
 import { Sparkline } from "@/components/sparkline";
 import { AnimatedPct } from "@/components/animated-number";
 import { Badge } from "@/components/ui/primitives";
+import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const CAT_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -68,14 +69,17 @@ export function MarketCard({
   comments = 0,
   index = 0,
   options,
+  lang,
 }: {
   market: MarketRow;
   spark: number[];
   comments?: number;
   index?: number;
   options?: MarketRow[];
+  lang?: Lang;
 }) {
-  if (market.kind === "group") return <GroupCard market={market} options={options ?? []} index={index} />;
+  const t = getT(lang ?? "en");
+  if (market.kind === "group") return <GroupCard market={market} options={options ?? []} index={index} lang={lang} />;
 
   const py = marketYesPrice(market);
   const resolved = market.status === "resolved";
@@ -95,32 +99,34 @@ export function MarketCard({
         <div>
           <div className="num text-[26px] font-bold leading-none tracking-tight">
             {resolved ? (
-              <Badge tone={market.outcome === "yes" ? "yes" : "no"}>{market.outcome?.toUpperCase()} won</Badge>
+              <Badge tone={market.outcome === "yes" ? "yes" : "no"}>
+                {(market.outcome === "yes" ? t.yes : t.no).toUpperCase()} {t.won}
+              </Badge>
             ) : cancelled ? (
-              <Badge tone="mute">Cancelled</Badge>
+              <Badge tone="mute">{t.cancelled}</Badge>
             ) : market.status === "pending" ? (
-              <Badge tone="warn">Pending approval</Badge>
+              <Badge tone="warn">{t.pendingApproval}</Badge>
             ) : (
               <AnimatedPct value={py} className={py >= 0.5 ? "text-yes" : "text-ink"} />
             )}
           </div>
-          {market.status === "live" && <div className="text-[11px] text-mute mt-1.5 font-medium">chance</div>}
+          {market.status === "live" && <div className="text-[11px] text-mute mt-1.5 font-medium">{t.chance}</div>}
         </div>
       </div>
 
       {market.status === "live" && (
         <div className="mt-3 grid grid-cols-2 gap-2">
           <span className="grid place-items-center h-8.5 rounded-md bg-yes-soft text-yes-strong text-[13px] font-semibold">
-            Buy Yes {fmtCents(py)}
+            {t.buyYes} {fmtCents(py)}
           </span>
           <span className="grid place-items-center h-8.5 rounded-md bg-no-soft text-no-strong text-[13px] font-semibold">
-            Buy No {fmtCents(1 - py)}
+            {t.buyNo} {fmtCents(1 - py)}
           </span>
         </div>
       )}
 
       <div className="mt-auto pt-3 flex items-center gap-3.5 text-[11.5px] text-mute font-medium">
-        <span className="num">{fmtMarks(market.volumeCents)} Vol.</span>
+        <span className="num">{fmtMarks(market.volumeCents, { lang })} {t.vol}</span>
         <span className="inline-flex items-center gap-1">
           <Users className="size-3" />
           {market.traderCount}
@@ -131,7 +137,7 @@ export function MarketCard({
         </span>
         <span className="ml-auto inline-flex items-center gap-1">
           <Clock className="size-3" />
-          {fmtDate(market.closesAt)}
+          {fmtDate(market.closesAt, lang)}
         </span>
       </div>
     </Link>
@@ -140,7 +146,8 @@ export function MarketCard({
 
 // Multi-outcome card — Polymarket's "X by when?" style. Each option row links
 // to its own binary market; resolved options collapse under "View resolved".
-function GroupCard({ market, options, index }: { market: MarketRow; options: MarketRow[]; index: number }) {
+function GroupCard({ market, options, index, lang }: { market: MarketRow; options: MarketRow[]; index: number; lang?: Lang }) {
+  const t = getT(lang ?? "en");
   const live = options.filter((o) => o.status === "live");
   const closed = options.filter((o) => o.status !== "live");
   const volume = options.reduce((s, o) => s + o.volumeCents, 0);
@@ -163,11 +170,11 @@ function GroupCard({ market, options, index }: { market: MarketRow; options: Mar
 
       <div className="mt-3 -mx-1 divide-y divide-line-2">
         {live.slice(0, 4).map((o) => (
-          <OptionRow key={o.id} option={o} />
+          <OptionRow key={o.id} option={o} lang={lang} />
         ))}
         {live.length > 4 && (
           <Link href={`/market/${market.slug}`} className="block px-1 pt-2 text-[12px] font-semibold text-brand-strong hover:underline">
-            +{live.length - 4} more options
+            {t.moreOptions(live.length - 4)}
           </Link>
         )}
       </div>
@@ -175,32 +182,33 @@ function GroupCard({ market, options, index }: { market: MarketRow; options: Mar
       {closed.length > 0 && (
         <details className="group/det mt-1 -mx-1">
           <summary className="cursor-pointer list-none px-1 py-1.5 text-[12px] font-semibold text-mute hover:text-ink select-none">
-            View resolved ({closed.length})
+            {t.viewResolved(closed.length)}
           </summary>
           <div className="divide-y divide-line-2">
             {closed.map((o) => (
-              <OptionRow key={o.id} option={o} />
+              <OptionRow key={o.id} option={o} lang={lang} />
             ))}
           </div>
         </details>
       )}
 
       <div className="mt-auto pt-3 flex items-center gap-3.5 text-[11.5px] text-mute font-medium">
-        <span className="num">{fmtMarks(volume)} Vol.</span>
+        <span className="num">{fmtMarks(volume, { lang })} {t.vol}</span>
         <span className="inline-flex items-center gap-1">
           <Users className="size-3" />
           {traders}
         </span>
         <span className="ml-auto inline-flex items-center gap-1">
           <Clock className="size-3" />
-          {fmtDate(market.closesAt)}
+          {fmtDate(market.closesAt, lang)}
         </span>
       </div>
     </div>
   );
 }
 
-function OptionRow({ option: o }: { option: MarketRow }) {
+function OptionRow({ option: o, lang }: { option: MarketRow; lang?: Lang }) {
+  const t = getT(lang ?? "en");
   const py = marketYesPrice(o);
   const resolved = o.status === "resolved";
   return (
@@ -211,20 +219,20 @@ function OptionRow({ option: o }: { option: MarketRow }) {
       <span className="text-[13px] font-medium text-ink truncate min-w-0 flex-1">{o.label}</span>
       {resolved ? (
         <Badge tone={o.outcome === "yes" ? "yes" : "no"} className="shrink-0">
-          {o.outcome?.toUpperCase()}
+          {(o.outcome === "yes" ? t.yes : t.no).toUpperCase()}
         </Badge>
       ) : o.status === "cancelled" ? (
-        <Badge tone="mute" className="shrink-0">Cancelled</Badge>
+        <Badge tone="mute" className="shrink-0">{t.cancelled}</Badge>
       ) : (
         <>
           <span className={cn("num w-10 text-right text-[14px] font-bold shrink-0", py >= 0.5 ? "text-yes" : "text-ink")}>
             {Math.round(py * 100)}%
           </span>
           <span className="num grid place-items-center h-7 w-16 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold shrink-0">
-            Yes {fmtCents(py)}
+            {t.yes} {fmtCents(py)}
           </span>
           <span className="num grid place-items-center h-7 w-16 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold shrink-0">
-            No {fmtCents(1 - py)}
+            {t.no} {fmtCents(1 - py)}
           </span>
         </>
       )}
