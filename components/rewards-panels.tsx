@@ -131,6 +131,23 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
   }, [left]);
 
   const adDone = left !== null && left <= 0;
+  const total = Math.ceil(AD_WATCH_MS / 1000);
+  const elapsed = left === null ? 0 : total - left;
+  const canSkip = open && left !== null && !adDone && elapsed >= total - 2;
+
+  const claim = () =>
+    start(async () => {
+      const r = await claimAdReward();
+      setOpen(false);
+      setLeft(null);
+      if (r.ok) {
+        playSfx("claim", 0.5);
+        toast.success(`+${amount}`);
+        router.refresh();
+      } else {
+        toast.error(r.error === "cooldown" ? t.availableIn(r.retryInH ?? 1) : r.error);
+      }
+    });
 
   return (
     <div className="rounded-xl border border-line bg-surface p-4 flex flex-col gap-3">
@@ -159,10 +176,19 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
           <div className="w-full max-w-3xl rounded-2xl overflow-hidden border border-line bg-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="relative aspect-video">
               <iframe key={adKey} src="/ads/player.html" className="absolute inset-0 w-full h-full border-0" title="Ad" />
+              {canSkip && (
+                <button
+                  disabled={pending}
+                  onClick={claim}
+                  className="absolute top-3 right-3 h-8 px-3.5 rounded-lg bg-black/70 border border-white/20 text-white text-[12.5px] font-semibold hover:bg-black/85 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {t.skipAd} ▸
+                </button>
+              )}
               <div className="absolute bottom-0 inset-x-0 h-1 bg-white/10">
                 <div
                   className="h-full bg-brand transition-all duration-1000 ease-linear"
-                  style={{ width: `${100 - (left ?? 0) * (100 / Math.ceil(AD_WATCH_MS / 1000))}%` }}
+                  style={{ width: `${100 - (left ?? 0) * (100 / total)}%` }}
                 />
               </div>
             </div>
@@ -172,20 +198,7 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
               </span>
               <button
                 disabled={!adDone || pending}
-                onClick={() =>
-                  start(async () => {
-                    const r = await claimAdReward();
-                    setOpen(false);
-                    setLeft(null);
-                    if (r.ok) {
-                      playSfx("claim", 0.5);
-                      toast.success(`+${amount}`);
-                      router.refresh();
-                    } else {
-                      toast.error(r.error === "cooldown" ? t.availableIn(r.retryInH ?? 1) : r.error);
-                    }
-                  })
-                }
+                onClick={claim}
                 className="h-8 px-4 rounded-lg bg-brand text-brand-on text-[13px] font-semibold hover:bg-brand-strong transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
               >
                 {t.claimNow}
