@@ -73,7 +73,7 @@ export function LiveMarketList({
   items,
   lang,
 }: {
-  items: { id: string; slug: string; question: string; category: string; volumeCents: number; traderCount: number; closesAt: Date | null }[];
+  items: { id: string; slug: string; question: string; category: string; volumeCents: number; traderCount: number; closesAt: Date | null; kind?: string }[];
   lang?: Lang;
 }) {
   const { pending, run } = useAction(lang);
@@ -94,33 +94,39 @@ export function LiveMarketList({
             </div>
           </div>
           <div className="mt-2.5 flex flex-wrap gap-1.5">
-            <Button
-              size="xs"
-              variant="yes"
-              disabled={pending}
-              onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "yes" }), t.resolvedYesToast)}
-            >
-              <CircleCheck className="size-3" /> {t.resolveYes}
-            </Button>
-            <Button
-              size="xs"
-              variant="no"
-              disabled={pending}
-              onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "no" }), t.resolvedNoToast)}
-            >
-              <CircleCheck className="size-3" /> {t.resolveNo}
-            </Button>
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={pending}
-              onClick={() => {
-                if (confirm(t.cancelConfirm))
-                  run(() => cancelMarket(m.id), t.cancelledToast);
-              }}
-            >
-              <Ban className="size-3" /> {t.cancelRefund}
-            </Button>
+            {m.kind !== "group" && (
+              <>
+                <Button
+                  size="xs"
+                  variant="yes"
+                  disabled={pending}
+                  onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "yes" }), t.resolvedYesToast)}
+                >
+                  <CircleCheck className="size-3" /> {t.resolveYes}
+                </Button>
+                <Button
+                  size="xs"
+                  variant="no"
+                  disabled={pending}
+                  onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "no" }), t.resolvedNoToast)}
+                >
+                  <CircleCheck className="size-3" /> {t.resolveNo}
+                </Button>
+              </>
+            )}
+            {m.kind !== "group" && (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={pending}
+                onClick={() => {
+                  if (confirm(t.cancelConfirm))
+                    run(() => cancelMarket(m.id), t.cancelledToast);
+                }}
+              >
+                <Ban className="size-3" /> {t.cancelRefund}
+              </Button>
+            )}
             <Button
               size="xs"
               variant="outline"

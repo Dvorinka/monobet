@@ -55,7 +55,7 @@ export default async function AdminPage() {
           <Card className="overflow-hidden">
             <LiveMarketList
               lang={lang}
-              items={live.filter((m) => m.kind !== "group").map((m) => ({
+              items={live.map((m) => ({
                 id: m.id,
                 slug: m.slug,
                 question: m.question,
@@ -63,6 +63,7 @@ export default async function AdminPage() {
                 volumeCents: m.volumeCents,
                 traderCount: m.traderCount,
                 closesAt: m.closesAt,
+                kind: m.kind,
               }))}
             />
           </Card>
