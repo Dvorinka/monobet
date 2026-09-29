@@ -11,12 +11,12 @@ import {
   getGroupOptions,
   getComments,
   getUserPosition,
+  getPositionBadges,
   getRelatedMarkets,
   getSparklines,
   getGroupHistories,
   getMarketBetCount,
   listCategories,
-  isWatching,
   isLiked,
   getLikeCounts,
   marketYesPrice,
@@ -29,7 +29,6 @@ import { getLang } from "@/lib/lang-server";
 import { getT, type Dict } from "@/lib/i18n";
 import { fmtMarks, fmtDate, fmtShares, fmtCents } from "@/lib/money";
 import { PriceChart } from "@/components/price-chart";
-import { WatchButton } from "@/components/watch-button";
 import { LikeButton } from "@/components/like-button";
 import { CopyLink } from "@/components/copy-link";
 import { LiveRefresher } from "@/components/live-refresher";
@@ -64,8 +63,9 @@ export async function generateMetadata({
   };
 }
 
-export default async function MarketPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function MarketPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ opt?: string }> }) {
   const { slug } = await params;
+  const { opt: selOpt } = await searchParams;
   const market = await getMarketBySlug(slug);
   if (!market) notFound();
 
@@ -78,21 +78,20 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
   }
 
   if (market.kind === "group") {
-    const [options, trades, comments, related, watching, liked, likes] = await Promise.all([
+    const [options, trades, comments, related, liked, likes] = await Promise.all([
       getGroupOptions(market.id),
       getGroupTrades(market.id),
       getComments(market.id, user?.id),
       getRelatedMarkets(market.id, market.category),
-      user ? isWatching(user.id, market.id) : false,
       user ? isLiked(user.id, market.id) : false,
       getLikeCounts([market.id]),
     ]);
-    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} watching={watching} liked={liked} likes={likes.get(market.id) ?? 0} />;
+    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} liked={liked} likes={likes.get(market.id) ?? 0} selOpt={selOpt} />;
   }
 
   const parent = market.parentId ? await getMarketById(market.parentId) : null;
 
-  const [history, trades, comments, position, related, betCount, categories, watching, res, liked, likes, holders, creator] = await Promise.all([
+  const [history, trades, comments, position, related, betCount, categories, res, liked, likes, holders, creator, posBadges] = await Promise.all([
     getPriceHistory(market.id),
     getRecentTrades(market.id),
     getComments(market.id, user?.id),
@@ -100,15 +99,26 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
     getRelatedMarkets(market.id, market.category),
     getMarketBetCount(market.id),
     listCategories(),
-    user ? isWatching(user.id, market.id) : false,
     getResolutionState(market.id, user?.id),
     user ? isLiked(user.id, market.id) : false,
     getLikeCounts([market.id]),
     getTopHolders(market.id),
     getUserPublic(market.creatorId),
+    getPositionBadges([market.id]),
   ]);
   const canDelete = !!user && (isAdmin(user) || (market.creatorId === user.id && betCount === 0));
   const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
+
+  // Comment badges: each commenter's dominant side on this market.
+  const badges: Record<string, { label: string; shares: number; tone: "yes" | "no" }> = {};
+  for (const p of posBadges) {
+    const yes = Number(p.yesShares);
+    const no = Number(p.noShares);
+    if (Math.max(yes, no) < 0.01) continue;
+    badges[p.userId] = yes >= no
+      ? { label: t.yes.toUpperCase(), shares: yes, tone: "yes" }
+      : { label: t.no.toUpperCase(), shares: no, tone: "no" };
+  }
 
   const py = marketYesPrice(market);
   const heldYes = Number(position?.yesShares ?? 0);
@@ -147,7 +157,6 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             {user && (
               <span className="mt-1.5 inline-flex items-center gap-1 shrink-0">
                 <LikeButton marketId={market.id} liked={liked} count={likes.get(market.id) ?? 0} lang={lang} />
-                <WatchButton marketId={market.id} watching={watching} lang={lang} />
               </span>
             )}
             {market.status === "resolved" && (
@@ -314,6 +323,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
                   viewerImage={user?.image}
                   isAdmin={isAdmin(user)}
                   lang={lang}
+                  badges={badges}
                 />
               }
               commentCount={comments.length}
@@ -404,9 +414,9 @@ async function GroupMarketView({
   related,
   user,
   lang,
-  watching,
   liked,
   likes = 0,
+  selOpt,
 }: {
   market: Awaited<ReturnType<typeof getMarketBySlug>> & object;
   options: Awaited<ReturnType<typeof getGroupOptions>>;
@@ -415,20 +425,43 @@ async function GroupMarketView({
   related: Awaited<ReturnType<typeof getRelatedMarkets>>;
   user: Awaited<ReturnType<typeof getCurrentUser>>;
   lang: "en" | "cs";
-  watching: boolean;
   liked: boolean;
   likes?: number;
+  selOpt?: string;
 }) {
   const t: Dict = getT(lang);
   const optionIds = options.map((o) => o.id);
-  const [optionSparks, histories, betCount, categories] = await Promise.all([
+  const live = options.filter((o) => o.status === "live");
+  // The selected option trades in the right column — ?opt=<id> switches without
+  // leaving the parent page.
+  const sel = live.find((o) => o.id === selOpt) ?? live[0];
+  const [optionSparks, histories, betCount, categories, posRows, selPos] = await Promise.all([
     getSparklines(optionIds),
     getGroupHistories(optionIds),
     getMarketBetCount(market.id),
     listCategories(),
+    getPositionBadges(optionIds),
+    user && sel ? getUserPosition(sel.id, user.id) : null,
   ]);
-  const live = options.filter((o) => o.status === "live");
   const closed = options.filter((o) => o.status !== "live");
+  // Comment badges: each commenter's dominant option position. YES-side holders
+  // get the option color, NO-side holders a red "No <option>" tag.
+  const badges: Record<string, { label: string; shares: number; tone: "yes" | "no"; color?: string }> = {};
+  for (const p of posRows) {
+    const yes = Number(p.yesShares);
+    const no = Number(p.noShares);
+    const dom = Math.max(yes, no);
+    if (dom < 0.01) continue;
+    const prev = badges[p.userId];
+    if (prev && prev.shares >= dom) continue;
+    const oi = options.findIndex((o) => o.id === p.marketId);
+    if (oi < 0) continue;
+    const label = options[oi].label ?? options[oi].question;
+    badges[p.userId] =
+      yes >= no
+        ? { label, shares: yes, tone: "yes", color: optionColor(oi) }
+        : { label: `${t.no} ${label}`, shares: no, tone: "no" };
+  }
   const volume = options.reduce((s, o) => s + o.volumeCents, 0);
   const traders = options.reduce((s, o) => s + o.traderCount, 0);
   const anyLive = live.length > 0;
@@ -464,7 +497,6 @@ async function GroupMarketView({
             {user && (
               <span className="mt-1.5 inline-flex items-center gap-1 shrink-0">
                 <LikeButton marketId={market.id} liked={liked} count={likes} lang={lang} />
-                <WatchButton marketId={market.id} watching={watching} lang={lang} />
               </span>
             )}
           </h1>
@@ -518,8 +550,12 @@ async function GroupMarketView({
             return (
               <Link
                 key={o.id}
-                href={`/market/${o.slug}`}
-                className="grid grid-cols-[1fr_auto_auto_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors"
+                href={`/market/${market.slug}?opt=${o.id}`}
+                scroll={false}
+                className={cn(
+                  "grid grid-cols-[1fr_auto_auto_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors",
+                  sel?.id === o.id && "bg-surface-2 shadow-[inset_2px_0_0_var(--brand)]"
+                )}
               >
                 <span className="min-w-0 flex items-center gap-3">
                   <OptionChip label={o.label ?? o.question} index={oi} imageUrl={o.imageUrl} />
@@ -596,6 +632,7 @@ async function GroupMarketView({
               viewerImage={user?.image}
               isAdmin={isAdmin(user)}
               lang={lang}
+              badges={badges}
             />
           }
           commentCount={comments.length}
@@ -604,8 +641,31 @@ async function GroupMarketView({
       </div>
         </div>
 
-        {/* right column — related rail + manage panel */}
+        {/* right column — selected-option ticket + related rail + manage */}
         <div className="space-y-4 lg:sticky lg:top-20 self-start">
+          {sel && (
+            <TradeTicket
+              key={sel.id}
+              marketId={sel.id}
+              qYes={Number(sel.qYes)}
+              qNo={Number(sel.qNo)}
+              b={sel.b}
+              live={sel.status === "live"}
+              signedIn={!!user}
+              userBalanceCents={user?.balanceCents ?? null}
+              heldYes={Number(selPos?.yesShares ?? 0)}
+              heldNo={Number(selPos?.noShares ?? 0)}
+              maxLeverage={market.maxLeverage}
+              lang={lang}
+              title={
+                <div className="mb-3 flex items-center gap-2.5">
+                  <OptionChip label={sel.label ?? sel.question} index={options.indexOf(sel)} imageUrl={sel.imageUrl} />
+                  <span className="min-w-0 flex-1 text-[14px] font-semibold truncate">{sel.label}</span>
+                  <span className="num text-[15px] font-bold shrink-0">{Math.round(marketYesPrice(sel) * 100)}%</span>
+                </div>
+              }
+            />
+          )}
           {related.length > 0 && (
             <Card className="p-1.5">
               <h3 className="px-2.5 pt-2 pb-1 text-[12px] font-semibold uppercase tracking-wide text-faint">

@@ -1636,41 +1636,22 @@ export async function claimReferral(input: { ref: string }): Promise<{ ok: boole
   }
 }
 
-// ---------- watchlist ----------
-
-export async function toggleWatchlist(input: { marketId: string }): Promise<{ ok: boolean; error?: string; watching?: boolean }> {
-  try {
-    const u = await requireUser();
-    const [existing] = await db
-      .select()
-      .from(schema.watchlist)
-      .where(and(eq(schema.watchlist.userId, u.id), eq(schema.watchlist.marketId, input.marketId)))
-      .limit(1);
-    if (existing) {
-      await db
-        .delete(schema.watchlist)
-        .where(and(eq(schema.watchlist.userId, u.id), eq(schema.watchlist.marketId, input.marketId)));
-      return { ok: true, watching: false };
-    }
-    await db.insert(schema.watchlist).values({ userId: u.id, marketId: input.marketId });
-    return { ok: true, watching: true };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
-  }
-}
-
-// ---------- market likes ----------
+// ---------- market likes (heart also drives the watchlist) ----------
 
 export async function toggleLike(input: { marketId: string }): Promise<{ ok: boolean; error?: string; liked?: boolean }> {
   try {
     const u = await requireUser();
     const where = and(eq(schema.marketLike.userId, u.id), eq(schema.marketLike.marketId, input.marketId));
+    const watch = and(eq(schema.watchlist.userId, u.id), eq(schema.watchlist.marketId, input.marketId));
     const [existing] = await db.select().from(schema.marketLike).where(where).limit(1);
     if (existing) {
+      // Unliking also unwatches — the heart is the single like+watch gesture.
       await db.delete(schema.marketLike).where(where);
+      await db.delete(schema.watchlist).where(watch);
       return { ok: true, liked: false };
     }
     await db.insert(schema.marketLike).values({ userId: u.id, marketId: input.marketId });
+    await db.insert(schema.watchlist).values({ userId: u.id, marketId: input.marketId }).onConflictDoNothing();
     return { ok: true, liked: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed" };

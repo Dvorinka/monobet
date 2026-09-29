@@ -6,7 +6,8 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Avatar, Button, Textarea } from "@/components/ui/primitives";
 import { addComment, deleteComment, voteComment } from "@/lib/actions";
-import { timeAgo } from "@/lib/money";
+import { timeAgo, fmtShares } from "@/lib/money";
+import { cn } from "@/lib/utils";
 import { getT, type Lang } from "@/lib/i18n";
 import { ImagePlus, Reply, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 
@@ -24,6 +25,10 @@ export type CommentRow = {
   dislikes: number;
   myVote: number;
 };
+
+// Position pill rendered next to a commenter's name — label is pre-built
+// server-side ("YES", "No <option>", or the option name in its option color).
+export type CommentBadge = { label: string; shares: number; tone: "yes" | "no"; color?: string };
 
 // Client-side compression: cap at 1080px, JPEG ~0.7 → usually well under the
 // server's 450KB data-URL cap.
@@ -53,6 +58,7 @@ export function Comments({
   viewerImage,
   isAdmin,
   lang,
+  badges,
 }: {
   marketId: string;
   comments: CommentRow[];
@@ -62,6 +68,7 @@ export function Comments({
   viewerImage?: string | null;
   isAdmin?: boolean;
   lang?: Lang;
+  badges?: Record<string, CommentBadge>;
 }) {
   const [body, setBody] = useState("");
   const [image, setImage] = useState<string | null>(null);
@@ -203,6 +210,7 @@ export function Comments({
               start={start}
               refresh={router.refresh}
               replySlot={signedIn ? (replyText) => post(replyText, c.id) : undefined}
+              badge={badges?.[c.userId]}
             />
             {(replies.get(c.id) ?? []).map((r) => (
               <div key={r.id} className="ml-11">
@@ -215,6 +223,7 @@ export function Comments({
                   pending={pending}
                   start={start}
                   refresh={router.refresh}
+                  badge={badges?.[r.userId]}
                 />
               </div>
             ))}
@@ -238,6 +247,7 @@ function CommentItem({
   start,
   refresh,
   replySlot,
+  badge,
 }: {
   c: CommentRow;
   signedIn: boolean;
@@ -248,6 +258,7 @@ function CommentItem({
   start: Start;
   refresh: () => void;
   replySlot?: (text: string) => Promise<boolean>;
+  badge?: CommentBadge;
 }) {
   const t = getT(lang ?? "en");
   const [replying, setReplying] = useState(false);
@@ -261,6 +272,17 @@ function CommentItem({
           <Link href={`/u/${c.username ?? c.name}`} className="text-[13px] font-semibold hover:underline underline-offset-2">
             @{c.username ?? c.name}
           </Link>
+          {badge && (
+            <span
+              className={cn(
+                "num inline-flex items-baseline gap-1 rounded-md px-1.5 py-px text-[10.5px] font-bold leading-normal",
+                badge.color ? undefined : badge.tone === "yes" ? "bg-yes-soft text-yes-strong" : "bg-no-soft text-no-strong"
+              )}
+              style={badge.color ? { backgroundColor: `${badge.color}1f`, color: badge.color } : undefined}
+            >
+              {fmtShares(badge.shares, lang)} {badge.label}
+            </span>
+          )}
           <span className="text-[11px] text-faint">{timeAgo(c.createdAt, lang)}</span>
           {(currentUserId === c.userId || isAdmin) && (
             <button

@@ -24,7 +24,7 @@ import { marketYesPrice } from "@/lib/queries";
 import { optionColor, optionSoftBg } from "@/lib/option-style";
 import { fmtCents, fmtMarks, fmtDate } from "@/lib/money";
 import { Sparkline } from "@/components/sparkline";
-import { WatchButton } from "@/components/watch-button";
+
 import { LikeButton } from "@/components/like-button";
 import { AnimatedPct } from "@/components/animated-number";
 import { Badge } from "@/components/ui/primitives";
@@ -186,10 +186,9 @@ export function MarketCard({
           <Clock className="size-3" />
           {fmtDate(market.closesAt, lang)}
         </span>
-        {(watching !== undefined || liked !== undefined) && (
+        {liked !== undefined && (
           <span className="ml-auto inline-flex items-center gap-1">
-            {liked !== undefined && <LikeButton marketId={market.id} liked={liked} count={likes} lang={lang} />}
-            {watching !== undefined && <WatchButton marketId={market.id} watching={watching} lang={lang} />}
+            <LikeButton marketId={market.id} liked={liked} count={likes} lang={lang} />
           </span>
         )}
       </div>
@@ -227,7 +226,7 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
 
       <div className="mt-3 -mx-1 divide-y divide-line-2">
         {live.slice(0, 4).map((o) => (
-          <OptionRow key={o.id} option={o} index={idxOf.get(o.id) ?? 0} lang={lang} />
+          <OptionRow key={o.id} option={o} parentSlug={market.slug} index={idxOf.get(o.id) ?? 0} lang={lang} />
         ))}
         {live.length > 4 && (
           <Link href={`/market/${market.slug}`} className="block px-1 pt-2 text-[12px] font-semibold text-brand-strong hover:underline">
@@ -243,7 +242,7 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
           </summary>
           <div className="divide-y divide-line-2">
             {closed.map((o) => (
-              <OptionRow key={o.id} option={o} index={idxOf.get(o.id) ?? 0} lang={lang} />
+              <OptionRow key={o.id} option={o} parentSlug={market.slug} index={idxOf.get(o.id) ?? 0} lang={lang} />
             ))}
           </div>
         </details>
@@ -259,10 +258,9 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
           <Clock className="size-3" />
           {fmtDate(market.closesAt, lang)}
         </span>
-        {(watching !== undefined || liked !== undefined) && (
+        {liked !== undefined && (
           <span className="ml-auto inline-flex items-center gap-1">
-            {liked !== undefined && <LikeButton marketId={market.id} liked={liked} count={likes} lang={lang} />}
-            {watching !== undefined && <WatchButton marketId={market.id} watching={watching} lang={lang} />}
+            <LikeButton marketId={market.id} liked={liked} count={likes} lang={lang} />
           </span>
         )}
       </div>
@@ -270,13 +268,13 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
   );
 }
 
-function OptionRow({ option: o, index, lang }: { option: MarketRow; index: number; lang?: Lang }) {
+function OptionRow({ option: o, parentSlug, index, lang }: { option: MarketRow; parentSlug: string; index: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   const py = marketYesPrice(o);
   const resolved = o.status === "resolved";
   return (
     <Link
-      href={`/market/${o.slug}`}
+      href={`/market/${parentSlug}?opt=${o.id}`}
       className="flex items-center gap-2.5 px-1 py-2 rounded-md hover:bg-surface-2 transition-colors"
     >
       <OptionChip label={o.label ?? o.question} index={index} imageUrl={o.imageUrl} />
