@@ -10,6 +10,7 @@ import {
   uuid,
   index,
   primaryKey,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 // ---------- Better Auth core tables ----------
@@ -71,6 +72,7 @@ export const verification = pgTable("verification", {
 
 export const CATEGORIES = [
   "Politics",
+  "Geopolitics",
   "Sports",
   "Crypto",
   "Tech",
@@ -82,6 +84,7 @@ export type Category = (typeof CATEGORIES)[number];
 
 export type MarketStatus = "pending" | "live" | "resolved" | "cancelled" | "rejected";
 export type MarketOutcome = "yes" | "no";
+export type MarketKind = "binary" | "group" | "option";
 
 export const market = pgTable(
   "market",
@@ -93,6 +96,12 @@ export const market = pgTable(
     category: text("category").notNull().default("Other"),
     status: text("status").notNull().default("pending"),
     outcome: text("outcome"), // 'yes' | 'no' | null
+    // Multi-outcome markets: a "group" parent holds the shared question;
+    // each "option" child is an independent binary market with its own prices.
+    kind: text("kind").notNull().default("binary"),
+    parentId: uuid("parent_id").references((): AnyPgColumn => market.id, { onDelete: "cascade" }),
+    label: text("label"), // option label on children, e.g. "September 30"
+    sortIndex: integer("sort_index").notNull().default(0), // option order within a group
     b: doublePrecision("b").notNull().default(300), // LMSR liquidity parameter
     qYes: numeric("q_yes", { precision: 24, scale: 6 }).notNull().default("0"),
     qNo: numeric("q_no", { precision: 24, scale: 6 }).notNull().default("0"),
@@ -106,6 +115,7 @@ export const market = pgTable(
   (t) => [
     index("market_status_idx").on(t.status),
     index("market_category_idx").on(t.category),
+    index("market_parent_idx").on(t.parentId),
   ]
 );
 

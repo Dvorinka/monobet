@@ -4,8 +4,11 @@ import { Clock, Users, Scale, CheckCircle2, XCircle, Hourglass } from "lucide-re
 import type { Metadata } from "next";
 import {
   getMarketBySlug,
+  getMarketById,
   getPriceHistory,
   getRecentTrades,
+  getGroupTrades,
+  getGroupOptions,
   getComments,
   getUserPosition,
   getRelatedMarkets,
@@ -13,7 +16,7 @@ import {
   marketYesPrice,
 } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
-import { fmtMarks, fmtDate, fmtShares } from "@/lib/money";
+import { fmtMarks, fmtDate, fmtShares, fmtCents } from "@/lib/money";
 import { PriceChart } from "@/components/price-chart";
 import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicket } from "@/components/trade-ticket";
@@ -21,7 +24,9 @@ import { MarketTabs } from "@/components/market-tabs";
 import { Comments } from "@/components/comments";
 import { ActivityFeed } from "@/components/activity-feed";
 import { Badge, Card } from "@/components/ui/primitives";
-import { MarketCard } from "@/components/market-card";
+import { MarketCard, MarketIcon } from "@/components/market-card";
+import { Sparkline } from "@/components/sparkline";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +52,18 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
     if (!canSee) notFound();
   }
 
+  if (market.kind === "group") {
+    const [options, trades, comments, related] = await Promise.all([
+      getGroupOptions(market.id),
+      getGroupTrades(market.id),
+      getComments(market.id),
+      getRelatedMarkets(market.id, market.category),
+    ]);
+    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} />;
+  }
+
+  const parent = market.parentId ? await getMarketById(market.parentId) : null;
+
   const [history, trades, comments, position, related] = await Promise.all([
     getPriceHistory(market.id),
     getRecentTrades(market.id),
@@ -68,6 +85,18 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
         <Link href="/" className="hover:text-ink">Markets</Link>
         <span className="mx-1.5">/</span>
         <Link href={`/?cat=${market.category}`} className="hover:text-ink">{market.category}</Link>
+        {parent && (
+          <>
+            <span className="mx-1.5">/</span>
+            <Link href={`/market/${parent.slug}`} className="hover:text-ink truncate max-w-56 inline-block align-bottom">{parent.question}</Link>
+            {market.label && (
+              <>
+                <span className="mx-1.5">/</span>
+                <span className="text-ink-2">{market.label}</span>
+              </>
+            )}
+          </>
+        )}
       </div>
 
       <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_340px]">
@@ -192,6 +221,171 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             </Card>
           )}
         </div>
+      </div>
+
+      {related.length > 0 && (
+        <div className="mt-12 border-t border-line pt-8">
+          <h2 className="text-[15px] font-bold tracking-tight mb-4">More {market.category} markets</h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {related.map((m, i) => (
+              <MarketCard key={m.id} market={m} spark={relatedSparks.get(m.id) ?? []} index={i} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- multi-outcome group page ----------
+
+async function GroupMarketView({
+  market,
+  options,
+  trades,
+  comments,
+  related,
+  user,
+}: {
+  market: Awaited<ReturnType<typeof getMarketBySlug>> & object;
+  options: Awaited<ReturnType<typeof getGroupOptions>>;
+  trades: Awaited<ReturnType<typeof getGroupTrades>>;
+  comments: Awaited<ReturnType<typeof getComments>>;
+  related: Awaited<ReturnType<typeof getRelatedMarkets>>;
+  user: Awaited<ReturnType<typeof getCurrentUser>>;
+}) {
+  const relatedSparks = await getSparklines(related.map((m) => m.id));
+  const optionSparks = await getSparklines(options.map((o) => o.id));
+  const live = options.filter((o) => o.status === "live");
+  const closed = options.filter((o) => o.status !== "live");
+  const volume = options.reduce((s, o) => s + o.volumeCents, 0);
+  const traders = options.reduce((s, o) => s + o.traderCount, 0);
+  const anyLive = live.length > 0;
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 pt-5">
+      {anyLive && <LiveRefresher intervalMs={8000} />}
+      <div className="text-[12.5px] text-mute font-medium">
+        <Link href="/" className="hover:text-ink">Markets</Link>
+        <span className="mx-1.5">/</span>
+        <Link href={`/?cat=${market.category}`} className="hover:text-ink">{market.category}</Link>
+        <span className="mx-1.5">/</span>
+        <span className="text-ink-2">{options.length} options</span>
+      </div>
+
+      <div className="mt-6 flex items-start gap-4">
+        <MarketIcon market={market} size="size-12" />
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight leading-tight">
+            {market.question}
+          </h1>
+          <div className="mt-3 flex flex-wrap items-center gap-4 text-[12.5px] text-mute font-medium">
+            <span className="num">{fmtMarks(volume)} volume</span>
+            <span className="inline-flex items-center gap-1.5">
+              <Users className="size-3.5" /> {traders} traders
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Clock className="size-3.5" />
+              {market.closesAt ? `Closes ${fmtDate(market.closesAt)}` : "No close date"}
+            </span>
+            {anyLive && (
+              <Badge tone="yes" className="uppercase">
+                <span className="live-dot" /> Live
+              </Badge>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-8 rounded-[14px] border border-line bg-surface overflow-hidden">
+        <div className="grid grid-cols-[1fr_auto_auto_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-2.5 border-b border-line text-[11px] font-semibold uppercase tracking-wide text-faint">
+          <span>Option</span>
+          <span className="hidden sm:block text-right">Volume</span>
+          <span className="hidden sm:block text-right">Traders</span>
+          <span className="text-right">Chance</span>
+          <span className="hidden sm:block" />
+        </div>
+        <div className="divide-y divide-line-2">
+          {live.map((o) => {
+            const py = marketYesPrice(o);
+            return (
+              <Link
+                key={o.id}
+                href={`/market/${o.slug}`}
+                className="grid grid-cols-[1fr_auto_auto_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors"
+              >
+                <span className="min-w-0 flex items-center gap-3">
+                  <span className="text-[14px] font-semibold text-ink truncate">{o.label}</span>
+                  <Sparkline points={optionSparks.get(o.id) ?? []} className="hidden md:block shrink-0 opacity-80" />
+                </span>
+                <span className="num hidden sm:block text-right text-[12.5px] text-mute">{fmtMarks(o.volumeCents)}</span>
+                <span className="num hidden sm:block text-right text-[12.5px] text-mute">{o.traderCount}</span>
+                <span className={cn("num text-right text-[15px] font-bold", py >= 0.5 ? "text-yes" : "text-ink")}>
+                  {Math.round(py * 100)}%
+                </span>
+                <span className="hidden sm:grid grid-cols-2 gap-1.5">
+                  <span className="num grid place-items-center h-8 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold">
+                    Yes {fmtCents(py)}
+                  </span>
+                  <span className="num grid place-items-center h-8 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold">
+                    No {fmtCents(1 - py)}
+                  </span>
+                </span>
+              </Link>
+            );
+          })}
+          {live.length === 0 && (
+            <p className="px-4 py-6 text-[13px] text-mute">All options are closed.</p>
+          )}
+        </div>
+        {closed.length > 0 && (
+          <details className="border-t border-line">
+            <summary className="cursor-pointer list-none px-4 py-3 text-[13px] font-semibold text-mute hover:text-ink select-none">
+              View resolved ({closed.length})
+            </summary>
+            <div className="divide-y divide-line-2 border-t border-line-2">
+              {closed.map((o) => (
+                <Link
+                  key={o.id}
+                  href={`/market/${o.slug}`}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors"
+                >
+                  <span className="text-[14px] font-medium text-mute truncate flex-1">{o.label}</span>
+                  <span className="num text-[12px] text-faint">{fmtMarks(o.volumeCents)} Vol.</span>
+                  <Badge tone={o.status === "resolved" ? (o.outcome === "yes" ? "yes" : "no") : "mute"}>
+                    {o.status === "resolved" ? `${o.outcome?.toUpperCase()} won` : "Cancelled"}
+                  </Badge>
+                </Link>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+
+      {market.description && (
+        <div className="mt-8">
+          <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
+            <Scale className="size-4" /> Rules
+          </h2>
+          <p className="text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">{market.description}</p>
+        </div>
+      )}
+
+      <div className="mt-8">
+        <MarketTabs
+          activity={<ActivityFeed trades={trades} />}
+          comments={
+            <Comments
+              marketId={market.id}
+              comments={comments}
+              signedIn={!!user}
+              currentUserId={user?.id}
+              isAdmin={user?.role === "admin"}
+            />
+          }
+          commentCount={comments.length}
+          tradeCount={trades.length}
+        />
       </div>
 
       {related.length > 0 && (

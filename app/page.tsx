@@ -3,7 +3,7 @@ import { CategoryTabs } from "@/components/category-tabs";
 import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicker } from "@/components/trade-ticker";
 import { MarketCard } from "@/components/market-card";
-import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats } from "@/lib/queries";
+import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor } from "@/lib/queries";
 import { fmtMarks } from "@/lib/money";
 import { getCurrentUser } from "@/lib/session";
 import type { Metadata } from "next";
@@ -28,11 +28,13 @@ export default async function Home({
     includePendingForUser: user?.role === "admin" ? user.id : undefined,
   });
   const ids = markets.map((m) => m.id);
-  const [sparks, comments, ticker, stats] = await Promise.all([
+  const groupIds = markets.filter((m) => m.kind === "group").map((m) => m.id);
+  const [sparks, comments, ticker, stats, groupOptions] = await Promise.all([
     getSparklines(ids),
     getCommentCount(ids),
     getGlobalTrades(),
     getSiteStats(),
+    getGroupOptionsFor(groupIds),
   ]);
 
   return (
@@ -62,7 +64,7 @@ export default async function Home({
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {markets.map((m, i) => (
-            <MarketCard key={m.id} market={m} spark={sparks.get(m.id) ?? []} comments={comments.get(m.id) ?? 0} index={i} />
+            <MarketCard key={m.id} market={m} spark={sparks.get(m.id) ?? []} comments={comments.get(m.id) ?? 0} index={i} options={groupOptions.get(m.id)} />
           ))}
         </div>
       )}

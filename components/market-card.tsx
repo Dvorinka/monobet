@@ -1,14 +1,34 @@
 import Link from "next/link";
-import { MessageSquare, Users, Clock, Landmark, Trophy, Bitcoin, Cpu, Sparkles, Heart, Shapes } from "lucide-react";
+import { createElement } from "react";
+import {
+  MessageSquare,
+  Users,
+  Clock,
+  Landmark,
+  Trophy,
+  Bitcoin,
+  Cpu,
+  Sparkles,
+  Heart,
+  Shapes,
+  Globe2,
+  Fuel,
+  Thermometer,
+  Rocket,
+  Clapperboard,
+  Layers,
+} from "lucide-react";
 import type { MarketRow } from "@/lib/queries";
 import { marketYesPrice } from "@/lib/queries";
 import { fmtCents, fmtMarks, fmtDate } from "@/lib/money";
 import { Sparkline } from "@/components/sparkline";
 import { AnimatedPct } from "@/components/animated-number";
 import { Badge } from "@/components/ui/primitives";
+import { cn } from "@/lib/utils";
 
 const CAT_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   Politics: Landmark,
+  Geopolitics: Globe2,
   Sports: Trophy,
   Crypto: Bitcoin,
   Tech: Cpu,
@@ -17,34 +37,54 @@ const CAT_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   Other: Shapes,
 };
 
+// Topic-specific icons win over the generic category icon — a crude-oil
+// market gets a barrel, not a globe.
+const KEYWORD_ICON: [RegExp, React.ComponentType<{ className?: string }>][] = [
+  [/\b(oil|crude|petrol|gas price|fuel|energy|opec)\b/i, Fuel],
+  [/\b(weather|snow|rain|temperature|storm|heat wave|cold)\b/i, Thermometer],
+  [/\b(spacex|rocket|nasa|mars|moon|launch)\b/i, Rocket],
+  [/\b(movie|film|oscar|album|song|concert|box office)\b/i, Clapperboard],
+];
+
+export function iconForMarket(m: { question: string; category: string }) {
+  for (const [re, icon] of KEYWORD_ICON) if (re.test(m.question)) return icon;
+  return CAT_ICON[m.category] ?? Shapes;
+}
+
+export function MarketIcon({ market, size = "size-10" }: { market: { question: string; category: string }; size?: string }) {
+  return (
+    <div className={cn("grid place-items-center rounded-lg bg-surface-2 border border-line-2 shrink-0 select-none", size)}>
+      {createElement(iconForMarket(market), { className: "size-5 text-mute" })}
+    </div>
+  );
+}
+
+const CARD =
+  "group flex flex-col rounded-[14px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(16,16,20,0.04)] hover:shadow-[0_6px_20px_rgba(16,16,20,0.09)] hover:border-faint/60 hover:-translate-y-0.5 transition-all duration-200 anim-rise";
+
 export function MarketCard({
   market,
   spark,
   comments = 0,
   index = 0,
+  options,
 }: {
   market: MarketRow;
   spark: number[];
   comments?: number;
   index?: number;
+  options?: MarketRow[];
 }) {
+  if (market.kind === "group") return <GroupCard market={market} options={options ?? []} index={index} />;
+
   const py = marketYesPrice(market);
   const resolved = market.status === "resolved";
   const cancelled = market.status === "cancelled" || market.status === "rejected";
 
   return (
-    <Link
-      href={`/market/${market.slug}`}
-      className="group flex flex-col rounded-[14px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(16,16,20,0.04)] hover:shadow-[0_6px_20px_rgba(16,16,20,0.09)] hover:border-faint/60 hover:-translate-y-0.5 transition-all duration-200 anim-rise"
-      style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
-    >
+    <Link href={`/market/${market.slug}`} className={CARD} style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}>
       <div className="flex gap-3">
-        <div className="grid place-items-center size-10 rounded-lg bg-surface-2 border border-line-2 shrink-0 select-none">
-          {(() => {
-            const Icon = CAT_ICON[market.category] ?? Shapes;
-            return <Icon className="size-5 text-mute" />;
-          })()}
-        </div>
+        <MarketIcon market={market} />
         <h3 className="font-semibold text-[15px] leading-snug text-ink line-clamp-2 flex-1 group-hover:underline decoration-1 underline-offset-2">
           {market.question}
         </h3>
@@ -55,23 +95,16 @@ export function MarketCard({
         <div>
           <div className="num text-[26px] font-bold leading-none tracking-tight">
             {resolved ? (
-              <Badge tone={market.outcome === "yes" ? "yes" : "no"}>
-                {market.outcome?.toUpperCase()} won
-              </Badge>
+              <Badge tone={market.outcome === "yes" ? "yes" : "no"}>{market.outcome?.toUpperCase()} won</Badge>
             ) : cancelled ? (
               <Badge tone="mute">Cancelled</Badge>
             ) : market.status === "pending" ? (
               <Badge tone="warn">Pending approval</Badge>
             ) : (
-              <AnimatedPct
-                value={py}
-                className={py >= 0.5 ? "text-yes" : "text-ink"}
-              />
+              <AnimatedPct value={py} className={py >= 0.5 ? "text-yes" : "text-ink"} />
             )}
           </div>
-          {market.status === "live" && (
-            <div className="text-[11px] text-mute mt-1.5 font-medium">chance</div>
-          )}
+          {market.status === "live" && <div className="text-[11px] text-mute mt-1.5 font-medium">chance</div>}
         </div>
       </div>
 
@@ -101,6 +134,100 @@ export function MarketCard({
           {fmtDate(market.closesAt)}
         </span>
       </div>
+    </Link>
+  );
+}
+
+// Multi-outcome card — Polymarket's "X by when?" style. Each option row links
+// to its own binary market; resolved options collapse under "View resolved".
+function GroupCard({ market, options, index }: { market: MarketRow; options: MarketRow[]; index: number }) {
+  const live = options.filter((o) => o.status === "live");
+  const closed = options.filter((o) => o.status !== "live");
+  const volume = options.reduce((s, o) => s + o.volumeCents, 0);
+  const traders = options.reduce((s, o) => s + o.traderCount, 0);
+
+  return (
+    <div className={CARD} style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}>
+      <div className="flex gap-3">
+        <MarketIcon market={market} />
+        <h3 className="font-semibold text-[15px] leading-snug text-ink line-clamp-2 flex-1">
+          <Link href={`/market/${market.slug}`} className="hover:underline decoration-1 underline-offset-2">
+            {market.question}
+          </Link>
+        </h3>
+        <span className="inline-flex items-center gap-1 h-5 rounded-full bg-surface-2 border border-line-2 px-2 text-[10.5px] font-semibold text-mute shrink-0 select-none">
+          <Layers className="size-3" />
+          {options.length}
+        </span>
+      </div>
+
+      <div className="mt-3 -mx-1 divide-y divide-line-2">
+        {live.slice(0, 4).map((o) => (
+          <OptionRow key={o.id} option={o} />
+        ))}
+        {live.length > 4 && (
+          <Link href={`/market/${market.slug}`} className="block px-1 pt-2 text-[12px] font-semibold text-brand-strong hover:underline">
+            +{live.length - 4} more options
+          </Link>
+        )}
+      </div>
+
+      {closed.length > 0 && (
+        <details className="group/det mt-1 -mx-1">
+          <summary className="cursor-pointer list-none px-1 py-1.5 text-[12px] font-semibold text-mute hover:text-ink select-none">
+            View resolved ({closed.length})
+          </summary>
+          <div className="divide-y divide-line-2">
+            {closed.map((o) => (
+              <OptionRow key={o.id} option={o} />
+            ))}
+          </div>
+        </details>
+      )}
+
+      <div className="mt-auto pt-3 flex items-center gap-3.5 text-[11.5px] text-mute font-medium">
+        <span className="num">{fmtMarks(volume)} Vol.</span>
+        <span className="inline-flex items-center gap-1">
+          <Users className="size-3" />
+          {traders}
+        </span>
+        <span className="ml-auto inline-flex items-center gap-1">
+          <Clock className="size-3" />
+          {fmtDate(market.closesAt)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function OptionRow({ option: o }: { option: MarketRow }) {
+  const py = marketYesPrice(o);
+  const resolved = o.status === "resolved";
+  return (
+    <Link
+      href={`/market/${o.slug}`}
+      className="flex items-center gap-3 px-1 py-2 rounded-md hover:bg-surface-2 transition-colors"
+    >
+      <span className="text-[13px] font-medium text-ink truncate min-w-0 flex-1">{o.label}</span>
+      {resolved ? (
+        <Badge tone={o.outcome === "yes" ? "yes" : "no"} className="shrink-0">
+          {o.outcome?.toUpperCase()}
+        </Badge>
+      ) : o.status === "cancelled" ? (
+        <Badge tone="mute" className="shrink-0">Cancelled</Badge>
+      ) : (
+        <>
+          <span className={cn("num w-10 text-right text-[14px] font-bold shrink-0", py >= 0.5 ? "text-yes" : "text-ink")}>
+            {Math.round(py * 100)}%
+          </span>
+          <span className="num grid place-items-center h-7 w-16 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold shrink-0">
+            Yes {fmtCents(py)}
+          </span>
+          <span className="num grid place-items-center h-7 w-16 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold shrink-0">
+            No {fmtCents(1 - py)}
+          </span>
+        </>
+      )}
     </Link>
   );
 }

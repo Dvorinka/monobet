@@ -17,7 +17,7 @@ export default async function AdminPage() {
 
   const [pending, live, users] = await Promise.all([
     getPendingMarkets(),
-    listMarkets({}),
+    listMarkets({ includeOptions: true }),
     getAllUsers(),
   ]);
 
@@ -48,7 +48,7 @@ export default async function AdminPage() {
           <SectionTitle icon={<Radio className="size-4" />} title={`Live markets (${live.length})`} />
           <Card className="overflow-hidden">
             <LiveMarketList
-              items={live.map((m) => ({
+              items={live.filter((m) => m.kind !== "group").map((m) => ({
                 id: m.id,
                 slug: m.slug,
                 question: m.question,

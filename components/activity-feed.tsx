@@ -10,6 +10,7 @@ export type TradeRow = {
   createdAt: Date;
   username: string | null;
   name: string;
+  label?: string | null; // option label for multi-outcome group feeds
 };
 
 export function ActivityFeed({ trades }: { trades: TradeRow[] }) {
@@ -33,6 +34,7 @@ export function ActivityFeed({ trades }: { trades: TradeRow[] }) {
             >
               {t.outcome.toUpperCase()}
             </span>
+            {t.label && <span className="text-[11.5px] font-medium text-mute bg-surface-2 border border-line-2 rounded px-1.5 py-px truncate max-w-40">{t.label}</span>}
             <span className="num text-mute">{fmtShares(Number(t.shares))} shares</span>
             <span className="num ml-auto font-semibold">{fmtMarks(t.amountCents)}</span>
             <span className="text-faint text-[11.5px] w-16 text-right">{timeAgo(t.createdAt)}</span>

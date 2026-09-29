@@ -1,5 +1,5 @@
 import { db, schema } from "@/lib/db";
-import { eq, desc, asc, and, ilike, or, sql, inArray } from "drizzle-orm";
+import { eq, desc, asc, and, ilike, or, sql, inArray, isNull } from "drizzle-orm";
 import { yesPrice } from "@/lib/lmsr";
 import type { MarketStatus } from "@/lib/db/schema";
 
@@ -15,9 +15,12 @@ export async function listMarkets(opts: {
   sort?: string;
   status?: MarketStatus;
   includePendingForUser?: string;
+  includeOptions?: boolean;
 }) {
   const { category, q, sort, status = "live" } = opts;
-  const conds = [];
+  // Only top-level markets — group options surface through their parent.
+  // Admin passes includeOptions to reach every resolvable market.
+  const conds = opts.includeOptions ? [] : [isNull(schema.market.parentId)];
   if (opts.includePendingForUser) {
     conds.push(
       or(
@@ -44,6 +47,59 @@ export async function listMarkets(opts: {
 export async function getMarketBySlug(slug: string) {
   const rows = await db.select().from(schema.market).where(eq(schema.market.slug, slug)).limit(1);
   return rows[0] ?? null;
+}
+
+export async function getMarketById(id: string) {
+  const rows = await db.select().from(schema.market).where(eq(schema.market.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+// Options of a multi-outcome group, in creation order.
+export async function getGroupOptions(parentId: string) {
+  return db
+    .select()
+    .from(schema.market)
+    .where(eq(schema.market.parentId, parentId))
+    .orderBy(asc(schema.market.sortIndex), asc(schema.market.createdAt), asc(schema.market.id));
+}
+
+// Batch: children for a set of group ids, grouped in JS. Avoids N+1 on the grid.
+export async function getGroupOptionsFor(parentIds: string[]) {
+  const map = new Map<string, MarketRow[]>();
+  if (parentIds.length === 0) return map;
+  const rows = await db
+    .select()
+    .from(schema.market)
+    .where(inArray(schema.market.parentId, parentIds))
+    .orderBy(asc(schema.market.sortIndex), asc(schema.market.createdAt), asc(schema.market.id));
+  for (const r of rows) {
+    const arr = map.get(r.parentId!) ?? [];
+    arr.push(r);
+    map.set(r.parentId!, arr);
+  }
+  return map;
+}
+
+// Latest trades across all options of a group.
+export async function getGroupTrades(parentId: string, limit = 25) {
+  return db
+    .select({
+      id: schema.trade.id,
+      side: schema.trade.side,
+      outcome: schema.trade.outcome,
+      shares: schema.trade.shares,
+      amountCents: schema.trade.amountCents,
+      createdAt: schema.trade.createdAt,
+      username: schema.user.username,
+      name: schema.user.name,
+      label: schema.market.label,
+    })
+    .from(schema.trade)
+    .innerJoin(schema.user, eq(schema.trade.userId, schema.user.id))
+    .innerJoin(schema.market, eq(schema.trade.marketId, schema.market.id))
+    .where(eq(schema.market.parentId, parentId))
+    .orderBy(desc(schema.trade.createdAt))
+    .limit(limit);
 }
 
 export async function getPriceHistory(marketId: string, since?: Date) {
@@ -273,7 +329,7 @@ export async function getRelatedMarkets(marketId: string, category: string, limi
   return db
     .select()
     .from(schema.market)
-    .where(and(eq(schema.market.category, category), eq(schema.market.status, "live"), sql`${schema.market.id} <> ${marketId}`))
+    .where(and(eq(schema.market.category, category), eq(schema.market.status, "live"), isNull(schema.market.parentId), sql`${schema.market.id} <> ${marketId}`))
     .orderBy(desc(schema.market.volumeCents))
     .limit(limit);
 }

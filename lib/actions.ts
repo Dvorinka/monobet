@@ -77,6 +77,26 @@ function toNum(s: string | number): number {
   return typeof s === "number" ? s : Number(s);
 }
 
+// After an option resolves/cancels, roll the group up: no live options left
+// means the group itself is done.
+async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
+  if (!m.parentId) return;
+  const sibs = await tx
+    .select({ status: schema.market.status })
+    .from(schema.market)
+    .where(eq(schema.market.parentId, m.parentId));
+  if (sibs.some((s) => s.status === "live")) return;
+  await tx
+    .update(schema.market)
+    .set({
+      status: sibs.some((s) => s.status === "resolved") ? "resolved" : "cancelled",
+      resolvedAt: new Date(),
+    })
+    .where(eq(schema.market.id, m.parentId));
+  const [parent] = await tx.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, m.parentId)).limit(1);
+  if (parent) revalidatePath(`/market/${parent.slug}`);
+}
+
 // ---------- trading ----------
 
 export async function placeTrade(input: {
@@ -95,6 +115,7 @@ export async function placeTrade(input: {
 
     await db.transaction(async (tx) => {
       const m = await lockMarket(tx, marketId);
+      if (m.kind === "group") throw new Error("Trade one of this market's options");
       if (m.status !== "live") throw new Error("Market is not live");
       if (m.closesAt && new Date(m.closesAt) < new Date()) throw new Error("Market is closed");
       await lockUser(tx, u.id);
@@ -258,6 +279,7 @@ export async function proposeMarket(input: {
   closesAt?: string;
   initialProb?: number;
   liquidity?: number;
+  outcomes?: string[];
 }): Promise<{ ok: boolean; error?: string; slug?: string; live?: boolean }> {
   try {
     const u = await requireUser();
@@ -267,26 +289,78 @@ export async function proposeMarket(input: {
     if (input.description.length > 5000) throw new Error("Description too long");
     const b = LIQUIDITY_OPTIONS.includes(input.liquidity as 100) ? input.liquidity! : 300;
     const p = Math.min(0.97, Math.max(0.03, input.initialProb ?? 0.5));
-    const slug = slugify(question);
-    const [m] = await db
-      .insert(schema.market)
-      .values({
-        slug,
-        question,
-        description: input.description.trim(),
-        category: input.category,
-        status: "live",
-        creatorId: u.id,
-        b,
-        qYes: qForProb(p, b).toFixed(6),
-        qNo: "0",
-        closesAt: input.closesAt ? new Date(input.closesAt) : null,
-      })
-      .returning({ id: schema.market.id, slug: schema.market.slug });
-    await db.insert(schema.pricePoint).values({ marketId: m.id, yesPrice: p.toFixed(5) });
+    const description = input.description.trim();
+    const closesAt = input.closesAt ? new Date(input.closesAt) : null;
+
+    const options = [...new Set((input.outcomes ?? []).map((o) => o.trim()).filter(Boolean))];
+    if (options.length === 1) throw new Error("Add at least 2 options, or leave options empty");
+    if (options.length > 12) throw new Error("Max 12 options");
+    if (options.some((o) => o.length > 60)) throw new Error("Option labels max 60 chars");
+
+    const slug = await db.transaction(async (tx) => {
+      if (options.length >= 2) {
+        const [parent] = await tx
+          .insert(schema.market)
+          .values({
+            slug: slugify(question),
+            question,
+            description,
+            category: input.category,
+            status: "live",
+            kind: "group",
+            creatorId: u.id,
+            b,
+            closesAt,
+          })
+          .returning({ id: schema.market.id, slug: schema.market.slug });
+        const base = question.replace(/[?？!.\s]+$/g, "");
+        for (const [i, label] of options.entries()) {
+          const [child] = await tx
+            .insert(schema.market)
+            .values({
+              slug: slugify(`${base} ${label}`),
+              question: `${base} — ${label}?`,
+              description,
+              category: input.category,
+              status: "live",
+              kind: "option",
+              parentId: parent.id,
+              label,
+              sortIndex: i,
+              creatorId: u.id,
+              b,
+              qYes: qForProb(p, b).toFixed(6),
+              qNo: "0",
+              closesAt,
+            })
+            .returning({ id: schema.market.id });
+          await tx.insert(schema.pricePoint).values({ marketId: child.id, yesPrice: p.toFixed(5) });
+        }
+        return parent.slug;
+      }
+
+      const [m] = await tx
+        .insert(schema.market)
+        .values({
+          slug: slugify(question),
+          question,
+          description,
+          category: input.category,
+          status: "live",
+          creatorId: u.id,
+          b,
+          qYes: qForProb(p, b).toFixed(6),
+          qNo: "0",
+          closesAt,
+        })
+        .returning({ id: schema.market.id, slug: schema.market.slug });
+      await tx.insert(schema.pricePoint).values({ marketId: m.id, yesPrice: p.toFixed(5) });
+      return m.slug;
+    });
+
     revalidatePath("/admin");
     revalidatePath("/");
-    return { ok: true, slug: m.slug, live: true };
+    return { ok: true, slug, live: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed to create market" };
   }
@@ -365,6 +439,7 @@ export async function resolveMarket(input: {
     let paidOut = 0;
     await db.transaction(async (tx) => {
       const m = await lockMarket(tx, input.marketId);
+      if (m.kind === "group") throw new Error("Resolve the group's options instead");
       if (m.status !== "live") throw new Error("Market is not live");
       const positions = await tx
         .select()
@@ -389,10 +464,13 @@ export async function resolveMarket(input: {
         marketId: input.marketId,
         yesPrice: input.outcome === "yes" ? "1" : "0",
       });
+      await syncGroupStatus(tx, m);
     });
     revalidatePath("/");
     revalidatePath("/admin");
     revalidatePath("/leaderboard");
+    const [self] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, input.marketId)).limit(1);
+    if (self) revalidatePath(`/market/${self.slug}`);
     return { ok: true, paidOut };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Resolve failed" };
@@ -404,6 +482,7 @@ export async function cancelMarket(marketId: string): Promise<{ ok: boolean; err
     await requireAdmin();
     await db.transaction(async (tx) => {
       const m = await lockMarket(tx, marketId);
+      if (m.kind === "group") throw new Error("Cancel the group's options instead");
       if (m.status === "resolved" || m.status === "cancelled") throw new Error("Already closed");
       const py = marketYesPrice(m);
       const positions = await tx
@@ -420,6 +499,8 @@ export async function cancelMarket(marketId: string): Promise<{ ok: boolean; err
       }
       await tx.delete(schema.position).where(eq(schema.position.marketId, marketId));
       await tx.update(schema.market).set({ status: "cancelled" }).where(eq(schema.market.id, marketId));
+      await syncGroupStatus(tx, m);
+      revalidatePath(`/market/${m.slug}`);
     });
     revalidatePath("/");
     revalidatePath("/admin");

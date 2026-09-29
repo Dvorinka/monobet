@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Button, Input, Select, Textarea, Card } from "@/components/ui/primitives";
+import { Button, Input, Select, Textarea, Card, Segmented } from "@/components/ui/primitives";
 import { proposeMarket } from "@/lib/actions";
 import { CATEGORIES } from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
@@ -15,7 +15,9 @@ const LIQUIDITY = [
 ] as const;
 
 export function MarketForm({ isAdmin }: { isAdmin: boolean }) {
+  const [marketType, setMarketType] = useState<"binary" | "multi">("binary");
   const [question, setQuestion] = useState("");
+  const [optionsText, setOptionsText] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<string>("Friends");
   const [closesAt, setClosesAt] = useState("");
@@ -23,6 +25,8 @@ export function MarketForm({ isAdmin }: { isAdmin: boolean }) {
   const [liquidity, setLiquidity] = useState<number>(300);
   const [pending, start] = useTransition();
   const router = useRouter();
+
+  const optionLines = optionsText.split("\n").map((o) => o.trim()).filter(Boolean);
 
   return (
     <Card className="p-6">
@@ -38,6 +42,7 @@ export function MarketForm({ isAdmin }: { isAdmin: boolean }) {
               closesAt: closesAt || undefined,
               initialProb: odds / 100,
               liquidity,
+              outcomes: marketType === "multi" ? optionLines : undefined,
             });
             if (r.ok) {
               toast.success("Market is live");
@@ -47,6 +52,24 @@ export function MarketForm({ isAdmin }: { isAdmin: boolean }) {
         }}
       >
         <div>
+          <label className="text-[13px] font-medium text-mute">Market type</label>
+          <Segmented
+            className="mt-1.5 w-full"
+            options={[
+              { value: "binary", label: "Yes / No" },
+              { value: "multi", label: "Multiple options" },
+            ]}
+            value={marketType}
+            onChange={(v) => setMarketType(v as "binary" | "multi")}
+          />
+          <p className="mt-1.5 text-[11.5px] text-faint">
+            {marketType === "binary"
+              ? "One question, two sides — like “Will it snow before Christmas?”"
+              : "One question, several options — like “Crude oil all-time high by when?” Each option gets its own Yes/No price."}
+          </p>
+        </div>
+
+        <div>
           <label className="text-[13px] font-medium text-mute" htmlFor="q">
             Question
           </label>
@@ -54,13 +77,34 @@ export function MarketForm({ isAdmin }: { isAdmin: boolean }) {
             id="q"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Will it snow in Prague before Christmas?"
+            placeholder={marketType === "binary" ? "Will it snow in Prague before Christmas?" : "Crude oil all time high by…?"}
             maxLength={200}
             className="mt-1"
             required
           />
-          <p className="mt-1 text-[11.5px] text-faint">A clear yes/no question. {200 - question.length} chars left.</p>
+          <p className="mt-1 text-[11.5px] text-faint">
+            {marketType === "binary" ? "A clear yes/no question." : "The shared question — options complete it."} {200 - question.length} chars left.
+          </p>
         </div>
+
+        {marketType === "multi" && (
+          <div>
+            <label className="text-[13px] font-medium text-mute" htmlFor="opts">
+              Options
+            </label>
+            <Textarea
+              id="opts"
+              value={optionsText}
+              onChange={(e) => setOptionsText(e.target.value)}
+              placeholder={"September 30\nOctober 31\nDecember 31"}
+              className="mt-1 min-h-24 font-mono text-[13px]"
+              required
+            />
+            <p className="mt-1 text-[11.5px] text-faint">
+              One option per line — 2 to 12. {optionLines.length} added. Each trades as its own Yes/No market.
+            </p>
+          </div>
+        )}
 
         <div>
           <label className="text-[13px] font-medium text-mute" htmlFor="d">
@@ -130,7 +174,9 @@ export function MarketForm({ isAdmin }: { isAdmin: boolean }) {
             onChange={(e) => setOdds(Number(e.target.value))}
             className="mt-2 w-full accent-brand cursor-pointer"
           />
-          <p className="text-[11.5px] text-faint">Where the price opens. Traders move it from here.</p>
+          <p className="text-[11.5px] text-faint">
+            Where {marketType === "multi" ? "every option" : "the price"} opens. Traders move it from here.
+          </p>
         </div>
 
         <div>
