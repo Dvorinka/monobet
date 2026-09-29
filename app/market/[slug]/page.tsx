@@ -23,7 +23,9 @@ import {
   marketYesPrice,
   getResolutionState,
   getTopHolders,
+  getGroupHolders,
   getUserPublic,
+  listMarkets,
 } from "@/lib/queries";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
@@ -79,7 +81,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
   }
 
   if (market.kind === "group") {
-    const [options, trades, comments, related, liked, likes] = await Promise.all([
+    const [options, trades, comments, sameCat, liked, likes] = await Promise.all([
       getGroupOptions(market.id),
       getGroupTrades(market.id),
       getComments(market.id, user?.id),
@@ -87,6 +89,11 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
       user ? isLiked(user.id, market.id) : false,
       getLikeCounts([market.id]),
     ]);
+    // No same-category markets? Fall back to the busiest live markets so the
+    // rail never renders empty.
+    const related = sameCat.length > 0
+      ? sameCat
+      : (await listMarkets({ status: "live" })).filter((m) => m.id !== market.id).slice(0, 6);
     return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} liked={liked} likes={likes.get(market.id) ?? 0} selOpt={selOpt} selSide={selSide} />;
   }
 
@@ -265,6 +272,11 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               <p className="text-sm text-faint">{t.resolverNote}.</p>
             )}
             <Card className="mt-3 p-4">
+              {market.context && (
+                <p className="mb-3 pb-3 border-b border-line-2 text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">
+                  {market.context}
+                </p>
+              )}
               <dl className="grid gap-2.5 text-[13px] sm:grid-cols-2">
                 <div className="flex items-center gap-2.5">
                   {creator && <Avatar name={creator.name} image={creator.image} className="size-7" />}
@@ -456,13 +468,16 @@ async function GroupMarketView({
   const t: Dict = getT(lang);
   const optionIds = options.map((o) => o.id);
   const live = options.filter((o) => o.status === "live");
-  const [optionSparks, histories, betCount, categories, posRows, myPositions] = await Promise.all([
+  const [optionSparks, histories, betCount, categories, posRows, myPositions, creator, res, holders] = await Promise.all([
     getSparklines(optionIds),
     getGroupHistories(optionIds),
     getMarketBetCount(market.id),
     listCategories(),
     getPositionBadges(optionIds),
     user ? getMyPositions(user.id, optionIds) : {},
+    getUserPublic(market.creatorId),
+    getResolutionState(market.id, user?.id),
+    getGroupHolders(optionIds),
   ]);
   // Comment badges: each commenter's dominant option position. YES-side holders
   // get the option color, NO-side holders a red "No <option>" tag.
@@ -566,8 +581,8 @@ async function GroupMarketView({
         initialOpt={selOpt}
         initialSide={selSide}
         chart={
-          series.length > 0 ? (
-            <div className="rounded-[14px] border border-line bg-surface p-4">
+          <div className="rounded-[14px] border border-line bg-surface p-4">
+            {series.length > 0 ? (
               <MultiPriceChart
                 series={series}
                 // eslint-disable-next-line react-hooks/purity -- server component renders once per request
@@ -575,8 +590,25 @@ async function GroupMarketView({
                 live={anyLive}
                 lang={lang}
               />
+            ) : (
+              <div className="h-40 grid place-items-center text-[13px] text-faint">{t.noTradesYet}</div>
+            )}
+            {/* stats strip — same as binary markets */}
+            <div className="mt-3 pt-3 border-t border-line-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-mute font-medium">
+              <span className="num font-semibold text-ink-2">{fmtMarks(volume, { lang })} {t.volume}</span>
+              <span className="inline-flex items-center gap-1.5">
+                <Users className="size-3.5" /> {traders} {t.tradersW}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Clock className="size-3.5" />
+                {market.closesAt ? `${t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                {t.openedAt} {fmtDate(market.createdAt, lang)}
+              </span>
+              <CopyLink path={`/market/${market.slug}`} lang={lang} />
             </div>
-          ) : null
+          </div>
         }
         left={
           <>
@@ -588,6 +620,52 @@ async function GroupMarketView({
                 <p className="text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">{market.description}</p>
               </div>
             )}
+
+            {/* Market context — creator, resolver, dates, background */}
+            <div className="mt-8">
+              <h2 className="text-[15px] font-semibold mb-2">{t.marketContext}</h2>
+              <Card className="p-4">
+                {market.context && (
+                  <p className="mb-3 pb-3 border-b border-line-2 text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">
+                    {market.context}
+                  </p>
+                )}
+                <dl className="grid gap-2.5 text-[13px] sm:grid-cols-2">
+                  <div className="flex items-center gap-2.5">
+                    {creator && <Avatar name={creator.name} image={creator.image} className="size-7" />}
+                    <div className="min-w-0">
+                      <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.creator}</dt>
+                      <dd className="font-medium truncate">
+                        {creator ? (
+                          <Link href={`/u/${creator.username ?? ""}`} className="hover:text-brand-strong">
+                            @{creator.username ?? creator.name}
+                          </Link>
+                        ) : (
+                          "—"
+                        )}
+                      </dd>
+                    </div>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.resolver}</dt>
+                    <dd className="font-medium truncate">
+                      {res.proposer ? `@${res.proposer}` : creator ? `@${creator.username ?? creator.name}` : "—"}
+                      <span className="block text-[11px] font-normal text-faint">{t.resolverNote}</span>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.openedAt}</dt>
+                    <dd className="font-medium num">{fmtDate(market.createdAt, lang)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.closes}</dt>
+                    <dd className="font-medium num">
+                      {market.closesAt ? fmtDate(market.closesAt, lang) : t.noCloseDate}
+                    </dd>
+                  </div>
+                </dl>
+              </Card>
+            </div>
 
             <div className="mt-8">
               <MarketTabs
@@ -606,8 +684,33 @@ async function GroupMarketView({
                     badges={badges}
                   />
                 }
+                holders={
+                  holders.length > 0 ? (
+                    <Card className="p-1.5">
+                      {holders.map((h) => {
+                        const oi = options.findIndex((o) => o.id === h.marketId);
+                        const label = options[oi]?.label ?? options[oi]?.question ?? "";
+                        const col = optionColor(Math.max(0, oi));
+                        return (
+                          <div key={h.username ?? h.name} className="flex items-center gap-3 px-3 py-2">
+                            <Avatar name={h.name} image={h.image} className="size-7" />
+                            <Link href={`/u/${h.username ?? ""}`} className="text-[13px] font-medium truncate flex-1 hover:text-brand-strong">
+                              @{h.username ?? h.name}
+                            </Link>
+                            <span className="num text-[12.5px] font-semibold" style={{ color: h.side === "yes" ? col : "var(--no-strong)" }}>
+                              {fmtShares(h.shares, lang)} {h.side === "yes" ? label : `${t.no} ${label}`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </Card>
+                  ) : (
+                    <p className="text-sm text-faint">{t.noTradesYet}</p>
+                  )
+                }
                 commentCount={comments.length}
                 tradeCount={trades.length}
+                holderCount={holders.length}
               />
             </div>
           </>

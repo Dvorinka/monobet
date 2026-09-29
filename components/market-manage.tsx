@@ -24,6 +24,7 @@ export function MarketManagePanel({
     id: string;
     question: string;
     description: string;
+    context?: string;
     category: string;
     imageUrl: string | null;
     closesAt: string | Date | null;
@@ -40,6 +41,7 @@ export function MarketManagePanel({
   const [editing, setEditing] = useState(false);
   const [question, setQuestion] = useState(market.question);
   const [description, setDescription] = useState(market.description);
+  const [context, setContext] = useState(market.context ?? "");
   const [category, setCategory] = useState(market.category);
   const [imageUrl, setImageUrl] = useState(market.imageUrl ?? "");
   const [closesAt, setClosesAt] = useState(
@@ -116,6 +118,7 @@ export function MarketManagePanel({
                   marketId: market.id,
                   question,
                   description,
+                  context,
                   category,
                   imageUrl,
                   closesAt: closesAt || undefined,
@@ -172,6 +175,19 @@ export function MarketManagePanel({
               onChange={(e) => setDescription(e.target.value)}
               placeholder={t.rulesPh}
               className="min-h-24 text-[13px]"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+              {t.marketContext}
+            </label>
+            <Textarea
+              value={context}
+              onChange={(e) => setContext(e.target.value)}
+              placeholder={t.contextPh}
+              maxLength={2000}
+              className="min-h-16 text-[13px]"
             />
           </div>
 

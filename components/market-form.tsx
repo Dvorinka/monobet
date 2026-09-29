@@ -41,6 +41,7 @@ export function MarketForm({
   const [rangeCustom, setRangeCustom] = useState(false);
   const [rangeText, setRangeText] = useState("");
   const [description, setDescription] = useState("");
+  const [context, setContext] = useState("");
   const [category, setCategory] = useState<string>(categories[0] ?? NEW_CATEGORY);
   const [newCategory, setNewCategory] = useState("");
   const [closesAt, setClosesAt] = useState("");
@@ -97,6 +98,7 @@ export function MarketForm({
             const r = await proposeMarket({
               question,
               description,
+              context: context || undefined,
               imageUrl: marketImage || undefined,
               category,
               newCategory: category === NEW_CATEGORY ? newCategory : undefined,
@@ -267,7 +269,21 @@ export function MarketForm({
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="text-[13px] font-medium text-mute" htmlFor="ctx">
+            {t.marketContext}
+          </label>
+          <Textarea
+            id="ctx"
+            value={context}
+            onChange={(e) => setContext(e.target.value)}
+            placeholder={t.contextPh}
+            maxLength={2000}
+            className="mt-1 min-h-16"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-[13px] font-medium text-mute" htmlFor="c">
               {t.category}

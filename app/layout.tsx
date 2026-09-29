@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { LogoMark } from "@/components/logo";
+import { IntroVideo, TrailerLink } from "@/components/intro-video";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import "./globals.css";
@@ -58,6 +59,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <Link href="/propose" className="text-mute hover:text-ink transition-colors">{t.newMarket}</Link>
                 <Link href="/portfolio" className="text-mute hover:text-ink transition-colors">{t.portfolio}</Link>
                 <Link href="/terms" className="text-mute hover:text-ink transition-colors">{t.terms}</Link>
+                <TrailerLink lang={lang} />
               </nav>
             </div>
             <p className="mt-8 pt-5 border-t border-line-2 text-[12px] text-faint leading-relaxed max-w-3xl">
@@ -79,6 +81,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </div>
         </footer>
+        <IntroVideo lang={lang} />
         <Toaster
           position="bottom-center"
           toastOptions={{

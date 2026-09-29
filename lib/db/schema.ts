@@ -106,6 +106,8 @@ export const market = pgTable(
     slug: text("slug").notNull().unique(),
     question: text("question").notNull(),
     description: text("description").notNull().default(""),
+    // Creator-provided background ("Market context" card) — optional.
+    context: text("context").notNull().default(""),
     category: text("category").notNull().default("Other"),
     status: text("status").notNull().default("pending"),
     outcome: text("outcome"), // 'yes' | 'no' | null
