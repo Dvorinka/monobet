@@ -3,7 +3,7 @@ import { CategoryTabs } from "@/components/category-tabs";
 import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicker } from "@/components/trade-ticker";
 import { MarketCard } from "@/components/market-card";
-import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor, listCategories, getWatchlistIds, getExpiredLive } from "@/lib/queries";
+import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor, listCategories, getWatchlistIds, getExpiredLive, maybeNotifyClosing } from "@/lib/queries";
 import { fmtMarks } from "@/lib/money";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
@@ -26,6 +26,8 @@ export default async function Home({
   const t = getT(lang);
   const [user, categories] = await Promise.all([getCurrentUser(), listCategories()]);
   const watchIds = user ? await getWatchlistIds(user.id) : [];
+  // Closing-in-24h reminders land in the bell for watched markets.
+  if (user) await maybeNotifyClosing(user.id);
   const watchSet = new Set(watchIds);
   const markets = await listMarkets({
     category: cat,

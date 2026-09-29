@@ -26,6 +26,34 @@ import {
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+// Crude spam brakes for a friends group — recent-row counts on the live
+// tables, generous thresholds, no new infra.
+async function assertNotSpam(userId: string, kind: "trade" | "game" | "comment") {
+  const limits = { trade: 60, game: 60, comment: 5 };
+  const max = limits[kind];
+  let n = 0;
+  if (kind === "comment") {
+    const [r] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.comment)
+      .where(and(eq(schema.comment.userId, userId), sql`${schema.comment.createdAt} > now() - interval '5 minutes'`));
+    n = r?.n ?? 0;
+  } else if (kind === "game") {
+    const [r] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.ledger)
+      .where(and(eq(schema.ledger.userId, userId), eq(schema.ledger.kind, "game"), sql`${schema.ledger.createdAt} > now() - interval '5 minutes'`));
+    n = r?.n ?? 0;
+  } else {
+    const [r] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.trade)
+      .where(and(eq(schema.trade.userId, userId), sql`${schema.trade.createdAt} > now() - interval '5 minutes'`));
+    n = r?.n ?? 0;
+  }
+  if (n >= max) throw new Error("Too fast — wait a few minutes");
+}
+
 // ---------- helpers ----------
 
 async function credit(
@@ -169,6 +197,7 @@ export async function placeTrade(input: {
     const u = await requireUser();
     const { marketId, outcome, side } = input;
     if (outcome !== "yes" && outcome !== "no") throw new Error("Bad outcome");
+    await assertNotSpam(u.id, "trade");
 
     let result!: { shares: number; costCents: number; price: number };
 
@@ -783,6 +812,31 @@ export async function resolveMarket(input: {
         marketId: input.marketId,
         yesPrice: input.outcome === "yes" ? "1" : "0",
       });
+      // Fan out to watchers + the creator — position holders already got
+      // payout rows, so only notify users who didn't receive money.
+      const paidUsers = new Set(positions.map((p) => p.userId));
+      const watchers = await tx
+        .select({ userId: schema.watchlist.userId })
+        .from(schema.watchlist)
+        .where(eq(schema.watchlist.marketId, m.id));
+      const notifyIds = new Set([m.creatorId, ...watchers.map((w) => w.userId)].filter((x): x is string => !!x));
+      for (const uid of notifyIds) {
+        if (paidUsers.has(uid)) continue;
+        const [w] = await tx
+          .select({ balanceCents: schema.user.balanceCents })
+          .from(schema.user)
+          .where(eq(schema.user.id, uid))
+          .limit(1);
+        if (!w) continue;
+        await tx.insert(schema.ledger).values({
+          userId: uid,
+          amountCents: 0,
+          balanceAfterCents: w.balanceCents,
+          kind: "notify",
+          marketId: m.id,
+          memo: `Resolved ${input.outcome.toUpperCase()}: ${m.question.slice(0, 80)}`,
+        });
+      }
       await syncGroupStatus(tx, m);
     });
     revalidatePath("/");
@@ -1061,6 +1115,7 @@ export async function addComment(input: {
   try {
     const u = await requireUser();
     if (u.commentsBanned) throw new Error("Comments are disabled for your account");
+    await assertNotSpam(u.id, "comment");
     const body = input.body.trim();
     if (!body) throw new Error("Empty comment");
     if (body.length > 1000) throw new Error("Comment too long (max 1000)");
@@ -1181,6 +1236,7 @@ export async function playCoinFlip(input: {
 }): Promise<{ ok: boolean; error?: string; won?: boolean; landed?: string; netCents?: number }> {
   try {
     const u = await requireUser();
+    await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     if (input.pick !== "heads" && input.pick !== "tails") throw new Error("Pick a side");
     const landed = randomInt(2) === 0 ? "heads" : "tails";
@@ -1202,6 +1258,7 @@ export async function playDice(input: {
 }): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number }> {
   try {
     const u = await requireUser();
+    await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     const over = Math.round(input.over);
     if (over < DICE_MIN_OVER || over > DICE_MAX_OVER) throw new Error("Bad target");
@@ -1259,6 +1316,7 @@ export async function stopTimerRound(input: {
 }): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number }> {
   try {
     const u = await requireUser();
+    await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     const { t: target, i: issued } = openTimerRound(input.token, u.id);
     const elapsed = Date.now() - issued;
@@ -1284,6 +1342,7 @@ export async function playLimbo(input: {
 }): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number }> {
   try {
     const u = await requireUser();
+    await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     const target = Number(input.target);
     if (!Number.isFinite(target) || target < LIMBO_MIN || target > LIMBO_MAX) throw new Error("Bad target");
@@ -1307,6 +1366,7 @@ export async function playWheel(input: {
 }): Promise<{ ok: boolean; error?: string; index?: number; mult?: number; netCents?: number }> {
   try {
     const u = await requireUser();
+    await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     const index = randomInt(WHEEL_SEGMENTS.length);
     const mult = WHEEL_SEGMENTS[index];

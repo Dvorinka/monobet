@@ -67,8 +67,8 @@ export function NotifBell({ items, lang }: { items: NotifItem[]; lang?: Lang }) 
           {items.map((n) => {
             const inner = (
               <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg hover:bg-surface-2">
-                <Badge tone={n.kind === "liq" ? "no" : n.amountCents > 0 ? "yes" : "mute"} className="shrink-0">
-                  {n.kind === "liq" ? t.kindLiq : n.amountCents > 0 ? `+${fmtMarks(n.amountCents, { lang, decimals: false })}` : n.kind}
+                <Badge tone={n.kind === "liq" ? "no" : n.amountCents > 0 ? "yes" : "ink"} className="shrink-0">
+                  {n.kind === "liq" ? t.kindLiq : n.amountCents > 0 ? `+${fmtMarks(n.amountCents, { lang, decimals: false })}` : t.kindNotify}
                 </Badge>
                 <span className="text-[12.5px] text-mute flex-1 line-clamp-2">{n.memo || n.kind}</span>
                 <span className="text-[10.5px] text-faint shrink-0">{timeAgo(new Date(n.createdAt), lang)}</span>

@@ -471,7 +471,7 @@ export async function getPublicProfile(username: string) {
 }
 
 // Credit-side ledger events the user didn't trigger — feeds the header bell.
-const NOTIF_KINDS = ["payout", "refund", "liq", "grant", "bonus"];
+const NOTIF_KINDS = ["payout", "refund", "liq", "grant", "bonus", "notify"];
 
 export async function getNotifications(userId: string, limit = 10) {
   return db
@@ -669,4 +669,56 @@ export async function isWatching(userId: string, marketId: string): Promise<bool
     .where(and(eq(schema.watchlist.userId, userId), eq(schema.watchlist.marketId, marketId)))
     .limit(1);
   return rows.length > 0;
+}
+
+// Watched live markets entering their final 24h — inserts a "Closes soon"
+// notify row per (user, market) once. Check-then-insert: a rare concurrent
+// duplicate is cosmetic, and dedupe matches the memo prefix per market.
+export async function maybeNotifyClosing(userId: string) {
+  const soon = await db
+    .select({ id: schema.market.id, question: schema.market.question })
+    .from(schema.watchlist)
+    .innerJoin(schema.market, eq(schema.watchlist.marketId, schema.market.id))
+    .where(
+      and(
+        eq(schema.watchlist.userId, userId),
+        eq(schema.market.status, "live"),
+        sql`${schema.market.closesAt} > now()`,
+        sql`${schema.market.closesAt} < now() + interval '24 hours'`
+      )
+    )
+    .limit(20);
+  if (soon.length === 0) return;
+
+  const sent = await db
+    .select({ marketId: schema.ledger.marketId })
+    .from(schema.ledger)
+    .where(
+      and(
+        eq(schema.ledger.userId, userId),
+        eq(schema.ledger.kind, "notify"),
+        inArray(schema.ledger.marketId, soon.map((m) => m.id)),
+        sql`${schema.ledger.memo} like 'Closes soon%'`
+      )
+    );
+  const done = new Set(sent.map((r) => r.marketId));
+  const missing = soon.filter((m) => !done.has(m.id));
+  if (missing.length === 0) return;
+
+  const [u] = await db
+    .select({ balanceCents: schema.user.balanceCents })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+    .limit(1);
+  if (!u) return;
+  await db.insert(schema.ledger).values(
+    missing.map((m) => ({
+      userId,
+      amountCents: 0,
+      balanceAfterCents: u.balanceCents,
+      kind: "notify" as const,
+      marketId: m.id,
+      memo: `Closes soon: ${m.question.slice(0, 80)}`,
+    }))
+  );
 }
