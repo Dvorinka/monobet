@@ -11,8 +11,13 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://monobet.tdvorak.dev"),
   title: { default: "MonoBet — Markets", template: "MonoBet — %s" },
   description: "Play-money prediction markets. Bet virtual Marks on custom events.",
+  openGraph: {
+    siteName: "MonoBet",
+    type: "website",
+  },
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

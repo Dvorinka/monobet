@@ -25,6 +25,7 @@ import { getT, type Dict } from "@/lib/i18n";
 import { fmtMarks, fmtDate, fmtShares, fmtCents } from "@/lib/money";
 import { PriceChart } from "@/components/price-chart";
 import { WatchButton } from "@/components/watch-button";
+import { CopyLink } from "@/components/copy-link";
 import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicket } from "@/components/trade-ticket";
 import { MarketTabs } from "@/components/market-tabs";
@@ -48,7 +49,12 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const m = await getMarketBySlug(slug);
-  return { title: m?.question ?? "Market" };
+  const pct = m ? Math.round(marketYesPrice(m) * 100) : 0;
+  return {
+    title: m?.question ?? "Market",
+    description: m ? `${pct}% YES · ${fmtMarks(m.volumeCents)} traded on MonoBet — play-money markets` : "MonoBet market",
+    openGraph: m ? { title: m.question } : undefined,
+  };
 }
 
 export default async function MarketPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -143,6 +149,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             <span className="inline-flex items-center gap-1.5">
               <Users className="size-3.5" /> {market.traderCount} {t.tradersW}
             </span>
+            <CopyLink path={`/market/${market.slug}`} lang={lang} />
             <span className="inline-flex items-center gap-1.5">
               <Clock className="size-3.5" />
               {market.closesAt ? `${t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
