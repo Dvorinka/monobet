@@ -99,6 +99,7 @@ export const market = pgTable(
     parentId: uuid("parent_id").references((): AnyPgColumn => market.id, { onDelete: "cascade" }),
     label: text("label"), // option label on children, e.g. "September 30"
     sortIndex: integer("sort_index").notNull().default(0), // option order within a group
+    imageUrl: text("image_url"), // optional picture — option logos, market icons
     b: doublePrecision("b").notNull().default(300), // LMSR liquidity parameter
     qYes: numeric("q_yes", { precision: 24, scale: 6 }).notNull().default("0"),
     qNo: numeric("q_no", { precision: 24, scale: 6 }).notNull().default("0"),

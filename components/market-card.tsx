@@ -58,27 +58,39 @@ export function iconForOption(label: string) {
   return null;
 }
 
-// Per-option avatar: keyword icon when the label matches a topic, else a
-// monogram letter — like Polymarket's party/outcome logos. Color is fixed by
-// option index so the chip matches the row accent and chart line.
-export function OptionChip({ label, index }: { label: string; index: number }) {
+// Per-option avatar: uploaded image first, then a keyword icon when the label
+// matches a topic, else a monogram letter — like Polymarket's party/outcome
+// logos. Color is fixed by option index so the chip matches the chart line.
+export function OptionChip({ label, index, imageUrl }: { label: string; index: number; imageUrl?: string | null }) {
   const color = optionColor(index);
   const icon = iconForOption(label);
   return (
     <span
-      className="grid place-items-center size-7 rounded-md shrink-0 select-none text-[13px] font-bold"
+      className="grid place-items-center size-7 rounded-md shrink-0 select-none text-[13px] font-bold overflow-hidden"
       style={{ background: optionSoftBg(color), color }}
       aria-hidden
     >
-      {icon ? createElement(icon, { className: "size-4" }) : label.trim().charAt(0).toUpperCase()}
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- remote option logos
+        <img src={imageUrl} alt="" className="size-full object-cover" loading="lazy" />
+      ) : icon ? (
+        createElement(icon, { className: "size-4" })
+      ) : (
+        label.trim().charAt(0).toUpperCase()
+      )}
     </span>
   );
 }
 
-export function MarketIcon({ market, size = "size-10" }: { market: { question: string; category: string }; size?: string }) {
+export function MarketIcon({ market, size = "size-10" }: { market: { question: string; category: string; imageUrl?: string | null }; size?: string }) {
   return (
-    <div className={cn("grid place-items-center rounded-lg bg-surface-2 border border-line-2 shrink-0 select-none", size)}>
-      {createElement(iconForMarket(market), { className: "size-5 text-mute" })}
+    <div className={cn("grid place-items-center rounded-lg bg-surface-2 border border-line-2 shrink-0 select-none overflow-hidden", size)}>
+      {market.imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- remote market icons
+        <img src={market.imageUrl} alt="" className="size-full object-cover" loading="lazy" />
+      ) : (
+        createElement(iconForMarket(market), { className: "size-5 text-mute" })
+      )}
     </div>
   );
 }
@@ -242,7 +254,7 @@ function OptionRow({ option: o, index, lang }: { option: MarketRow; index: numbe
       href={`/market/${o.slug}`}
       className="flex items-center gap-2.5 px-1 py-2 rounded-md hover:bg-surface-2 transition-colors"
     >
-      <OptionChip label={o.label ?? o.question} index={index} />
+      <OptionChip label={o.label ?? o.question} index={index} imageUrl={o.imageUrl} />
       <span className="text-[13px] font-medium text-ink truncate min-w-0 flex-1">
         {o.label}
         {o.volumeCents > 0 && (

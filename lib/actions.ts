@@ -379,10 +379,20 @@ export async function proposeMarket(input: {
     const description = input.description.trim();
     const closesAt = input.closesAt ? new Date(input.closesAt) : null;
 
-    const options = [...new Set((input.outcomes ?? []).map((o) => o.trim()).filter(Boolean))];
+    // Options may carry an image: "Democratic Party | https://…/logo.png"
+    const parsed = (input.outcomes ?? [])
+      .map((o) => o.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [label, url] = line.split("|").map((s) => s.trim());
+        if (url && !/^(https?:\/\/|\/)\S+$/.test(url)) throw new Error(`Bad image URL for "${label}"`);
+        return { label, imageUrl: url || null };
+      });
+    const seen = new Set<string>();
+    const options = parsed.filter((o) => (seen.has(o.label.toLowerCase()) ? false : (seen.add(o.label.toLowerCase()), true)));
     if (options.length === 1) throw new Error("Add at least 2 options, or leave options empty");
     if (options.length > 12) throw new Error("Max 12 options");
-    if (options.some((o) => o.length > 60)) throw new Error("Option labels max 60 chars");
+    if (options.some((o) => o.label.length > 60 || o.label.length === 0)) throw new Error("Option labels max 60 chars");
 
     const slug = await db.transaction(async (tx) => {
       const category = await resolveCategory(tx, input, u.id);
@@ -402,7 +412,8 @@ export async function proposeMarket(input: {
           })
           .returning({ id: schema.market.id, slug: schema.market.slug });
         const base = question.replace(/[?？!.\s]+$/g, "");
-        for (const [i, label] of options.entries()) {
+        for (const [i, opt] of options.entries()) {
+          const { label } = opt;
           const [child] = await tx
             .insert(schema.market)
             .values({
@@ -414,6 +425,7 @@ export async function proposeMarket(input: {
               kind: "option",
               parentId: parent.id,
               label,
+              imageUrl: opt.imageUrl,
               sortIndex: i,
               creatorId: u.id,
               b,

@@ -353,7 +353,7 @@ async function GroupMarketView({
                 className="grid grid-cols-[1fr_auto_auto_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors"
               >
                 <span className="min-w-0 flex items-center gap-3">
-                  <OptionChip label={o.label ?? o.question} index={oi} />
+                  <OptionChip label={o.label ?? o.question} index={oi} imageUrl={o.imageUrl} />
                   <span className="text-[14px] font-semibold text-ink truncate">{o.label}</span>
                   <Sparkline points={optionSparks.get(o.id) ?? []} className="hidden md:block shrink-0 opacity-80" />
                 </span>
@@ -389,7 +389,7 @@ async function GroupMarketView({
                   href={`/market/${o.slug}`}
                   className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors"
                 >
-                  <OptionChip label={o.label ?? o.question} index={options.indexOf(o)} />
+                  <OptionChip label={o.label ?? o.question} index={options.indexOf(o)} imageUrl={o.imageUrl} />
                   <span className="text-[14px] font-medium text-mute truncate flex-1">{o.label}</span>
                   <span className="num text-[12px] text-faint">{fmtMarks(o.volumeCents, { lang })} {t.vol}</span>
                   <Badge tone={o.status === "resolved" ? (o.outcome === "yes" ? "yes" : "no") : "mute"}>
