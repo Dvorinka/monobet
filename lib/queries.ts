@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { db, schema } from "@/lib/db";
 import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS } from "@/lib/rewards";
 import { eq, desc, asc, and, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
@@ -72,10 +73,11 @@ export async function listMarkets(opts: {
   return db.select().from(schema.market).where(and(...conds)).orderBy(...order).limit(100);
 }
 
-export async function getMarketBySlug(slug: string) {
+// generateMetadata and the page both hit this — cache() makes it one query.
+export const getMarketBySlug = cache(async (slug: string) => {
   const rows = await db.select().from(schema.market).where(eq(schema.market.slug, slug)).limit(1);
   return rows[0] ?? null;
-}
+});
 
 export async function getMarketById(id: string) {
   const rows = await db.select().from(schema.market).where(eq(schema.market.id, id)).limit(1);

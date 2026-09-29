@@ -73,13 +73,13 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
   }
 
   if (market.kind === "group") {
-    const [options, trades, comments, related] = await Promise.all([
+    const [options, trades, comments, related, watching] = await Promise.all([
       getGroupOptions(market.id),
       getGroupTrades(market.id),
       getComments(market.id, user?.id),
       getRelatedMarkets(market.id, market.category),
+      user ? isWatching(user.id, market.id) : false,
     ]);
-    const watching = user ? await isWatching(user.id, market.id) : false;
     return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} watching={watching} />;
   }
 
