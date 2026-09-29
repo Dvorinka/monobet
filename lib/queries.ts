@@ -780,3 +780,33 @@ export async function getResolutionState(marketId: string, userId?: string) {
     proposer: proposer?.username ?? null,
   };
 }
+
+// Duels involving this user — opponent/creator names joined for display.
+export async function getDuels(userId: string) {
+  const rows = await db
+    .select({
+      duel: schema.challenge,
+      creatorName: sql<string>`(select username from ${schema.user} u2 where u2.id = ${schema.challenge.creatorId})`,
+      opponentName: sql<string>`(select username from ${schema.user} u3 where u3.id = ${schema.challenge.opponentId})`,
+      winnerName: sql<string | null>`(select username from ${schema.user} u4 where u4.id = ${schema.challenge.winnerId})`,
+    })
+    .from(schema.challenge)
+    .where(sql`${schema.challenge.creatorId} = ${userId} OR ${schema.challenge.opponentId} = ${userId}`)
+    .orderBy(desc(schema.challenge.createdAt))
+    .limit(30);
+  return rows;
+}
+
+// Disputed duels for the admin tiebreak panel.
+export async function getDisputedDuels() {
+  return db
+    .select({
+      duel: schema.challenge,
+      creatorName: sql<string>`(select username from ${schema.user} u2 where u2.id = ${schema.challenge.creatorId})`,
+      opponentName: sql<string>`(select username from ${schema.user} u3 where u3.id = ${schema.challenge.opponentId})`,
+    })
+    .from(schema.challenge)
+    .where(eq(schema.challenge.status, "disputed"))
+    .orderBy(desc(schema.challenge.createdAt))
+    .limit(20);
+}

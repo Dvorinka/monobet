@@ -226,7 +226,8 @@ export type LedgerKind =
   | "refund"
   | "game"
   | "liq"
-  | "notify";
+  | "notify"
+  | "duel";
 
 export const ledger = pgTable(
   "ledger",
@@ -285,6 +286,29 @@ export const resolutionVote = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.marketId, t.userId] })]
+);
+
+// ---------- duels (head-to-head) ----------
+
+// A stakes a claim against B for equal Marks. Both stakes escrow at accept;
+// the winner is proposed by one participant and confirmed by the other —
+// disagreement goes 'disputed' and an admin settles (or refunds both).
+export const challenge = pgTable(
+  "challenge",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    creatorId: text("creator_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    opponentId: text("opponent_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    claim: text("claim").notNull(),
+    stakeCents: integer("stake_cents").notNull(),
+    status: text("status").notNull().default("open"), // open|accepted|declined|cancelled|settled|disputed
+    winnerId: text("winner_id").references(() => user.id, { onDelete: "set null" }),
+    pendingWinnerId: text("pending_winner_id").references(() => user.id, { onDelete: "set null" }),
+    pendingById: text("pending_by_id").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (t) => [index("challenge_creator_idx").on(t.creatorId, t.createdAt), index("challenge_opponent_idx").on(t.opponentId, t.createdAt)]
 );
 
 // ---------- watchlist ----------

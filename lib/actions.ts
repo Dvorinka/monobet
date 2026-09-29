@@ -1583,3 +1583,171 @@ export async function toggleWatchlist(input: { marketId: string }): Promise<{ ok
     return { ok: false, error: e instanceof Error ? e.message : "Failed" };
   }
 }
+
+// ---------- duels ----------
+
+// A challenges B: the claim is just text both sides agreed on — settlement is
+// mutual, with admins breaking disputes. Stakes escrow through the ledger.
+export async function createDuel(input: {
+  opponent: string;
+  claim: string;
+  stakeCents: number;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const claim = input.claim.trim();
+    if (claim.length < 5) throw new Error("Describe the bet (min 5 chars)");
+    if (claim.length > 200) throw new Error("Claim too long (max 200)");
+    const stake = Math.round(input.stakeCents);
+    if (!Number.isFinite(stake) || stake < 100) throw new Error("Minimum stake is Ɱ1");
+    if (stake > 10_000_000) throw new Error("Maximum stake is Ɱ100,000");
+    await db.transaction(async (tx) => {
+      const [opp] = await tx
+        .select({ id: schema.user.id, username: schema.user.username, balanceCents: schema.user.balanceCents })
+        .from(schema.user)
+        .where(sql`lower(${schema.user.username}) = lower(${input.opponent.trim()})`)
+        .limit(1);
+      if (!opp) throw new Error("No such user");
+      if (opp.id === u.id) throw new Error("Pick someone else");
+      await lockUser(tx, u.id);
+      await credit(tx, u.id, -stake, "duel", null, `Duel stake vs @${opp.username}: ${claim.slice(0, 60)}`);
+      await tx.insert(schema.challenge).values({ creatorId: u.id, opponentId: opp.id, claim, stakeCents: stake });
+      await tx.insert(schema.ledger).values({
+        userId: opp.id,
+        amountCents: 0,
+        balanceAfterCents: opp.balanceCents,
+        kind: "notify",
+        memo: `Duel invite from @${u.username ?? u.name}: ${claim.slice(0, 70)}`,
+      });
+    });
+    revalidatePath("/duels");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Duel failed" };
+  }
+}
+
+export async function respondDuel(input: {
+  id: string;
+  accept: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    await db.transaction(async (tx) => {
+      const [c] = await tx.select().from(schema.challenge).where(eq(schema.challenge.id, input.id)).for("update").limit(1);
+      if (!c || c.opponentId !== u.id) throw new Error("Not your duel");
+      if (c.status !== "open") throw new Error("Already answered");
+      if (input.accept) {
+        await lockUser(tx, u.id);
+        await credit(tx, u.id, -c.stakeCents, "duel", null, `Duel stake: ${c.claim.slice(0, 70)}`);
+        await tx.update(schema.challenge).set({ status: "accepted" }).where(eq(schema.challenge.id, c.id));
+      } else {
+        await lockUser(tx, c.creatorId);
+        await credit(tx, c.creatorId, c.stakeCents, "duel", null, `Duel declined: ${c.claim.slice(0, 60)}`);
+        await tx.update(schema.challenge).set({ status: "declined" }).where(eq(schema.challenge.id, c.id));
+      }
+    });
+    revalidatePath("/duels");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
+export async function cancelDuel(input: { id: string }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    await db.transaction(async (tx) => {
+      const [c] = await tx.select().from(schema.challenge).where(eq(schema.challenge.id, input.id)).for("update").limit(1);
+      if (!c || c.creatorId !== u.id) throw new Error("Not your duel");
+      if (c.status !== "open") throw new Error("Too late to cancel");
+      await lockUser(tx, c.creatorId);
+      await credit(tx, c.creatorId, c.stakeCents, "duel", null, `Duel cancelled: ${c.claim.slice(0, 60)}`);
+      await tx.update(schema.challenge).set({ status: "cancelled" }).where(eq(schema.challenge.id, c.id));
+    });
+    revalidatePath("/duels");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
+// One side names the winner; the other side confirms by naming the same one.
+// Contradictory proposals flip the duel to 'disputed' for an admin.
+export async function proposeDuelWinner(input: {
+  id: string;
+  winnerId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    await db.transaction(async (tx) => {
+      const [c] = await tx.select().from(schema.challenge).where(eq(schema.challenge.id, input.id)).for("update").limit(1);
+      if (!c) throw new Error("Duel not found");
+      if (u.id !== c.creatorId && u.id !== c.opponentId) throw new Error("Not your duel");
+      if (input.winnerId !== c.creatorId && input.winnerId !== c.opponentId) throw new Error("Pick a participant");
+      if (c.status !== "accepted" && c.status !== "disputed") throw new Error("Not settleable");
+      if (c.pendingById && c.pendingById !== u.id) {
+        // Counterparty already proposed — agreeing settles, disagreeing disputes.
+        if (c.pendingWinnerId === input.winnerId) {
+          await lockUser(tx, input.winnerId);
+          await credit(tx, input.winnerId, c.stakeCents * 2, "duel", null, `Duel won: ${c.claim.slice(0, 60)}`);
+          await tx
+            .update(schema.challenge)
+            .set({ status: "settled", winnerId: input.winnerId, settledAt: new Date(), pendingWinnerId: null, pendingById: null })
+            .where(eq(schema.challenge.id, c.id));
+        } else {
+          await tx
+            .update(schema.challenge)
+            .set({ status: "disputed", pendingWinnerId: input.winnerId, pendingById: u.id })
+            .where(eq(schema.challenge.id, c.id));
+        }
+      } else {
+        await tx
+          .update(schema.challenge)
+          .set({ pendingWinnerId: input.winnerId, pendingById: u.id })
+          .where(eq(schema.challenge.id, c.id));
+      }
+    });
+    revalidatePath("/duels");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
+// Admin tiebreak for disputed duels — or any stuck one. winnerId null refunds
+// both stakes; a winner gets the full pot.
+export async function adminSettleDuel(input: {
+  id: string;
+  winnerId: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    if (!isAdmin(u)) throw new Error("Admin only");
+    await db.transaction(async (tx) => {
+      const [c] = await tx.select().from(schema.challenge).where(eq(schema.challenge.id, input.id)).for("update").limit(1);
+      if (!c) throw new Error("Duel not found");
+      if (c.status !== "accepted" && c.status !== "disputed") throw new Error("Nothing to settle");
+      if (input.winnerId && input.winnerId !== c.creatorId && input.winnerId !== c.opponentId)
+        throw new Error("Pick a participant");
+      if (input.winnerId) {
+        await lockUser(tx, input.winnerId);
+        await credit(tx, input.winnerId, c.stakeCents * 2, "duel", null, `Duel won (admin): ${c.claim.slice(0, 55)}`);
+      } else {
+        await lockUser(tx, c.creatorId);
+        await credit(tx, c.creatorId, c.stakeCents, "duel", null, `Duel refunded: ${c.claim.slice(0, 60)}`);
+        await lockUser(tx, c.opponentId);
+        await credit(tx, c.opponentId, c.stakeCents, "duel", null, `Duel refunded: ${c.claim.slice(0, 60)}`);
+      }
+      await tx
+        .update(schema.challenge)
+        .set({ status: "settled", winnerId: input.winnerId, settledAt: new Date(), pendingWinnerId: null, pendingById: null })
+        .where(eq(schema.challenge.id, c.id));
+    });
+    revalidatePath("/duels");
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
