@@ -458,6 +458,11 @@ const en = {
   watchRemove: "Remove from watchlist",
   invitedBy: (name: string) => `Invited by @${name} — you'll get Ɱ100, they'll get Ɱ200`,
   kindNotify: "notice",
+  playPnl: "Play PnL",
+  winRate: "Win rate",
+  priceMoved: (before: number, after: number) => `YES ${before}% → ${after}%`,
+  fairNote:
+    "Fairness: every game is settled server-side from a uniform random roll at the moment you click — the timer round is stamped and verified with a server signature, so results can't be predicted or replayed from the client. All payouts are virtual Marks.",
 };
 
 export type Dict = typeof en;
@@ -890,6 +895,11 @@ const cs: Dict = {
   watchRemove: "Odebrat ze sledovaných",
   invitedBy: (name) => `Pozvánka od @${name} — ty dostaneš Ɱ100, on Ɱ200`,
   kindNotify: "info",
+  playPnl: "Herní PnL",
+  winRate: "Úspěšnost",
+  priceMoved: (before, after) => `YES ${before}% → ${after}%`,
+  fairNote:
+    "Férovost: každá hra se vyhodnocuje na serveru z rovnoměrného náhodného hodu v okamžiku kliknutí — kolo stopkování je razítkované a ověřované serverovým podpisem, takže výsledek nejde z klienta předpovědět ani zopakovat. Všechny výhry jsou virtuální Marky.",
 };
 
 const dict: Record<Lang, Dict> = { en, cs };

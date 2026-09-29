@@ -467,7 +467,35 @@ export async function getPublicProfile(username: string) {
   const lb = await getLeaderboard();
   const rank = lb.findIndex((r) => r.id === u.id) + 1;
 
-  return { user: u, stats: stats ?? { trades: 0, markets: 0, comments: 0 }, positions, created, netWorthCents, rank };
+  // Play PnL = net worth minus faucet income — isolates trading/game skill.
+  const [faucet] = await db
+    .select({ cents: sql<number>`coalesce(sum(${schema.ledger.amountCents}),0)::int` })
+    .from(schema.ledger)
+    .where(
+      and(
+        eq(schema.ledger.userId, u.id),
+        sql`${schema.ledger.amountCents} > 0`,
+        inArray(schema.ledger.kind, ["signup", "claim", "weekly", "ad", "bonus", "grant"])
+      )
+    );
+
+  const games = await db
+    .select({ id: schema.ledger.id, amountCents: schema.ledger.amountCents, memo: schema.ledger.memo, createdAt: schema.ledger.createdAt })
+    .from(schema.ledger)
+    .where(and(eq(schema.ledger.userId, u.id), eq(schema.ledger.kind, "game")))
+    .orderBy(desc(schema.ledger.createdAt))
+    .limit(12);
+
+  return {
+    user: u,
+    stats: stats ?? { trades: 0, markets: 0, comments: 0 },
+    positions,
+    created,
+    netWorthCents,
+    rank,
+    playPnlCents: netWorthCents - (faucet?.cents ?? 0),
+    games,
+  };
 }
 
 // Credit-side ledger events the user didn't trigger — feeds the header bell.

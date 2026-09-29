@@ -6,7 +6,7 @@ import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Avatar, Badge, Card } from "@/components/ui/primitives";
-import { fmtMarks, fmtDate, fmtShares } from "@/lib/money";
+import { fmtMarks, fmtDate, fmtShares, timeAgo } from "@/lib/money";
 import { marketYesPrice } from "@/lib/queries";
 import { CheckCircle2, Lock, ShieldCheck, Trophy } from "lucide-react";
 
@@ -26,9 +26,17 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   ]);
   if (!profile) notFound();
   const t = getT(lang);
-  const { user: u, stats, positions, created, netWorthCents, rank } = profile;
+  const { user: u, stats, positions, created, netWorthCents, rank, playPnlCents, games } = profile;
   const achievements = await getAchievements(u.id);
   const isSelf = viewer?.id === u.id;
+
+  // Win rate over resolved positions: a position wins if it held the side the
+  // market resolved to.
+  const resolved = positions.filter((p) => p.market.status === "resolved");
+  const wins = resolved.filter((p) =>
+    (p.market.outcome === "yes" && p.yesShares > 0.001) || (p.market.outcome === "no" && p.noShares > 0.001)
+  ).length;
+  const winRate = resolved.length > 0 ? Math.round((wins / resolved.length) * 100) : null;
 
   const achMeta: Record<string, { title: string; desc: string }> = {
     portfolio: { title: t.bonusPortfolio, desc: t.bonusPortfolioDesc },
@@ -69,9 +77,15 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
       </Card>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
         <Stat label={t.lbBalance} value={fmtMarks(u.balanceCents, { lang })} />
         <Stat label={t.lbPositions} value={fmtMarks(positions.reduce((s, p) => s + p.valueCents, 0), { lang })} />
+        <Stat
+          label={t.playPnl}
+          value={`${playPnlCents >= 0 ? "+" : ""}${fmtMarks(playPnlCents, { lang })}`}
+          tone={playPnlCents >= 0 ? "up" : "down"}
+        />
+        <Stat label={t.winRate} value={winRate === null ? "—" : `${winRate}%`} />
         <Stat label={t.trades} value={String(stats.trades)} />
         <Stat label={t.markets} value={String(stats.markets)} />
       </div>
@@ -163,16 +177,34 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
             ))}
           </Card>
         </section>
+
+        {/* Recent games */}
+        <section className="lg:col-span-2">
+          <h2 className="text-[15px] font-semibold mb-3">{t.recentGames}</h2>
+          <Card className="p-1.5">
+            {games.length === 0 && <p className="p-4 text-sm text-mute">{t.noGames}</p>}
+            {games.map((g) => (
+              <div key={g.id} className="flex items-center gap-3 px-3 py-2 text-[13px]">
+                <span className="truncate text-mute flex-1">{g.memo || "game"}</span>
+                <span className={`num font-semibold ${g.amountCents > 0 ? "text-yes-strong" : "text-ink"}`}>
+                  {g.amountCents > 0 ? "+" : ""}
+                  {fmtMarks(g.amountCents, { lang })}
+                </span>
+                <span className="text-faint text-[11px] w-14 text-right">{timeAgo(g.createdAt, lang)}</span>
+              </div>
+            ))}
+          </Card>
+        </section>
       </div>
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "up" | "down" }) {
   return (
     <Card className="p-4">
       <div className="text-[11.5px] font-medium text-mute">{label}</div>
-      <div className="num mt-1 text-[19px] font-bold">{value}</div>
+      <div className={`num mt-1 text-[19px] font-bold ${tone === "up" ? "text-yes-strong" : tone === "down" ? "text-no-strong" : ""}`}>{value}</div>
     </Card>
   );
 }

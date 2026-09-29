@@ -46,6 +46,8 @@ export default async function GamesPage() {
           ))}
         </Card>
       </section>
+
+      <p className="mt-8 text-[12px] text-faint leading-relaxed max-w-2xl">{t.fairNote}</p>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Toaster } from "sonner";
 import Link from "next/link";
@@ -18,6 +18,10 @@ export const metadata: Metadata = {
     siteName: "MonoBet",
     type: "website",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0f9d58",
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
