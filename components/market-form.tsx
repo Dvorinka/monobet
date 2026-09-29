@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button, Input, Select, Textarea, Card, Segmented } from "@/components/ui/primitives";
 import { proposeMarket } from "@/lib/actions";
 import { getT, type Lang } from "@/lib/i18n";
+import { optionColor } from "@/lib/option-style";
 import { cn } from "@/lib/utils";
 
 const NEW_CATEGORY = "__new__";
@@ -33,12 +34,18 @@ export function MarketForm({
   const [newCategory, setNewCategory] = useState("");
   const [closesAt, setClosesAt] = useState("");
   const [odds, setOdds] = useState(50);
+  const [optionOdds, setOptionOdds] = useState<Record<number, number>>({});
   const [liquidity, setLiquidity] = useState<number>(300);
   const [pending, start] = useTransition();
   const router = useRouter();
 
   const optionLines = optionsText.split("\n").map((o) => o.trim()).filter(Boolean);
+  // Display label is the part before the optional "| image-url".
+  const optionLabels = optionLines.map((l) => l.split("|")[0].trim());
   const multi = marketType === "multi";
+  // Multi-option odds default to a uniform split — e.g. ~17% for 6 options.
+  const uniformOdds = optionLines.length > 0 ? Math.max(1, Math.min(99, Math.round(100 / optionLines.length))) : 50;
+  const probFor = (i: number) => optionOdds[i] ?? uniformOdds;
 
   return (
     <Card className="p-6">
@@ -56,6 +63,7 @@ export function MarketForm({
               initialProb: odds / 100,
               liquidity,
               outcomes: multi ? optionLines : undefined,
+              optionProbs: multi ? optionLines.map((_, i) => probFor(i)) : undefined,
             });
             if (r.ok) {
               toast.success(t.live);
@@ -169,35 +177,73 @@ export function MarketForm({
           </div>
         </div>
 
-        <div>
-          <div className="flex items-center justify-between">
-            <label className="text-[13px] font-medium text-mute" htmlFor="odds">
-              {t.startingOdds}
-            </label>
-            <span className="num text-[13px] font-bold text-ink">{odds}%</span>
-          </div>
-          <div className="mt-2 flex h-9 overflow-hidden rounded-lg border border-line">
-            <div
-              className="grid place-items-center bg-yes-soft text-yes-strong text-[12.5px] font-bold transition-all duration-150"
-              style={{ width: `${odds}%` }}
-            >
-              {odds >= 14 && `${t.yes} ${odds}%`}
+        {multi ? (
+          <div>
+            <label className="text-[13px] font-medium text-mute">{t.startingOdds}</label>
+            <div className="mt-2 space-y-2.5 rounded-lg border border-line p-3">
+              {optionLines.length === 0 && (
+                <p className="text-[12px] text-faint">{t.optionsHint(0)}</p>
+              )}
+              {optionLines.map((line, i) => {
+                const v = probFor(i);
+                return (
+                  <div key={i} className="flex items-center gap-3">
+                    <span
+                      className="size-2.5 rounded-full shrink-0"
+                      style={{ background: optionColor(i) }}
+                    />
+                    <span className="flex-1 min-w-0 text-[13px] font-medium truncate" title={optionLabels[i]}>
+                      {optionLabels[i] || line}
+                    </span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={99}
+                      value={v}
+                      onChange={(e) => setOptionOdds((s) => ({ ...s, [i]: Number(e.target.value) }))}
+                      className="w-28 sm:w-36 accent-brand cursor-pointer shrink-0"
+                      aria-label={`${optionLabels[i]} ${t.startingOdds}`}
+                    />
+                    <span className="num w-9 text-right text-[12.5px] font-bold shrink-0" style={{ color: optionColor(i) }}>
+                      {v}%
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-            <div className="grid flex-1 place-items-center bg-no-soft text-no-strong text-[12.5px] font-bold">
-              {odds <= 86 && `${t.no} ${100 - odds}%`}
-            </div>
+            <p className="mt-1 text-[11.5px] text-faint">{t.perOptionOdds}</p>
           </div>
-          <input
-            id="odds"
-            type="range"
-            min={3}
-            max={97}
-            value={odds}
-            onChange={(e) => setOdds(Number(e.target.value))}
-            className="mt-2 w-full accent-brand cursor-pointer"
-          />
-          <p className="text-[11.5px] text-faint">{t.oddsHint(multi)}</p>
-        </div>
+        ) : (
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="text-[13px] font-medium text-mute" htmlFor="odds">
+                {t.startingOdds}
+              </label>
+              <span className="num text-[13px] font-bold text-ink">{odds}%</span>
+            </div>
+            <div className="mt-2 flex h-9 overflow-hidden rounded-lg border border-line">
+              <div
+                className="grid place-items-center bg-yes-soft text-yes-strong text-[12.5px] font-bold transition-all duration-150"
+                style={{ width: `${odds}%` }}
+              >
+                {odds >= 14 && `${t.yes} ${odds}%`}
+              </div>
+              <div className="grid flex-1 place-items-center bg-no-soft text-no-strong text-[12.5px] font-bold">
+                {odds <= 86 && `${t.no} ${100 - odds}%`}
+              </div>
+            </div>
+            <input
+              id="odds"
+              type="range"
+              min={3}
+              max={97}
+              value={odds}
+              onChange={(e) => setOdds(Number(e.target.value))}
+              className="mt-2 w-full accent-brand cursor-pointer"
+            />
+            <p className="text-[11.5px] text-faint">{t.oddsHint(false)}</p>
+          </div>
+        )}
 
         <div>
           <label className="text-[13px] font-medium text-mute">{t.liquidity}</label>

@@ -367,6 +367,7 @@ export async function proposeMarket(input: {
   initialProb?: number;
   liquidity?: number;
   outcomes?: string[];
+  optionProbs?: number[]; // per-option opening odds in %, parallel to outcomes
 }): Promise<{ ok: boolean; error?: string; slug?: string; live?: boolean }> {
   try {
     const u = await requireUser();
@@ -414,6 +415,9 @@ export async function proposeMarket(input: {
         const base = question.replace(/[?？!.\s]+$/g, "");
         for (const [i, opt] of options.entries()) {
           const { label } = opt;
+          // Per-option opening odds — clamped 1–99%, falling back to the
+          // shared slider value when a probability is missing.
+          const pi = Math.min(0.99, Math.max(0.01, (input.optionProbs?.[i] ?? p * 100) / 100));
           const [child] = await tx
             .insert(schema.market)
             .values({
@@ -429,12 +433,12 @@ export async function proposeMarket(input: {
               sortIndex: i,
               creatorId: u.id,
               b,
-              qYes: qForProb(p, b).toFixed(6),
+              qYes: qForProb(pi, b).toFixed(6),
               qNo: "0",
               closesAt,
             })
             .returning({ id: schema.market.id });
-          await tx.insert(schema.pricePoint).values({ marketId: child.id, yesPrice: p.toFixed(5) });
+          await tx.insert(schema.pricePoint).values({ marketId: child.id, yesPrice: pi.toFixed(5) });
         }
         return parent.slug;
       }
