@@ -457,6 +457,7 @@ const en = {
   watchAdd: "Add to watchlist",
   watchRemove: "Remove from watchlist",
   invitedBy: (name: string) => `Invited by @${name} — you'll get Ɱ100, they'll get Ɱ200`,
+  kindNotify: "notice",
 };
 
 export type Dict = typeof en;
@@ -888,6 +889,7 @@ const cs: Dict = {
   watchAdd: "Přidat do sledovaných",
   watchRemove: "Odebrat ze sledovaných",
   invitedBy: (name) => `Pozvánka od @${name} — ty dostaneš Ɱ100, on Ɱ200`,
+  kindNotify: "info",
 };
 
 const dict: Record<Lang, Dict> = { en, cs };

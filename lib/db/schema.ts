@@ -217,7 +217,8 @@ export type LedgerKind =
   | "payout"
   | "refund"
   | "game"
-  | "liq";
+  | "liq"
+  | "notify";
 
 export const ledger = pgTable(
   "ledger",
