@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "MonoBet",
     short_name: "MonoBet",
-    description: "Play-money prediction markets for friends. Virtual Marks only — nothing here has real value.",
+    description: "Play-money prediction markets for friends. Virtual Monos only — nothing here has real value.",
     start_url: "/",
     display: "standalone",
     background_color: "#141a16",

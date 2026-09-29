@@ -6,7 +6,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Segmented, Button } from "@/components/ui/primitives";
 import { sharesForSpend, tradeCost, yesPrice } from "@/lib/lmsr";
-import { fmtMarks, fmtCents, fmtShares } from "@/lib/money";
+import { fmtMonos, fmtCents, fmtShares } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -100,8 +100,8 @@ export function TradeTicket({
       <div className="mt-3">
         <Segmented
           options={[
-            { value: "yes", label: `${t.yes} ${fmtMarks(Math.round(py * 100), { lang })}`, tone: "yes" },
-            { value: "no", label: `${t.no} ${fmtMarks(Math.round((1 - py) * 100), { lang })}`, tone: "no" },
+            { value: "yes", label: `${t.yes} ${fmtMonos(Math.round(py * 100), { lang })}`, tone: "yes" },
+            { value: "no", label: `${t.no} ${fmtMonos(Math.round((1 - py) * 100), { lang })}`, tone: "no" },
           ]}
           value={outcome}
           onChange={setOutcome}
@@ -112,7 +112,7 @@ export function TradeTicket({
         <div className="flex items-center justify-between text-[13px] font-medium text-mute">
           <label htmlFor="amt">{side === "buy" ? t.amount : t.sharesLabel}</label>
           <span className="num">
-            {side === "buy" ? `${t.balance} ${fmtMarks(userBalanceCents ?? 0, { lang })}` : `${t.holding} ${fmtShares(held, lang)}`}
+            {side === "buy" ? `${t.balance} ${fmtMonos(userBalanceCents ?? 0, { lang })}` : `${t.holding} ${fmtShares(held, lang)}`}
           </span>
         </div>
         <div className="mt-1.5 relative">
@@ -171,12 +171,12 @@ export function TradeTicket({
           <Row k={side === "buy" ? t.estShares : t.selling} v={fmtShares(est.shares, lang)} />
           <Row k={t.avgPrice} v={fmtCents(est.avg)} />
           {side === "buy" && lev > 1 && (
-            <Row k={t.loanLabel} v={fmtMarks(spendCents * (lev - 1), { lang })} />
+            <Row k={t.loanLabel} v={fmtMonos(spendCents * (lev - 1), { lang })} />
           )}
           {side === "buy" ? (
-            <Row k={t.toWin} v={fmtMarks(est.toWin, { lang })} accent />
+            <Row k={t.toWin} v={fmtMonos(est.toWin, { lang })} accent />
           ) : (
-            <Row k={t.youReceive} v={fmtMarks(est.toWin, { lang })} accent />
+            <Row k={t.youReceive} v={fmtMonos(est.toWin, { lang })} accent />
           )}
         </div>
       )}
@@ -201,8 +201,8 @@ export function TradeTicket({
               const oc = (outcome === "yes" ? t.yes : t.no).toUpperCase();
               toast.success(
                 side === "buy"
-                  ? t.boughtToast(fmtShares(r.shares, lang), oc, fmtMarks(r.costCents, { lang }))
-                  : t.soldToast(fmtShares(r.shares, lang), oc, fmtMarks(r.costCents, { lang })),
+                  ? t.boughtToast(fmtShares(r.shares, lang), oc, fmtMonos(r.costCents, { lang }))
+                  : t.soldToast(fmtShares(r.shares, lang), oc, fmtMonos(r.costCents, { lang })),
                 { description: t.priceMoved(Math.round(py * 100), Math.round(r.price * 100)) }
               );
               setAmount("");

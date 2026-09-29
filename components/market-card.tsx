@@ -9,7 +9,7 @@ import {
 import type { MarketRow } from "@/lib/queries";
 import { marketYesPrice } from "@/lib/queries";
 import { MarketIcon, OptionChip } from "@/components/market-icon";
-import { fmtMarks, fmtDate } from "@/lib/money";
+import { fmtMonos, fmtDate } from "@/lib/money";
 import { Sparkline } from "@/components/sparkline";
 
 import { LikeButton } from "@/components/like-button";
@@ -84,16 +84,16 @@ export function MarketCard({
       {market.status === "live" && (
         <div className="mt-3 grid grid-cols-2 gap-2">
           <span className="grid place-items-center h-8.5 rounded-md bg-yes-soft text-yes-strong text-[13px] font-semibold">
-            {t.buyYes} {fmtMarks(Math.round(py * 100), { lang })}
+            {t.buyYes} {fmtMonos(Math.round(py * 100), { lang })}
           </span>
           <span className="grid place-items-center h-8.5 rounded-md bg-no-soft text-no-strong text-[13px] font-semibold">
-            {t.buyNo} {fmtMarks(Math.round((1 - py) * 100), { lang })}
+            {t.buyNo} {fmtMonos(Math.round((1 - py) * 100), { lang })}
           </span>
         </div>
       )}
 
       <div className="mt-auto pt-3 flex items-center gap-3.5 text-[11.5px] text-mute font-medium">
-        <span className="num">{fmtMarks(market.volumeCents, { lang })} {t.vol}</span>
+        <span className="num">{fmtMonos(market.volumeCents, { lang })} {t.vol}</span>
         <span className="inline-flex items-center gap-1">
           <Users className="size-3" />
           {market.traderCount}
@@ -169,7 +169,7 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
       )}
 
       <div className="mt-auto pt-3 flex items-center gap-3.5 text-[11.5px] text-mute font-medium">
-        <span className="num">{fmtMarks(volume, { lang })} {t.vol}</span>
+        <span className="num">{fmtMonos(volume, { lang })} {t.vol}</span>
         <span className="inline-flex items-center gap-1">
           <Users className="size-3" />
           {traders}
@@ -202,7 +202,7 @@ function OptionRow({ option: o, parentSlug, index, lang }: { option: MarketRow; 
         {o.label}
         {o.volumeCents > 0 && (
           <span className="num text-[10.5px] text-faint font-medium ml-1.5 whitespace-nowrap">
-            {fmtMarks(o.volumeCents, { lang })} {t.vol}
+            {fmtMonos(o.volumeCents, { lang })} {t.vol}
           </span>
         )}
       </span>
@@ -218,10 +218,10 @@ function OptionRow({ option: o, parentSlug, index, lang }: { option: MarketRow; 
             {Math.round(py * 100)}%
           </span>
           <span className="num grid place-items-center h-7 min-w-[4.5rem] px-2 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold whitespace-nowrap shrink-0">
-            {t.yes} {fmtMarks(Math.round(py * 100), { lang })}
+            {t.yes} {fmtMonos(Math.round(py * 100), { lang })}
           </span>
           <span className="num grid place-items-center h-7 min-w-[4.5rem] px-2 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold whitespace-nowrap shrink-0">
-            {t.no} {fmtMarks(Math.round((1 - py) * 100), { lang })}
+            {t.no} {fmtMonos(Math.round((1 - py) * 100), { lang })}
           </span>
         </>
       )}

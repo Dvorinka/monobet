@@ -31,7 +31,7 @@ import {
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT, type Dict } from "@/lib/i18n";
-import { fmtMarks, fmtDate, fmtShares } from "@/lib/money";
+import { fmtMonos, fmtDate, fmtShares } from "@/lib/money";
 import { PriceChart } from "@/components/price-chart";
 import { LikeButton } from "@/components/like-button";
 import { CopyLink } from "@/components/copy-link";
@@ -62,7 +62,7 @@ export async function generateMetadata({
   const pct = m ? Math.round(marketYesPrice(m) * 100) : 0;
   return {
     title: m?.question ?? "Market",
-    description: m ? `${pct}% YES · ${fmtMarks(m.volumeCents)} traded on MonoBet — play-money markets` : "MonoBet market",
+    description: m ? `${pct}% YES · ${fmtMonos(m.volumeCents)} traded on MonoBet — play-money markets` : "MonoBet market",
     openGraph: m ? { title: m.question } : undefined,
   };
 }
@@ -236,7 +236,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               lang={lang}
             />
             <div className="mt-3 pt-3 border-t border-line-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-mute font-medium">
-              <span className="num font-semibold text-ink-2">{fmtMarks(market.volumeCents, { lang })} {t.volume}</span>
+              <span className="num font-semibold text-ink-2">{fmtMonos(market.volumeCents, { lang })} {t.volume}</span>
               <span className="inline-flex items-center gap-1.5">
                 <Users className="size-3.5" /> {market.traderCount} {t.tradersW}
               </span>
@@ -408,7 +408,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
                 )}
                 <div className="flex justify-between pt-1.5 border-t border-line-2">
                   <span className="text-mute">{t.currentValue}</span>
-                  <span className="num font-bold">{fmtMarks(posValue, { lang })}</span>
+                  <span className="num font-bold">{fmtMonos(posValue, { lang })}</span>
                 </div>
               </div>
             </Card>
@@ -545,7 +545,7 @@ async function GroupMarketView({
             )}
           </h1>
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[12.5px] text-mute font-medium">
-            <span className="num">{fmtMarks(volume, { lang })} {t.volume}</span>
+            <span className="num">{fmtMonos(volume, { lang })} {t.volume}</span>
             <span className="inline-flex items-center gap-1.5">
               <Users className="size-3.5" /> {traders} {t.tradersW}
             </span>
@@ -611,7 +611,7 @@ async function GroupMarketView({
             )}
             {/* stats strip — same as binary markets */}
             <div className="mt-3 pt-3 border-t border-line-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-mute font-medium">
-              <span className="num font-semibold text-ink-2">{fmtMarks(volume, { lang })} {t.volume}</span>
+              <span className="num font-semibold text-ink-2">{fmtMonos(volume, { lang })} {t.volume}</span>
               <span className="inline-flex items-center gap-1.5">
                 <Users className="size-3.5" /> {traders} {t.tradersW}
               </span>

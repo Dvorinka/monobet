@@ -6,7 +6,7 @@ import { getUserLedger } from "@/lib/queries";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Card } from "@/components/ui/primitives";
-import { fmtMarks, timeAgo } from "@/lib/money";
+import { fmtMonos, timeAgo } from "@/lib/money";
 import { Gamepad2, Coins, Dices, Timer, Rocket, Disc3, Cherry, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -65,7 +65,7 @@ export default async function GamesPage() {
               <span className="truncate text-mute flex-1">{l.memo || "game"}</span>
               <span className={cn("num font-semibold", l.amountCents > 0 ? "text-yes-strong" : "text-ink")}>
                 {l.amountCents > 0 ? "+" : ""}
-                {fmtMarks(l.amountCents, { lang })}
+                {fmtMonos(l.amountCents, { lang })}
               </span>
               <span className="text-faint text-[11px] w-14 text-right">{timeAgo(l.createdAt, lang)}</span>
             </div>

@@ -4,9 +4,10 @@ import { getCurrentUser } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { getRewardsState } from "@/lib/queries";
+import { accruedDebtCents } from "@/lib/loans";
 import { AnimatedMoney } from "@/components/animated-number";
 import { RewardsPanels } from "@/components/rewards-panels";
-import { fmtMarks } from "@/lib/money";
+import { fmtMonos } from "@/lib/money";
 import {
   DAILY_COOLDOWN_MS,
   WEEKLY_COOLDOWN_MS,
@@ -48,14 +49,15 @@ export default async function RewardsPage() {
 
       <RewardsPanels
         lang={lang}
-        daily={{ nextAt: nextAt(user.lastClaimAt, DAILY_COOLDOWN_MS), amount: fmtMarks(25_000, { lang }), streak: user.claimStreak }}
+        daily={{ nextAt: nextAt(user.lastClaimAt, DAILY_COOLDOWN_MS), amount: fmtMonos(25_000, { lang }), streak: user.claimStreak }}
         weekly={{
           nextAt: nextAt(state.lastWeekly, WEEKLY_COOLDOWN_MS),
-          amount: fmtMarks(100_000, { lang }),
+          amount: fmtMonos(100_000, { lang }),
         }}
-        ad={{ nextAt: nextAt(state.lastAd, AD_COOLDOWN_MS), amount: fmtMarks(5_000, { lang }) }}
+        ad={{ nextAt: nextAt(state.lastAd, AD_COOLDOWN_MS), amount: fmtMonos(5_000, { lang }) }}
         bonuses={bonusState}
         username={user.username ?? user.name}
+        debt={{ cents: accruedDebtCents(user.debtCents, user.debtRateBps, user.debtSince), rateBps: user.debtRateBps }}
       />
     </div>
   );

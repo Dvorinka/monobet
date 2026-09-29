@@ -70,7 +70,7 @@ const ADS = [
   { layout: "center", bg: ["#06120c", "#0d2f1e"], glow: "#0f9d58", mark: "#0f9d58", markColor: "#06120c", glyph: "M",
     h: "Bet on anything. Prove everyone wrong.", sub: "MonoBet — play-money prediction markets. Make markets, trade outcomes, climb the board.", cta: "Start predicting" },
   { layout: "left", bg: ["#0a0f0c", "#123324"], glow: "#22c55e", mark: "#e7f5ec", markColor: "#0a0f0c", glyph: "Ɱ",
-    h: "Ɱ isn't real money. Your takes are.", sub: "Daily faucet, weekly drops, zero risk — all the conviction, none of the credit card debt.", cta: "Claim free Marks" },
+    h: "Ɱ isn't real money. Your takes are.", sub: "Daily faucet, weekly drops, zero risk — all the conviction, none of the credit card debt.", cta: "Claim free Monos" },
   { layout: "center", bg: ["#1a1400", "#3d2e00"], glow: "#f5c518", mark: "#f5c518", markColor: "#1a1400", glyph: "⚡",
     h: "VOLT COLA", sub: "400% of your daily voltage. Now in Thunderberry. Do not exceed one per reality.", cta: "Feel the hum" },
   { layout: "left", bg: ["#0c0618", "#241040"], glow: "#8b5cf6", mark: "#2a1450", markColor: "#c4b5fd", glyph: "✦",
@@ -108,38 +108,21 @@ const ADS = [
   { layout: "left", bg: ["#070d04", "#15240c"], glow: "#4ade80", mark: "#166534", markColor: "#dcfce7", glyph: "❋",
     h: "Meadow Lane", sub: "The farming sim where your crops bet on rain. Harvest profits — or harvest lessons.", cta: "Plant a take" },
 ];
-// Rendered MP4 creatives (generated, ~20s each, muted). Video plays via
-// shuffle-bag; any failure falls back to a CSS creative from ADS.
+// Rendered MP4 creatives (generated, ~20s each, muted). Video picks are
+// truly random each view (one re-roll so the same ad can't repeat back
+// to back); any failure falls back to a random CSS creative from ADS.
 const VIDEOS = 18;
 const params = new URLSearchParams(location.search);
 const vEl = document.getElementById("v");
 const sEl = document.getElementById("s");
 
-// Shuffle-bag: every item plays once before any repeats, and a refill never
-// opens with the item that just closed the last bag.
-function pick(bagKey, lastKey, n) {
-  try {
-    const last = Number(localStorage.getItem(lastKey));
-    let bag = (JSON.parse(localStorage.getItem(bagKey) || "[]") || [])
-      .filter((x) => Number.isInteger(x) && x >= 0 && x < n);
-    if (!bag.length) {
-      bag = Array.from({ length: n }, (_, k) => k);
-      for (let k = bag.length - 1; k > 0; k--) {
-        const j = Math.floor(Math.random() * (k + 1));
-        [bag[k], bag[j]] = [bag[j], bag[k]];
-      }
-      if (bag.length > 1 && bag[bag.length - 1] === last) {
-        const j = bag.findIndex((x) => x !== last);
-        [bag[j], bag[bag.length - 1]] = [bag[bag.length - 1], bag[j]];
-      }
-    }
-    const x = bag.pop();
-    localStorage.setItem(bagKey, JSON.stringify(bag));
-    localStorage.setItem(lastKey, String(x));
-    return x;
-  } catch {
-    return Math.floor(Math.random() * n);
-  }
+function pick(lastKey, n) {
+  let last = -1;
+  try { last = Number(localStorage.getItem(lastKey)); } catch { /* no storage */ }
+  let x = Math.floor(Math.random() * n);
+  if (n > 1 && x === last) x = Math.floor(Math.random() * n);
+  try { localStorage.setItem(lastKey, String(x)); } catch { /* no storage */ }
+  return x;
 }
 
 function renderHtmlAd() {
@@ -147,7 +130,7 @@ function renderHtmlAd() {
   vEl.style.display = "none";
   vEl.removeAttribute("src");
   let i = Number(params.get("i"));
-  if (!Number.isInteger(i) || i < 0 || i >= ADS.length) i = pick("mb.adBag", "mb.adLast", ADS.length);
+  if (!Number.isInteger(i) || i < 0 || i >= ADS.length) i = pick("mb.adLast", ADS.length);
   const ad = ADS[i];
   const s = sEl;
   s.classList.add(ad.layout === "left" ? "left" : "center");
@@ -177,7 +160,7 @@ if (params.get("i") !== null) {
   fallback(); // ?i= pins a CSS creative
 } else {
   let vi = Number(params.get("v"));
-  if (!Number.isInteger(vi) || vi < 0 || vi >= VIDEOS) vi = pick("mb.vidBag", "mb.vidLast", VIDEOS);
+  if (!Number.isInteger(vi) || vi < 0 || vi >= VIDEOS) vi = pick("mb.vidLast", VIDEOS);
   const kick = setTimeout(fallback, 5000);
   vEl.addEventListener("canplay", () => {
     clearTimeout(kick);

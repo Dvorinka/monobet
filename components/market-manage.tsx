@@ -8,7 +8,7 @@ import { Button, Card, Input, Textarea, Select } from "@/components/ui/primitive
 import { ImageCell, IconPicker } from "@/components/image-cell";
 import { MarketIcon } from "@/components/market-icon";
 import { resolveMarket, cancelMarket, updateMarket } from "@/lib/actions";
-import { fmtMarks } from "@/lib/money";
+import { fmtMonos } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 
 // Owner/admin controls on a market page — resolve (this happened / did not
@@ -56,7 +56,7 @@ export function MarketManagePanel({
     start(async () => {
       const r = await fn();
       if (r.ok) {
-        toast.success(r.paidOut ? `${ok} — ${fmtMarks(r.paidOut, { lang })}` : ok);
+        toast.success(r.paidOut ? `${ok} — ${fmtMonos(r.paidOut, { lang })}` : ok);
         router.refresh();
       } else toast.error(r.error);
     });

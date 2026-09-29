@@ -14,7 +14,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 export const metadata: Metadata = {
   metadataBase: new URL("https://monobet.tdvorak.dev"),
   title: { default: "MonoBet — Markets", template: "MonoBet — %s" },
-  description: "Play-money prediction markets. Bet virtual Marks on custom events.",
+  description: "Play-money prediction markets. Bet virtual Monos on custom events.",
   openGraph: {
     siteName: "MonoBet",
     type: "website",

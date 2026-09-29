@@ -40,7 +40,7 @@ export default function Image() {
             Play-money prediction markets.
           </div>
           <div style={{ fontSize: 34, color: "#8fa899" }}>
-            Bet virtual Marks on anything. No real money, ever.
+            Bet virtual Monos on anything. No real money, ever.
           </div>
         </div>
 
