@@ -25,6 +25,7 @@ import {
   WHEEL_STEP,
 } from "@/lib/games";
 import { fmtMarks } from "@/lib/money";
+import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Coins, Dices, Timer, Rocket, Disc3 } from "lucide-react";
@@ -52,6 +53,9 @@ function useGame() {
 
 // Shared result flash — pops in with the net win/loss.
 function ResultTag({ net, lang }: { net: Net; lang?: Lang }) {
+  useEffect(() => {
+    if (net) playSfx(net.won ? "win" : "lose", 0.5);
+  }, [net]);
   if (!net) return null;
   const t = getT(lang ?? "en");
   return (

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { claimDaily } from "@/lib/actions";
 import { DAILY_COOLDOWN_MS } from "@/lib/rewards";
+import { playSfx } from "@/lib/sfx";
 import { Coins, Timer } from "lucide-react";
 import { getT, type Lang } from "@/lib/i18n";
 
@@ -52,6 +53,7 @@ export function ClaimButton({ lang, nextAt }: { lang?: Lang; nextAt: number | nu
         start(async () => {
           const r = await claimDaily();
           if (r.ok) {
+            playSfx("claim", 0.5);
             toast.success(t.claimedToast);
             setNext(Date.now() + DAILY_COOLDOWN_MS);
             router.refresh();
