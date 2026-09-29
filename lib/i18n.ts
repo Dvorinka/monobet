@@ -522,6 +522,19 @@ const en = {
   duelNoDisputes: "No disputed duels.",
   duelRefundBoth: "Refund both",
   duelSettledToast: "Duel settled",
+  reply: "Reply",
+  replyPh: "Write a reply…",
+  squadTitle: "Squad",
+  squadJoin: "Join / Create",
+  squadLeave: "Leave",
+  squadNamePh: "Squad name",
+  squadHint: "Join by exact name — one squad per account, created on first join.",
+  squadJoinedToast: "Squad joined",
+  squadLeftToast: "Squad left",
+  squadsTitle: "Squads",
+  notifPrefsTitle: "Notifications",
+  notifResolveLabel: "Market resolved (watched & created)",
+  notifClosingLabel: "Closing soon (watched markets)",
 };
 
 export type Dict = typeof en;
@@ -1018,6 +1031,19 @@ const cs: Dict = {
   duelNoDisputes: "Žádné sporné duely.",
   duelRefundBoth: "Vrátit oběma",
   duelSettledToast: "Duel vyhodnocen",
+  reply: "Odpovědět",
+  replyPh: "Napiš odpověď…",
+  squadTitle: "Parta",
+  squadJoin: "Vstoupit / Vytvořit",
+  squadLeave: "Opustit",
+  squadNamePh: "Jméno party",
+  squadHint: "Vstup přesným jménem — jedna parta na účet, vznikne při prvním vstupu.",
+  squadJoinedToast: "Vstoupeno do party",
+  squadLeftToast: "Parta opuštěna",
+  squadsTitle: "Party",
+  notifPrefsTitle: "Notifikace",
+  notifResolveLabel: "Vyhodnocení trhu (sledované a vlastní)",
+  notifClosingLabel: "Brzké uzavření (sledované trhy)",
 };
 
 const dict: Record<Lang, Dict> = { en, cs };

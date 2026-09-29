@@ -8,7 +8,7 @@ import { Avatar, Button, Textarea } from "@/components/ui/primitives";
 import { addComment, deleteComment, voteComment } from "@/lib/actions";
 import { timeAgo } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
-import { ImagePlus, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
+import { ImagePlus, Reply, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 
 export type CommentRow = {
   id: string;
@@ -16,6 +16,7 @@ export type CommentRow = {
   imageUrl: string | null;
   createdAt: Date;
   userId: string;
+  parentId: string | null;
   username: string | null;
   name: string;
   image: string | null;
@@ -70,9 +71,32 @@ export function Comments({
   const router = useRouter();
   const t = getT(lang ?? "en");
 
-  const sorted = [...comments].sort((a, b) =>
+  // One level of threading: replies group under their top-level parent.
+  const topLevel = comments.filter((c) => !c.parentId);
+  const replies = new Map<string, CommentRow[]>();
+  for (const c of comments) {
+    if (!c.parentId) continue;
+    const arr = replies.get(c.parentId) ?? [];
+    arr.push(c);
+    replies.set(c.parentId, arr);
+  }
+  const sorted = [...topLevel].sort((a, b) =>
     sort === "top" ? b.likes - b.dislikes - (a.likes - a.dislikes) : 0
   );
+
+  // Posts a comment/reply — resolves true on success so callers can clear
+  // their local form state.
+  const post = async (text: string, parentId?: string): Promise<boolean> => {
+    const r = await addComment({ marketId, body: text, image, parentId });
+    if (r.ok) {
+      setBody("");
+      setImage(null);
+      router.refresh();
+      return true;
+    }
+    toast.error(r.error);
+    return false;
+  };
 
   return (
     <div>
@@ -83,12 +107,7 @@ export function Comments({
             e.preventDefault();
             if (!body.trim()) return;
             start(async () => {
-              const r = await addComment({ marketId, body, image });
-              if (r.ok) {
-                setBody("");
-                setImage(null);
-                router.refresh();
-              } else toast.error(r.error);
+              await post(body);
             });
           }}
         >
@@ -173,74 +192,170 @@ export function Comments({
       <div className="mt-4 space-y-5">
         {comments.length === 0 && <p className="text-[13px] text-faint">{t.noComments}</p>}
         {sorted.map((c) => (
-          <div key={c.id} className="flex gap-3 group anim-rise">
-            <Avatar name={c.username ?? c.name} image={c.image} className="size-8" />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-baseline gap-2">
-                <Link href={`/u/${c.username ?? c.name}`} className="text-[13px] font-semibold hover:underline underline-offset-2">
-                  @{c.username ?? c.name}
-                </Link>
-                <span className="text-[11px] text-faint">{timeAgo(c.createdAt, lang)}</span>
-                {(currentUserId === c.userId || isAdmin) && (
-                  <button
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-faint hover:text-no cursor-pointer"
-                    onClick={() =>
-                      start(async () => {
-                        const r = await deleteComment(c.id);
-                        if (r.ok) router.refresh();
-                        else toast.error(r.error);
-                      })
-                    }
-                    aria-label={t.deleteComment}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                )}
-              </div>
-              <p className="text-sm text-ink-2 whitespace-pre-wrap break-words mt-0.5">{c.body}</p>
-              {c.imageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={c.imageUrl}
-                  alt=""
-                  loading="lazy"
-                  className="mt-2 max-h-64 max-w-full rounded-lg border border-line"
+          <div key={c.id} className="space-y-4">
+            <CommentItem
+              c={c}
+              signedIn={signedIn}
+              currentUserId={currentUserId}
+              isAdmin={isAdmin}
+              lang={lang}
+              pending={pending}
+              start={start}
+              refresh={router.refresh}
+              replySlot={signedIn ? (replyText) => post(replyText, c.id) : undefined}
+            />
+            {(replies.get(c.id) ?? []).map((r) => (
+              <div key={r.id} className="ml-11">
+                <CommentItem
+                  c={r}
+                  signedIn={signedIn}
+                  currentUserId={currentUserId}
+                  isAdmin={isAdmin}
+                  lang={lang}
+                  pending={pending}
+                  start={start}
+                  refresh={router.refresh}
                 />
-              )}
-              <div className="mt-1.5 flex items-center gap-3">
-                {([1, -1] as const).map((v) => {
-                  const Icon = v === 1 ? ThumbsUp : ThumbsDown;
-                  const active = c.myVote === v;
-                  const count = v === 1 ? c.likes : c.dislikes;
-                  return signedIn ? (
-                    <button
-                      key={v}
-                      disabled={pending}
-                      onClick={() =>
-                        start(async () => {
-                          const r = await voteComment({ commentId: c.id, value: v });
-                          if (!r.ok) toast.error(r.error);
-                          else router.refresh();
-                        })
-                      }
-                      className={`inline-flex items-center gap-1 text-[12px] font-medium cursor-pointer transition-colors ${
-                        active ? (v === 1 ? "text-yes" : "text-no") : "text-faint hover:text-ink"
-                      }`}
-                    >
-                      <Icon className="size-3.5" />
-                      {count}
-                    </button>
-                  ) : (
-                    <span key={v} className="inline-flex items-center gap-1 text-[12px] font-medium text-faint">
-                      <Icon className="size-3.5" />
-                      {count}
-                    </span>
-                  );
-                })}
               </div>
-            </div>
+            ))}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+type Start = (fn: () => void | Promise<void>) => void;
+
+// One comment row — used for top-level comments and their replies.
+function CommentItem({
+  c,
+  signedIn,
+  currentUserId,
+  isAdmin,
+  lang,
+  pending,
+  start,
+  refresh,
+  replySlot,
+}: {
+  c: CommentRow;
+  signedIn: boolean;
+  currentUserId?: string;
+  isAdmin?: boolean;
+  lang?: Lang;
+  pending: boolean;
+  start: Start;
+  refresh: () => void;
+  replySlot?: (text: string) => Promise<boolean>;
+}) {
+  const t = getT(lang ?? "en");
+  const [replying, setReplying] = useState(false);
+  const [replyText, setReplyText] = useState("");
+
+  return (
+    <div className="flex gap-3 group anim-rise">
+      <Avatar name={c.username ?? c.name} image={c.image} className="size-8" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2">
+          <Link href={`/u/${c.username ?? c.name}`} className="text-[13px] font-semibold hover:underline underline-offset-2">
+            @{c.username ?? c.name}
+          </Link>
+          <span className="text-[11px] text-faint">{timeAgo(c.createdAt, lang)}</span>
+          {(currentUserId === c.userId || isAdmin) && (
+            <button
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-faint hover:text-no cursor-pointer"
+              onClick={() =>
+                start(async () => {
+                  const r = await deleteComment(c.id);
+                  if (r.ok) refresh();
+                  else toast.error(r.error);
+                })
+              }
+              aria-label={t.deleteComment}
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          )}
+        </div>
+        <p className="text-sm text-ink-2 whitespace-pre-wrap break-words mt-0.5">{c.body}</p>
+        {c.imageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={c.imageUrl}
+            alt=""
+            loading="lazy"
+            className="mt-2 max-h-64 max-w-full rounded-lg border border-line"
+          />
+        )}
+        <div className="mt-1.5 flex items-center gap-3">
+          {([1, -1] as const).map((v) => {
+            const Icon = v === 1 ? ThumbsUp : ThumbsDown;
+            const active = c.myVote === v;
+            const count = v === 1 ? c.likes : c.dislikes;
+            return signedIn ? (
+              <button
+                key={v}
+                disabled={pending}
+                onClick={() =>
+                  start(async () => {
+                    const r = await voteComment({ commentId: c.id, value: v });
+                    if (!r.ok) toast.error(r.error);
+                    else refresh();
+                  })
+                }
+                className={`inline-flex items-center gap-1 text-[12px] font-medium cursor-pointer transition-colors ${
+                  active ? (v === 1 ? "text-yes" : "text-no") : "text-faint hover:text-ink"
+                }`}
+              >
+                <Icon className="size-3.5" />
+                {count}
+              </button>
+            ) : (
+              <span key={v} className="inline-flex items-center gap-1 text-[12px] font-medium text-faint">
+                <Icon className="size-3.5" />
+                {count}
+              </span>
+            );
+          })}
+          {replySlot && (
+            <button
+              onClick={() => setReplying((v) => !v)}
+              className="inline-flex items-center gap-1 text-[12px] font-medium text-faint hover:text-ink cursor-pointer transition-colors"
+            >
+              <Reply className="size-3.5" />
+              {t.reply}
+            </button>
+          )}
+        </div>
+        {replying && replySlot && (
+          <form
+            className="mt-2 flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!replyText.trim()) return;
+              start(async () => {
+                const ok = await replySlot(replyText);
+                if (ok) {
+                  setReplyText("");
+                  setReplying(false);
+                }
+              });
+            }}
+          >
+            <Textarea
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              placeholder={t.replyPh}
+              maxLength={1000}
+              className="min-h-10 text-[13px]"
+              autoFocus
+            />
+            <Button size="sm" disabled={pending || !replyText.trim()} className="self-end">
+              {pending ? t.posting : t.reply}
+            </Button>
+          </form>
+        )}
       </div>
     </div>
   );

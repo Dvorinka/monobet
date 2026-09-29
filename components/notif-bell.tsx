@@ -16,18 +16,18 @@ export type NotifItem = {
   slug: string | null;
 };
 
-const SEEN_KEY = "monobet.notifSeen";
+const seenKey = (userId: string) => `monobet.notifSeen.${userId}`;
 
-export function NotifBell({ items, lang }: { items: NotifItem[]; lang?: Lang }) {
+export function NotifBell({ items, userId, lang }: { items: NotifItem[]; userId: string; lang?: Lang }) {
   const t = getT(lang ?? "en");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Last-read marker lives client-side — an account-level nicety, not data.
-  // getSnapshot re-runs on every render, so opening the panel re-reads storage.
+  // Last-read marker is per-account — two users sharing a browser shouldn't
+  // inherit each other's read state.
   const seen = useSyncExternalStore(
     () => () => {},
-    () => Number(localStorage.getItem(SEEN_KEY) ?? 0),
+    () => Number(localStorage.getItem(seenKey(userId)) ?? 0),
     () => 0
   );
 
@@ -43,7 +43,7 @@ export function NotifBell({ items, lang }: { items: NotifItem[]; lang?: Lang }) 
 
   const openPanel = () => {
     const next = !open;
-    if (next) localStorage.setItem(SEEN_KEY, String(Date.now()));
+    if (next) localStorage.setItem(seenKey(userId), String(Date.now()));
     setOpen(next);
   };
 

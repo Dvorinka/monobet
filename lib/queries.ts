@@ -167,6 +167,7 @@ export async function getComments(marketId: string, viewerId?: string) {
       imageUrl: schema.comment.imageUrl,
       createdAt: schema.comment.createdAt,
       userId: schema.comment.userId,
+      parentId: schema.comment.parentId,
       username: schema.user.username,
       name: schema.user.name,
       image: schema.user.image,
@@ -256,6 +257,7 @@ export async function getLeaderboard() {
       image: schema.user.image,
       balanceCents: schema.user.balanceCents,
       createdAt: schema.user.createdAt,
+      squadId: schema.user.squadId,
     })
     .from(schema.user);
   const positions = await db
@@ -440,11 +442,18 @@ export async function getPublicProfile(username: string) {
       role: schema.user.role,
       balanceCents: schema.user.balanceCents,
       createdAt: schema.user.createdAt,
+      squadId: schema.user.squadId,
+      notifResolve: schema.user.notifResolve,
+      notifClosing: schema.user.notifClosing,
     })
     .from(schema.user)
     .where(sql`lower(${schema.user.username}) = lower(${username})`)
     .limit(1);
   if (!u) return null;
+
+  const [sq] = u.squadId
+    ? await db.select({ name: schema.squad.name }).from(schema.squad).where(eq(schema.squad.id, u.squadId)).limit(1)
+    : [null];
 
   const [stats] = await db
     .select({
@@ -495,6 +504,7 @@ export async function getPublicProfile(username: string) {
     rank,
     playPnlCents: netWorthCents - (faucet?.cents ?? 0),
     games,
+    squadName: sq?.name ?? null,
   };
 }
 
@@ -703,6 +713,12 @@ export async function isWatching(userId: string, marketId: string): Promise<bool
 // notify row per (user, market) once. Check-then-insert: a rare concurrent
 // duplicate is cosmetic, and dedupe matches the memo prefix per market.
 export async function maybeNotifyClosing(userId: string) {
+  const [me] = await db
+    .select({ notifClosing: schema.user.notifClosing })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+    .limit(1);
+  if (!me?.notifClosing) return;
   const soon = await db
     .select({ id: schema.market.id, question: schema.market.question })
     .from(schema.watchlist)
@@ -809,4 +825,23 @@ export async function getDisputedDuels() {
     .where(eq(schema.challenge.status, "disputed"))
     .orderBy(desc(schema.challenge.createdAt))
     .limit(20);
+}
+
+// Squad standings — aggregate the leaderboard rows by squad.
+export async function getSquads() {
+  const squads = await db.select().from(schema.squad);
+  const board = await getLeaderboard();
+  return squads
+    .map((s) => {
+      const members = board.filter((u) => u.squadId === s.id);
+      return {
+        id: s.id,
+        name: s.name,
+        memberCount: members.length,
+        netWorthCents: members.reduce((sum, u) => sum + u.netWorthCents, 0),
+        members: members.map((m) => m.username ?? m.name),
+      };
+    })
+    .filter((s) => s.memberCount > 0)
+    .sort((a, b) => b.netWorthCents - a.netWorthCents);
 }

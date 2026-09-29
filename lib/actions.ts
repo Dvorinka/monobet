@@ -833,11 +833,11 @@ async function settleMarketTx(
   for (const uid of notifyIds) {
     if (paidUsers.has(uid)) continue;
     const [w] = await tx
-      .select({ balanceCents: schema.user.balanceCents })
+      .select({ balanceCents: schema.user.balanceCents, notifResolve: schema.user.notifResolve })
       .from(schema.user)
       .where(eq(schema.user.id, uid))
       .limit(1);
-    if (!w) continue;
+    if (!w || !w.notifResolve) continue;
     await tx.insert(schema.ledger).values({
       userId: uid,
       amountCents: 0,
@@ -1253,6 +1253,7 @@ export async function addComment(input: {
   marketId: string;
   body: string;
   image?: string | null;
+  parentId?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
@@ -1266,7 +1267,19 @@ export async function addComment(input: {
       if (!/^data:image\/(jpeg|png|webp);base64,/.test(image)) throw new Error("Bad image format");
       if (image.length > 450_000) throw new Error("Image too large");
     }
-    await db.insert(schema.comment).values({ marketId: input.marketId, userId: u.id, body, imageUrl: image });
+    // Replies hang one level deep — the parent must be a top-level comment on
+    // this market, never another reply.
+    let parentId: string | null = null;
+    if (input.parentId) {
+      const [p] = await db
+        .select({ marketId: schema.comment.marketId, parentId: schema.comment.parentId })
+        .from(schema.comment)
+        .where(eq(schema.comment.id, input.parentId))
+        .limit(1);
+      if (!p || p.marketId !== input.marketId || p.parentId) throw new Error("Bad parent");
+      parentId = input.parentId;
+    }
+    await db.insert(schema.comment).values({ marketId: input.marketId, userId: u.id, body, imageUrl: image, parentId });
     const [m] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, input.marketId)).limit(1);
     if (m) revalidatePath(`/market/${m.slug}`);
     return { ok: true };
@@ -1746,6 +1759,54 @@ export async function adminSettleDuel(input: {
     });
     revalidatePath("/duels");
     revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
+// ---------- squads + notification prefs ----------
+
+// Create-or-join by name — squad membership is open in a friend group.
+export async function joinSquad(name: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const clean = name.trim();
+    if (clean.length < 2) throw new Error("Squad name too short");
+    if (clean.length > 24) throw new Error("Squad name too long (max 24)");
+    await db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(schema.squad).where(sql`lower(${schema.squad.name}) = lower(${clean})`).limit(1);
+      const squadId = existing?.id ?? (await tx.insert(schema.squad).values({ name: clean, createdBy: u.id }).returning({ id: schema.squad.id }))[0].id;
+      await tx.update(schema.user).set({ squadId }).where(eq(schema.user.id, u.id));
+    });
+    revalidatePath("/leaderboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
+export async function leaveSquad(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    await db.update(schema.user).set({ squadId: null }).where(eq(schema.user.id, u.id));
+    revalidatePath("/leaderboard");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
+export async function setNotifPrefs(input: {
+  resolve: boolean;
+  closing: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    await db
+      .update(schema.user)
+      .set({ notifResolve: input.resolve, notifClosing: input.closing })
+      .where(eq(schema.user.id, u.id));
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed" };
