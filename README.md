@@ -43,7 +43,7 @@ exists for fun, bragging rights, and settling arguments.
 - **Binary & multi-outcome markets** priced by LMSR — instant liquidity, prices move with every trade; "X by when?" groups render each option as its own Yes/No line, resolved options collapse under "View resolved"
 - **Anyone can create a market** — it goes live instantly; the creator picks per-option starting odds (1–99%) and liquidity depth (Thin/Standard/Deep)
 - **Creator & admin management** — edit rules/images/dates without breaking live markets (question locks once bets exist), resolve YES/NO, cancel with refunds
-- **User-managed categories** — DB-backed tabs; anyone can mint one inline in the market form, admins rename (markets carry over) and delete empty ones
+- **User-managed categories** — starts empty; anyone can mint one inline in the market form, admins rename (markets carry over) and delete empty ones
 - **English / Čeština** — full UI i18n, header toggle, locale-aware dates and numbers
 - **Rewards page** — daily faucet, weekly drop, sponsored-ad claim with generated fake ad creatives, and one-time bonuses (links + first trade/market/comment milestones)
 - **Comments 2.0** — image attachments (client-side compressed), like/dislike votes, newest/top sorting
@@ -51,7 +51,7 @@ exists for fun, bragging rights, and settling arguments.
 - **Live charts** — animated probability chart with crosshair tooltip, multi-line option charts, sparklines on every card, live bets ticker
 - **Dark & light themes** — system-aware, persisted, no flash on load
 - **Portfolio & leaderboard** — positions, trade history, auditable cash-flow ledger, net-worth ranking
-- **Admin panel** — resolve/cancel/delete any market, create users, grant balances, manage categories; `SUPER_ADMIN_EMAIL` pins the owner account
+- **Admin panel** — resolve/cancel/delete any market, create users, grant balances, manage categories; user management with password resets, comment mutes, full bans (sessions dropped + sign-in blocked), and role toggles; `SUPER_ADMIN_EMAIL` pins the owner account
 - **Terms of Use** — `/terms` states plainly: fun-only demo, virtual Marks, no real market; linked in the footer and on signup
 
 ## Architecture

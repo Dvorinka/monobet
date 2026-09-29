@@ -31,6 +31,11 @@ export const user = pgTable("user", {
   role: text("role").notNull().default("user"),
   balanceCents: integer("balance_cents").notNull().default(100_000), // Ɱ1,000.00 start
   lastClaimAt: timestamp("last_claim_at", { withTimezone: true }),
+  // Moderation: a full ban (sign-in rejected, sessions dropped) and a lighter
+  // comments-only ban, both toggled from /admin.
+  bannedAt: timestamp("banned_at", { withTimezone: true }),
+  banReason: text("ban_reason"),
+  commentsBanned: boolean("comments_banned").notNull().default(false),
 });
 
 export const session = pgTable("session", {
@@ -75,8 +80,8 @@ export type MarketStatus = "pending" | "live" | "resolved" | "cancelled" | "reje
 export type MarketOutcome = "yes" | "no";
 export type MarketKind = "binary" | "group" | "option";
 
-// User-creatable market categories — rows seeded by drizzle/0004_categories.sql;
-// anyone can add one when creating a market, admins rename/delete in /admin.
+// User-creatable market categories — starts empty; anyone can add one when
+// creating a market, admins rename/delete in /admin.
 export const category = pgTable("category", {
   name: text("name").primaryKey(),
   sortIndex: integer("sort_index").notNull().default(0),

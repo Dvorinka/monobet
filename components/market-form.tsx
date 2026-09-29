@@ -30,7 +30,7 @@ export function MarketForm({
   const [question, setQuestion] = useState("");
   const [optionsText, setOptionsText] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState<string>(categories.includes("Friends") ? "Friends" : (categories[0] ?? ""));
+  const [category, setCategory] = useState<string>(categories[0] ?? NEW_CATEGORY);
   const [newCategory, setNewCategory] = useState("");
   const [closesAt, setClosesAt] = useState("");
   const [odds, setOdds] = useState(50);

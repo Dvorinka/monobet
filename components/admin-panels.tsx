@@ -4,11 +4,11 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Button, Input, Select } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, deleteMarket, adminCreateUser } from "@/lib/actions";
+import { Button, Input, Select, Badge } from "@/components/ui/primitives";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminResetUserPassword } from "@/lib/actions";
 import { fmtMarks, fmtDate } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
-import { Check, X, CircleCheck, Ban, Pencil, Trash2 } from "lucide-react";
+import { Check, X, CircleCheck, Ban, Pencil, Trash2, KeyRound, MessageSquareOff, MessageSquare, ShieldPlus, ShieldMinus } from "lucide-react";
 
 function useAction(lang?: Lang) {
   const [pending, start] = useTransition();
@@ -226,6 +226,104 @@ export function UsersPanel({ lang }: { lang?: Lang }) {
         </Button>
       </div>
     </form>
+  );
+}
+
+// Admin user manager — every account with moderation controls: password
+// reset, comment mute, full ban (drops sessions + blocks sign-in), role toggle.
+// The acting admin and the owner account are protected server-side; the UI
+// also hides controls on your own row.
+export function UserManager({
+  users,
+  selfId,
+  lang,
+}: {
+  users: {
+    id: string;
+    username: string | null;
+    email: string | null;
+    role: string;
+    balanceCents: number;
+    createdAt: Date;
+    bannedAt: Date | null;
+    commentsBanned: boolean;
+  }[];
+  selfId: string;
+  lang?: Lang;
+}) {
+  const { pending, run } = useAction(lang);
+  const t = getT(lang ?? "en");
+  if (users.length === 0) return <p className="p-4 text-sm text-mute">{t.umNoUsers}</p>;
+  return (
+    <div className="divide-y divide-line-2">
+      {users.map((u) => (
+        <div key={u.id} className="px-4 py-3 flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
+              <span className="truncate">@{u.username ?? u.id.slice(0, 8)}</span>
+              {u.id === selfId && <Badge tone="ink">{t.umYou}</Badge>}
+              {u.role === "admin" && <Badge tone="yes">{t.umAdmin}</Badge>}
+              {u.bannedAt ? <Badge tone="no">{t.umBanned}</Badge> : u.commentsBanned && <Badge tone="warn">{t.umMuted}</Badge>}
+            </div>
+            <div className="text-[11.5px] text-faint mt-0.5 truncate">
+              {u.email} · {fmtMarks(u.balanceCents, { lang })} · {fmtDate(u.createdAt, lang)}
+            </div>
+          </div>
+          {u.id !== selfId && (
+            <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={pending}
+                onClick={() => {
+                  const pw = prompt(t.umNewPasswordFor(u.username ?? "?"));
+                  if (pw === null) return;
+                  if (pw.length < 6) return toast.error(t.authPassShort);
+                  run(() => adminResetUserPassword({ userId: u.id, password: pw }), t.savedToast);
+                }}
+              >
+                <KeyRound className="size-3" /> {t.umResetPw}
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={pending}
+                onClick={() =>
+                  run(() => adminSetUserRole({ userId: u.id, role: u.role === "admin" ? "user" : "admin" }), t.savedToast)
+                }
+              >
+                {u.role === "admin" ? <ShieldMinus className="size-3" /> : <ShieldPlus className="size-3" />}
+                {u.role === "admin" ? t.umRemoveAdmin : t.umMakeAdmin}
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={pending}
+                onClick={() =>
+                  run(() => adminSetCommentsBanned({ userId: u.id, banned: !u.commentsBanned }), t.savedToast)
+                }
+              >
+                {u.commentsBanned ? <MessageSquare className="size-3" /> : <MessageSquareOff className="size-3" />}
+                {u.commentsBanned ? t.umUnmute : t.umMute}
+              </Button>
+              <Button
+                size="xs"
+                variant={u.bannedAt ? "outline" : "no"}
+                disabled={pending}
+                onClick={() => {
+                  if (u.bannedAt) return run(() => adminSetUserBanned({ userId: u.id, banned: false }), t.savedToast);
+                  const reason = prompt(t.umBanReasonFor(u.username ?? "?"));
+                  if (reason === null) return;
+                  run(() => adminSetUserBanned({ userId: u.id, banned: true, reason }), t.savedToast);
+                }}
+              >
+                <Ban className="size-3" /> {u.bannedAt ? t.umUnban : t.umBan}
+              </Button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
