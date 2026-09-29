@@ -25,18 +25,25 @@ export default async function Home({
   const lang = await getLang();
   const t = getT(lang);
   const [user, categories] = await Promise.all([getCurrentUser(), listCategories()]);
-  const watchIds = user ? await getWatchlistIds(user.id) : [];
-  // Closing-in-24h reminders land in the bell for watched markets.
-  if (user) await maybeNotifyClosing(user.id);
+  // One parallel window: watchlist, the market list that may depend on it,
+  // the expired queue, and closing reminders all resolve together.
+  const watchIdsP = user ? getWatchlistIds(user.id) : Promise.resolve<string[]>([]);
+  const [watchIds, markets, expired] = await Promise.all([
+    watchIdsP,
+    watchIdsP.then((ids) =>
+      listMarkets({
+        category: cat,
+        q,
+        sort: cat === "new" ? "new" : cat === "closing" || cat === "watching" ? "closing" : "trending",
+        ids: cat === "watching" ? ids : undefined,
+        includePendingForUser: isAdmin(user) ? user!.id : undefined,
+      })
+    ),
+    cat === "all" && !q ? getExpiredLive() : Promise.resolve([]),
+    // Closing-in-24h reminders land in the bell for watched markets.
+    user ? maybeNotifyClosing(user.id) : Promise.resolve(),
+  ]);
   const watchSet = new Set(watchIds);
-  const markets = await listMarkets({
-    category: cat,
-    q,
-    sort: cat === "new" ? "new" : cat === "closing" || cat === "watching" ? "closing" : "trending",
-    ids: cat === "watching" ? watchIds : undefined,
-    includePendingForUser: isAdmin(user) ? user!.id : undefined,
-  });
-  const expired = cat === "all" && !q ? await getExpiredLive() : [];
   const ids = markets.map((m) => m.id);
   const groupIds = markets.filter((m) => m.kind === "group").map((m) => m.id);
   const [sparks, comments, ticker, stats, groupOptions] = await Promise.all([

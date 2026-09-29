@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { cache } from "react";
 import { auth, SUPER_ADMIN_EMAIL } from "@/lib/auth";
 
 export type CurrentUser = {
@@ -19,7 +20,9 @@ export function isAdmin(u: Pick<CurrentUser, "role" | "email"> | null | undefine
   return u.role === "admin" || (u.email ?? "").toLowerCase() === SUPER_ADMIN_EMAIL;
 }
 
-export async function getCurrentUser(): Promise<CurrentUser | null> {
+// cache() dedupes within one request — the header and the page body each ask
+// for the session; without it that's two DB lookups per navigation.
+export const getCurrentUser = cache(async function getCurrentUser(): Promise<CurrentUser | null> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return null;
   const u = session.user as typeof session.user & {
@@ -47,7 +50,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     claimStreak: u.claimStreak ?? 0,
     commentsBanned: u.commentsBanned ?? false,
   };
-}
+});
 
 export async function requireUser(): Promise<CurrentUser> {
   const u = await getCurrentUser();
