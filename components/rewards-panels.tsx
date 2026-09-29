@@ -177,18 +177,52 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
   );
 }
 
+function InviteCard({ username, lang }: { username: string; lang: Lang }) {
+  const t = getT(lang);
+  const [copied, setCopied] = useState(false);
+  const link = `https://monobet.tdvorak.dev/login?ref=${encodeURIComponent(username)}`;
+  return (
+    <div className="rounded-xl border border-line bg-surface p-4 flex items-center gap-3">
+      <div className="size-9 rounded-lg bg-brand-soft text-brand-strong flex items-center justify-center shrink-0">
+        <Gift className="size-4.5" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[14px] font-semibold flex items-center gap-2">
+          {t.inviteTitle}
+          <span className="num text-[12px] font-bold text-yes">+{fmtMarks(20_000, { lang, decimals: false })}</span>
+        </div>
+        <div className="text-[12px] text-mute">{t.inviteDesc}</div>
+      </div>
+      <button
+        onClick={() => {
+          navigator.clipboard.writeText(link);
+          setCopied(true);
+          toast.success(t.copied);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+        className="h-8 px-3 rounded-lg bg-brand text-brand-on text-[12.5px] font-semibold hover:bg-brand-strong transition-all active:scale-[0.97] cursor-pointer shrink-0 inline-flex items-center gap-1.5"
+      >
+        {copied ? <CheckCircle2 className="size-3.5" /> : null}
+        {copied ? t.copied : t.copyLink}
+      </button>
+    </div>
+  );
+}
+
 export function RewardsPanels({
   lang,
   daily,
   weekly,
   ad,
   bonuses,
+  username,
 }: {
   lang: Lang;
   daily: Recurring;
   weekly: Recurring;
   ad: Recurring;
   bonuses: BonusState[];
+  username: string;
 }) {
   const t = getT(lang);
   const [pending, start] = useTransition();
@@ -232,6 +266,9 @@ export function RewardsPanels({
 
       <section>
         <h2 className="text-[13px] font-bold uppercase tracking-wider text-faint mb-3">{t.oneTimeBonuses}</h2>
+        <div className="mb-3">
+          <InviteCard username={username} lang={lang} />
+        </div>
         <div className="grid sm:grid-cols-2 gap-3">
           {bonuses.map((b) => {
             const txt = bonusText[b.key];

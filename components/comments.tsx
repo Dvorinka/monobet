@@ -177,7 +177,9 @@ export function Comments({
             <Avatar name={c.username ?? c.name} image={c.image} className="size-8" />
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-2">
-                <span className="text-[13px] font-semibold">@{c.username ?? c.name}</span>
+                <Link href={`/u/${c.username ?? c.name}`} className="text-[13px] font-semibold hover:underline underline-offset-2">
+                  @{c.username ?? c.name}
+                </Link>
                 <span className="text-[11px] text-faint">{timeAgo(c.createdAt, lang)}</span>
                 {(currentUserId === c.userId || isAdmin) && (
                   <button

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { getLeaderboard } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
 import { fmtMarks } from "@/lib/money";
@@ -42,13 +43,13 @@ export default async function LeaderboardPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-2.5">
+                  <Link href={`/u/${r.username ?? r.name}`} className="flex items-center gap-2.5 hover:underline underline-offset-2">
                     <Avatar name={r.username ?? r.name} image={r.image} className="size-7" />
                     <span className="font-medium">
                       @{r.username ?? r.name}
                       {user?.id === r.id && <span className="text-yes-strong text-[11px] font-semibold ml-1.5">{t.lbYou}</span>}
                     </span>
-                  </div>
+                  </Link>
                 </td>
                 <td className="num px-4 py-3 text-right text-mute">{fmtMarks(r.portfolioCents, { lang })}</td>
                 <td className="num px-4 py-3 text-right text-mute">{fmtMarks(r.balanceCents, { lang })}</td>

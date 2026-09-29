@@ -415,6 +415,20 @@ const en = {
   agoM: (n: number) => `${n}m ago`,
   agoH: (n: number) => `${n}h ago`,
   agoD: (n: number) => `${n}d ago`,
+
+  myProfile: "My profile",
+  notifications: "Notifications",
+  noNotifs: "Nothing yet — payouts and bonuses land here.",
+  joined: "Joined",
+  trades: "Trades",
+  openPositions: "Open positions",
+  marketsCreated: "Markets created",
+  noCreated: "No markets created yet.",
+  inviteTitle: "Invite a friend",
+  inviteDesc: "They get Ɱ100, you get Ɱ200 when they join.",
+  copyLink: "Copy link",
+  copied: "Copied",
+  referralApplied: "referral bonus applied",
 };
 
 export type Dict = typeof en;
@@ -804,6 +818,20 @@ const cs: Dict = {
   agoM: (n) => `před ${n} min`,
   agoH: (n) => `před ${n} h`,
   agoD: (n) => `před ${n} d`,
+
+  myProfile: "Můj profil",
+  notifications: "Oznámení",
+  noNotifs: "Zatím nic — výplaty a bonusy přistanou tady.",
+  joined: "Registrován",
+  trades: "Obchody",
+  openPositions: "Otevřené pozice",
+  marketsCreated: "Vytvořené trhy",
+  noCreated: "Zatím žádné vytvořené trhy.",
+  inviteTitle: "Pozvi přítele",
+  inviteDesc: "On dostane Ɱ100, ty Ɱ200 za registraci.",
+  copyLink: "Kopírovat odkaz",
+  copied: "Zkopírováno",
+  referralApplied: "referral bonus připsán",
 };
 
 const dict: Record<Lang, Dict> = { en, cs };

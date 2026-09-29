@@ -19,3 +19,7 @@ export const BONUSES = [
 
 export type BonusKey = (typeof BONUSES)[number]["key"];
 export const BONUS_MAP = new Map(BONUSES.map((b) => [b.key, b]));
+
+// Referral: the invitee gets this once, the referrer gets REFERRER_BONUS per join.
+export const REFEREE_BONUS = 10_000;
+export const REFERRER_BONUS = 20_000;
