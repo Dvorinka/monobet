@@ -170,6 +170,7 @@ export async function getComments(marketId: string, viewerId?: string) {
       createdAt: schema.comment.createdAt,
       userId: schema.comment.userId,
       parentId: schema.comment.parentId,
+      hidden: schema.comment.hidden,
       username: schema.user.username,
       name: schema.user.name,
       image: schema.user.image,
@@ -460,19 +461,20 @@ export async function getPublicProfile(username: string) {
   const [stats] = await db
     .select({
       trades: sql<number>`(select count(*)::int from ${schema.trade} where ${schema.trade.userId} = ${u.id})`,
-      markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.creatorId} = ${u.id})`,
+      markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.creatorId} = ${u.id} and ${schema.market.parentId} is null)`,
       comments: sql<number>`(select count(*)::int from ${schema.comment} where ${schema.comment.userId} = ${u.id})`,
     })
     .from(schema.user)
     .where(eq(schema.user.id, u.id));
 
   const positions = await getUserPositions(u.id);
+  // Top-level markets only — group options share creatorId but collapse into
+  // their parent's row here. No cap: profiles should list everything created.
   const created = await db
     .select()
     .from(schema.market)
-    .where(eq(schema.market.creatorId, u.id))
-    .orderBy(desc(schema.market.createdAt))
-    .limit(12);
+    .where(and(eq(schema.market.creatorId, u.id), isNull(schema.market.parentId)))
+    .orderBy(desc(schema.market.createdAt));
 
   const netWorthCents = u.balanceCents + positions.reduce((s, p) => s + p.valueCents, 0);
   const lb = await getLeaderboard();

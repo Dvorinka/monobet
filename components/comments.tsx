@@ -5,11 +5,19 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Avatar, Button, Textarea } from "@/components/ui/primitives";
-import { addComment, deleteComment, voteComment } from "@/lib/actions";
+import {
+  addComment,
+  deleteComment,
+  editComment,
+  voteComment,
+  adminSetCommentHidden,
+  adminTimeoutComments,
+  adminSetCommentsBanned,
+} from "@/lib/actions";
 import { timeAgo, fmtShares } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { getT, type Lang } from "@/lib/i18n";
-import { ImagePlus, Reply, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
+import { Ban, Eye, EyeOff, ImagePlus, Pencil, Reply, ThumbsDown, ThumbsUp, TimerOff, Trash2, X } from "lucide-react";
 
 export type CommentRow = {
   id: string;
@@ -18,6 +26,7 @@ export type CommentRow = {
   createdAt: Date;
   userId: string;
   parentId: string | null;
+  hidden: boolean;
   username: string | null;
   name: string;
   image: string | null;
@@ -263,6 +272,8 @@ function CommentItem({
   const t = getT(lang ?? "en");
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(c.body);
 
   return (
     <div className="flex gap-3 group anim-rise">
@@ -284,24 +295,121 @@ function CommentItem({
             </span>
           )}
           <span className="text-[11px] text-faint">{timeAgo(c.createdAt, lang)}</span>
-          {(currentUserId === c.userId || isAdmin) && (
-            <button
-              className="opacity-0 group-hover:opacity-100 transition-opacity text-faint hover:text-no cursor-pointer"
-              onClick={() =>
-                start(async () => {
-                  const r = await deleteComment(c.id);
-                  if (r.ok) refresh();
-                  else toast.error(r.error);
-                })
-              }
-              aria-label={t.deleteComment}
-            >
-              <Trash2 className="size-3.5" />
-            </button>
-          )}
+          <span className="inline-flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {currentUserId === c.userId && !c.hidden && !editing && (
+              <button
+                className="text-faint hover:text-ink cursor-pointer p-0.5"
+                onClick={() => {
+                  setEditText(c.body);
+                  setEditing(true);
+                }}
+                aria-label={t.editComment}
+                title={t.editComment}
+              >
+                <Pencil className="size-3.5" />
+              </button>
+            )}
+            {isAdmin && currentUserId !== c.userId && (
+              <>
+                <button
+                  className="text-faint hover:text-ink cursor-pointer p-0.5"
+                  aria-label={c.hidden ? t.uncensorComment : t.censorComment}
+                  title={c.hidden ? t.uncensorComment : t.censorComment}
+                  onClick={() =>
+                    start(async () => {
+                      const r = await adminSetCommentHidden({ commentId: c.id, hidden: !c.hidden });
+                      if (r.ok) {
+                        toast.success(c.hidden ? t.commentShownToast : t.commentCensoredToast);
+                        refresh();
+                      } else toast.error(r.error);
+                    })
+                  }
+                >
+                  {c.hidden ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                </button>
+                <button
+                  className="text-faint hover:text-ink cursor-pointer p-0.5"
+                  aria-label={t.timeoutCommenter}
+                  title={t.timeoutCommenter}
+                  onClick={() =>
+                    start(async () => {
+                      const r = await adminTimeoutComments({ userId: c.userId, hours: 24 });
+                      if (r.ok) toast.success(t.commentMutedToast);
+                      else toast.error(r.error);
+                    })
+                  }
+                >
+                  <TimerOff className="size-3.5" />
+                </button>
+                <button
+                  className="text-faint hover:text-no cursor-pointer p-0.5"
+                  aria-label={t.banCommenter}
+                  title={t.banCommenter}
+                  onClick={() =>
+                    start(async () => {
+                      const r = await adminSetCommentsBanned({ userId: c.userId, banned: true });
+                      if (r.ok) toast.success(t.commentBlockedToast);
+                      else toast.error(r.error);
+                    })
+                  }
+                >
+                  <Ban className="size-3.5" />
+                </button>
+              </>
+            )}
+            {(currentUserId === c.userId || isAdmin) && (
+              <button
+                className="text-faint hover:text-no cursor-pointer p-0.5"
+                onClick={() =>
+                  start(async () => {
+                    const r = await deleteComment(c.id);
+                    if (r.ok) refresh();
+                    else toast.error(r.error);
+                  })
+                }
+                aria-label={t.deleteComment}
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            )}
+          </span>
         </div>
-        <p className="text-sm text-ink-2 whitespace-pre-wrap break-words mt-0.5">{c.body}</p>
-        {c.imageUrl && (
+        {c.hidden ? (
+          <p className="text-sm italic text-faint mt-0.5">{t.hiddenByMod}</p>
+        ) : editing ? (
+          <div className="mt-1.5 space-y-1.5">
+            <Textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              maxLength={1000}
+              rows={2}
+              className="text-sm"
+            />
+            <div className="flex gap-1.5">
+              <Button
+                size="xs"
+                disabled={pending || !editText.trim()}
+                onClick={() =>
+                  start(async () => {
+                    const r = await editComment({ commentId: c.id, body: editText });
+                    if (r.ok) {
+                      setEditing(false);
+                      refresh();
+                    } else toast.error(r.error);
+                  })
+                }
+              >
+                {t.saveComment}
+              </Button>
+              <Button size="xs" variant="ghost" onClick={() => setEditing(false)}>
+                {t.cancelEdit}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-ink-2 whitespace-pre-wrap break-words mt-0.5">{c.body}</p>
+        )}
+        {!c.hidden && c.imageUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={c.imageUrl}

@@ -40,6 +40,8 @@ export const user = pgTable("user", {
   bannedAt: timestamp("banned_at", { withTimezone: true }),
   banReason: text("ban_reason"),
   commentsBanned: boolean("comments_banned").notNull().default(false),
+  // Temporary comment ban — a "timeout" that expires on its own.
+  commentBanUntil: timestamp("comment_ban_until", { withTimezone: true }),
   squadId: uuid("squad_id"),
   // Notification prefs — resolve fan-out and closing-soon reminders.
   notifResolve: boolean("notif_resolve").notNull().default(true),
@@ -195,6 +197,8 @@ export const comment = pgTable(
     imageUrl: text("image_url"),
     // One level of threading — replies attach to a top-level comment.
     parentId: uuid("parent_id").references((): AnyPgColumn => comment.id, { onDelete: "cascade" }),
+    // Admin censor: body stays stored, UI renders a moderation placeholder.
+    hidden: boolean("hidden").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("comment_market_idx").on(t.marketId, t.createdAt)]

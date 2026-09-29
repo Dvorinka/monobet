@@ -25,6 +25,7 @@ export function TradeTicket({
   maxLeverage = 10,
   lang,
   title,
+  defaultOutcome,
 }: {
   marketId: string;
   qYes: number;
@@ -39,9 +40,11 @@ export function TradeTicket({
   lang?: Lang;
   // Optional header (e.g. the selected option label on group markets).
   title?: React.ReactNode;
+  // Preselected outcome — group rows' YES/NO chips carry ?side= into the ticket.
+  defaultOutcome?: "yes" | "no";
 }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [outcome, setOutcome] = useState<"yes" | "no">("yes");
+  const [outcome, setOutcome] = useState<"yes" | "no">(defaultOutcome ?? "yes");
   const [amount, setAmount] = useState("");
   const [leverage, setLeverage] = useState("1");
   const [pending, start] = useTransition();
@@ -97,8 +100,8 @@ export function TradeTicket({
       <div className="mt-3">
         <Segmented
           options={[
-            { value: "yes", label: `${t.yes} ${fmtCents(py)}`, tone: "yes" },
-            { value: "no", label: `${t.no} ${fmtCents(1 - py)}`, tone: "no" },
+            { value: "yes", label: `${t.yes} ${fmtMarks(Math.round(py * 100), { lang })}`, tone: "yes" },
+            { value: "no", label: `${t.no} ${fmtMarks(Math.round((1 - py) * 100), { lang })}`, tone: "no" },
           ]}
           value={outcome}
           onChange={setOutcome}
