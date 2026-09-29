@@ -115,6 +115,14 @@ export const market = pgTable(
     volumeCents: bigint("volume_cents", { mode: "number" }).notNull().default(0),
     traderCount: integer("trader_count").notNull().default(0),
     creatorId: text("creator_id").references(() => user.id, { onDelete: "set null" }),
+    // Community resolution: an expired market can get a proposed outcome;
+    // two confirm votes settle it, disputes escalate to admins.
+    proposedOutcome: text("proposed_outcome"), // 'yes' | 'no' | null
+    proposedById: text("proposed_by_id").references(() => user.id, { onDelete: "set null" }),
+    proposedAt: timestamp("proposed_at", { withTimezone: true }),
+    resolutionReason: text("resolution_reason").notNull().default(""),
+    // Auto-clone: on resolve a fresh copy opens recurDays after this close.
+    recurDays: integer("recur_days"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     closesAt: timestamp("closes_at", { withTimezone: true }),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
@@ -262,6 +270,21 @@ export const seasonResult = pgTable(
     rewardCents: integer("reward_cents").notNull(),
   },
   (t) => [index("season_result_season_idx").on(t.seasonId, t.rank)]
+);
+
+// ---------- community resolution ----------
+
+// One vote per user per market. 'confirm' endorses the proposed outcome,
+// 'dispute' blocks creator resolution and hands the decision to admins.
+export const resolutionVote = pgTable(
+  "resolution_vote",
+  {
+    marketId: uuid("market_id").notNull().references(() => market.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    vote: text("vote").notNull(), // 'confirm' | 'dispute'
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.marketId, t.userId] })]
 );
 
 // ---------- watchlist ----------

@@ -463,6 +463,24 @@ const en = {
   priceMoved: (before: number, after: number) => `YES ${before}% → ${after}%`,
   fairNote:
     "Fairness: every game is settled server-side from a uniform random roll at the moment you click — the timer round is stamped and verified with a server signature, so results can't be predicted or replayed from the client. All payouts are virtual Marks.",
+  reasonPh: "Resolution reason (optional) — source, evidence…",
+  proposalHeading: (outcome: string) => `Proposed: ${outcome}`,
+  proposedBy: (name: string) => `Proposed by @${name}`,
+  voteTally: (c: number, d: number) => `${c}/2 confirmations · ${d} disputes`,
+  disputedNote: "disputed — an admin must resolve",
+  confirmVote: "Confirm",
+  disputeVote: "Dispute",
+  votedToast: "Vote recorded",
+  proposeOutcomeTitle: "Propose the outcome",
+  proposeHint: "Market is closed. Two confirmations settle it; a dispute sends it to the admins.",
+  propose: "Propose",
+  proposedToast: "Outcome proposed",
+  repeats: "Repeats",
+  recurNever: "One-off",
+  recurWeekly: "Weekly",
+  recurBiweekly: "Every 2 weeks",
+  recurMonthly: "Monthly",
+  repeatsHint: "After this market resolves, a fresh copy opens automatically.",
 };
 
 export type Dict = typeof en;
@@ -900,6 +918,24 @@ const cs: Dict = {
   priceMoved: (before, after) => `YES ${before}% → ${after}%`,
   fairNote:
     "Férovost: každá hra se vyhodnocuje na serveru z rovnoměrného náhodného hodu v okamžiku kliknutí — kolo stopkování je razítkované a ověřované serverovým podpisem, takže výsledek nejde z klienta předpovědět ani zopakovat. Všechny výhry jsou virtuální Marky.",
+  reasonPh: "Důvod vyhodnocení (nepovinné) — zdroj, důkaz…",
+  proposalHeading: (outcome) => `Návrh: ${outcome}`,
+  proposedBy: (name) => `Navrhl @${name}`,
+  voteTally: (c, d) => `${c}/2 potvrzení · ${d} sporů`,
+  disputedNote: "sporné — musí rozhodnout admin",
+  confirmVote: "Potvrdit",
+  disputeVote: "Nesouhlasit",
+  votedToast: "Hlas zaznamenán",
+  proposeOutcomeTitle: "Navrhnout výsledek",
+  proposeHint: "Trh je uzavřený. Dvě potvrzení jej vyhodnotí; spor předává rozhodnutí adminům.",
+  propose: "Navrhnout",
+  proposedToast: "Výsledek navržen",
+  repeats: "Opakování",
+  recurNever: "Jednorázově",
+  recurWeekly: "Týdně",
+  recurBiweekly: "Každé 2 týdny",
+  recurMonthly: "Měsíčně",
+  repeatsHint: "Po vyhodnocení trhu se automaticky otevře nová kopie.",
 };
 
 const dict: Record<Lang, Dict> = { en, cs };

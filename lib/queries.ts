@@ -750,3 +750,33 @@ export async function maybeNotifyClosing(userId: string) {
     }))
   );
 }
+
+// Proposal + vote tally for the community-resolution card on market pages.
+export async function getResolutionState(marketId: string, userId?: string) {
+  const votes = await db
+    .select({ vote: schema.resolutionVote.vote, n: sql<number>`count(*)::int` })
+    .from(schema.resolutionVote)
+    .where(eq(schema.resolutionVote.marketId, marketId))
+    .groupBy(schema.resolutionVote.vote);
+  const [proposer] = await db
+    .select({ username: schema.user.username })
+    .from(schema.market)
+    .leftJoin(schema.user, eq(schema.market.proposedById, schema.user.id))
+    .where(eq(schema.market.id, marketId))
+    .limit(1);
+  let myVote: string | null = null;
+  if (userId) {
+    const [v] = await db
+      .select({ vote: schema.resolutionVote.vote })
+      .from(schema.resolutionVote)
+      .where(and(eq(schema.resolutionVote.marketId, marketId), eq(schema.resolutionVote.userId, userId)))
+      .limit(1);
+    myVote = v?.vote ?? null;
+  }
+  return {
+    confirms: votes.find((v) => v.vote === "confirm")?.n ?? 0,
+    disputes: votes.find((v) => v.vote === "dispute")?.n ?? 0,
+    myVote,
+    proposer: proposer?.username ?? null,
+  };
+}
