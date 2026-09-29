@@ -144,23 +144,27 @@ export function Segmented<T extends string>({
   value,
   onChange,
   className,
+  disabled,
 }: {
   options: { value: T; label: string; tone?: "yes" | "no" | "ink" }[];
   value: T;
   onChange: (v: T) => void;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
-    <div className={cn("grid auto-cols-fr grid-flow-col gap-1 rounded-lg bg-surface-2 p-1", className)}>
+    <div className={cn("grid auto-cols-fr grid-flow-col gap-1 rounded-lg bg-surface-2 p-1", disabled && "opacity-50", className)}>
       {options.map((o) => {
         const active = o.value === value;
         return (
           <button
             key={o.value}
             type="button"
+            disabled={disabled}
             onClick={() => onChange(o.value)}
             className={cn(
               "h-8 rounded-md text-[13px] font-semibold transition-colors cursor-pointer",
+              disabled && "pointer-events-none",
               active
                 ? o.tone === "yes"
                   ? "bg-yes text-yes-on"

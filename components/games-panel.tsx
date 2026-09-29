@@ -17,7 +17,8 @@ import {
   diceMult,
   diceWinChance,
   TIMER_TARGETS,
-  TIMER_REVEAL_MS,
+  timerRevealMs,
+  timerTopMult,
   LIMBO_MIN,
   LIMBO_MAX,
   limboWinChance,
@@ -189,6 +190,7 @@ function CoinFlipCard({ balanceCents, lang }: { balanceCents: number; lang?: Lan
     run(() => playCoinFlip({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), pick })).then(
       (r) => {
         if (!r || !r.landed) return;
+        playSfx("flip", 0.5);
         setNet(null);
         setSpinning(true);
         // Land heads on a full rotation, tails on a half — always ≥5 turns.
@@ -285,6 +287,7 @@ function DiceCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang })
   const roll = () => {
     setRolling(true);
     setNet(null);
+    playSfx("roll", 0.45);
     const cyc = setInterval(() => setFace(1 + Math.floor(Math.random() * 6)), 70);
     run(() => playDice({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), over })).then((r) => {
       setTimeout(() => {
@@ -352,8 +355,16 @@ function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   const [net, setNet] = useState<Net>(null);
   const tokenRef = useRef<string | null>(null);
   const t0 = useRef(0);
+  const targetMs = Number(target) * 1000;
 
-  const hidden = phase === "running" && disp > TIMER_REVEAL_MS;
+  const hidden = phase === "running" && disp > timerRevealMs(targetMs);
+
+  // Audible cue the moment the digits hide.
+  const wasHidden = useRef(false);
+  useEffect(() => {
+    if (hidden && !wasHidden.current) playSfx("trade", 0.25);
+    wasHidden.current = hidden;
+  }, [hidden]);
 
   // Display ticker — runs while the round is live; impure clock stays inside
   // an effect where the purity rule allows it.
@@ -412,11 +423,17 @@ function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
       }
       controls={
         <>
-          <Segmented
-            options={TIMER_TARGETS.map((ms) => ({ value: String(ms / 1000), label: `${ms / 1000}s` }))}
-            value={target}
-            onChange={setTarget}
-          />
+          <div>
+            <Segmented
+              options={TIMER_TARGETS.map((ms) => ({ value: String(ms / 1000), label: `${ms / 1000}s` }))}
+              value={target}
+              onChange={setTarget}
+              disabled={phase === "running"}
+            />
+            <div className="mt-1 text-right text-[11px] font-medium text-faint num">
+              {t.paysUpTo(timerTopMult(targetMs).toFixed(0))}
+            </div>
+          </div>
           <BetControls bet={bet} setBet={setBet} lev={lev} setLev={setLev} balanceCents={balanceCents} disabled={pending || phase === "running"} lang={lang} />
           {phase === "running" ? (
             <Button className="w-full" size="lg" variant="no" disabled={pending} onClick={stop}>
@@ -454,6 +471,7 @@ function LimboCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
       (r) => {
         if (r?.roll == null) return;
         const roll = r.roll;
+        playSfx("launch", 0.4);
         setBusy(true);
         setNet(null);
         setWonLast(null);
@@ -540,6 +558,14 @@ function LimboCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
 
 // ---------- wheel ----------
 
+// Wedge color by payout tier — dead wedges stay muted, the 5× jackpot glows.
+function wheelColor(m: number, i: number) {
+  if (m <= 0) return "var(--color-surface-3)";
+  if (m >= 5) return "#f59e0b";
+  if (m >= 2) return "var(--color-yes)";
+  return i % 2 ? "var(--color-brand-strong)" : "var(--color-brand)";
+}
+
 function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame();
@@ -547,25 +573,27 @@ function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   const [lev, setLev] = useState("1");
   const [rot, setRot] = useState(0);
   const [spinning, setSpinning] = useState(false);
+  const [landed, setLanded] = useState<number | null>(null);
   const [net, setNet] = useState<Net>(null);
 
   const spin = () =>
     run(() => playWheel({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then((r) => {
       if (r?.index == null) return;
+      playSfx("spin", 0.5);
       setNet(null);
+      setLanded(null);
       setSpinning(true);
       // Land segment `index` under the top pointer, plus ~6 full turns.
       const want = 360 - (r.index * WHEEL_STEP + WHEEL_STEP / 2);
       setRot((prev) => prev + 6 * 360 + (((want - (prev % 360)) % 360) + 360) % 360);
       setTimeout(() => {
         setSpinning(false);
+        setLanded(r.mult ?? null);
         setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.mult && r.mult > 0 });
-      }, 3050);
+      }, 3250);
     });
 
-  const segs = WHEEL_SEGMENTS.map(
-    (m, i) => `${m > 0 ? (i % 2 ? "var(--color-yes)" : "var(--color-brand-strong)") : "var(--color-surface-3)"} ${i * WHEEL_STEP}deg ${(i + 1) * WHEEL_STEP}deg`
-  ).join(", ");
+  const segs = WHEEL_SEGMENTS.map((m, i) => `${wheelColor(m, i)} ${i * WHEEL_STEP}deg ${(i + 1) * WHEEL_STEP}deg`).join(", ");
 
   return (
     <GameCard
@@ -573,35 +601,51 @@ function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
       title={t.gWheel}
       sub={t.gWheelSub}
       stage={
-        <div className="relative flex flex-col items-center gap-3">
+        <div className="relative flex flex-col items-center gap-3 pt-3">
           <div
-            className="absolute -top-1 z-10 size-0 border-x-[9px] border-t-[14px] border-x-transparent"
+            className="absolute top-0 z-20 size-0 border-x-[11px] border-t-[18px] border-x-transparent drop-shadow-sm"
             style={{ borderTopColor: "var(--color-ink)" }}
           />
-          <div
-            className="relative size-[150px] rounded-full border-4 border-line shadow-[0_4px_16px_rgba(0,0,0,0.10)]"
-            style={{
-              background: `conic-gradient(${segs})`,
-              transform: `rotate(${rot}deg)`,
-              transition: "transform 3s cubic-bezier(0.15, 0.9, 0.25, 1)",
-            }}
-          >
-            {WHEEL_SEGMENTS.map((m, i) => (
+          {/* static rim + rotating disc inside */}
+          <div className="relative size-[196px] rounded-full bg-ink p-[7px] shadow-[0_8px_28px_rgba(0,0,0,0.22)] ring-1 ring-line-2">
+            <div
+              className="relative size-full rounded-full overflow-hidden"
+              style={{
+                background: `conic-gradient(${segs})`,
+                transform: `rotate(${rot}deg)`,
+                transition: "transform 3.2s cubic-bezier(0.12, 0.85, 0.15, 1)",
+              }}
+            >
+              {WHEEL_SEGMENTS.map((_, i) => (
+                <div key={`sep${i}`} className="absolute inset-0" style={{ transform: `rotate(${i * WHEEL_STEP}deg)` }}>
+                  <div className="absolute left-1/2 top-0 h-1/2 w-px -translate-x-1/2 bg-white/25" />
+                </div>
+              ))}
+              {WHEEL_SEGMENTS.map((m, i) => (
+                <div key={i} className="absolute inset-0" style={{ transform: `rotate(${i * WHEEL_STEP + WHEEL_STEP / 2}deg)` }}>
+                  <span
+                    className="absolute left-1/2 top-2.5 -translate-x-1/2 text-[11px] font-black tracking-tight"
+                    style={{ color: m > 0 ? "var(--color-yes-on)" : "var(--color-faint)" }}
+                  >
+                    {m > 0 ? `${m}×` : "—"}
+                  </span>
+                </div>
+              ))}
               <div
-                key={i}
-                className="absolute left-1/2 top-1/2 text-[10px] font-black"
-                style={{
-                  transform: `rotate(${i * WHEEL_STEP + WHEEL_STEP / 2 - 90}deg) translateY(-56px)`,
-                  transformOrigin: "0 0",
-                  color: m > 0 ? "var(--color-yes-on)" : "var(--color-faint)",
-                }}
-              >
-                {m > 0 ? `${m}×` : "—"}
-              </div>
-            ))}
-            <div className="absolute inset-0 m-auto size-9 rounded-full bg-surface border-2 border-line" />
+                className="absolute inset-0 rounded-full pointer-events-none"
+                style={{ background: "radial-gradient(circle at 35% 30%, rgba(255,255,255,0.22), transparent 55%)" }}
+              />
+            </div>
+            <div className="absolute inset-0 m-auto z-10 size-11 rounded-full bg-surface border-[3px] border-line grid place-items-center text-[15px] font-black text-ink shadow-md">
+              Ɱ
+            </div>
           </div>
-          <ResultTag net={spinning ? null : net} lang={lang} />
+          <div className="h-5 flex items-center justify-center gap-2">
+            {landed !== null && !spinning && (
+              <span className="num text-[12px] font-bold text-mute anim-win-pop">{landed}×</span>
+            )}
+            <ResultTag net={spinning ? null : net} lang={lang} />
+          </div>
         </div>
       }
       controls={
