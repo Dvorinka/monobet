@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, Input, Select, Badge } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminResetUserPassword, adminSettleDuel } from "@/lib/actions";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminResetUserPassword, adminSettleDuel } from "@/lib/actions";
 import { fmtMarks, fmtDate } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
-import { Check, X, CircleCheck, Ban, Pencil, Trash2, KeyRound, MessageSquareOff, MessageSquare, ShieldPlus, ShieldMinus } from "lucide-react";
+import { Check, X, CircleCheck, Ban, Pencil, Trash2, KeyRound, MessageSquareOff, MessageSquare, ShieldPlus, ShieldMinus, GripVertical } from "lucide-react";
 
 function useAction(lang?: Lang) {
   const [pending, start] = useTransition();
@@ -342,6 +342,16 @@ export function CategoriesPanel({
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  // Local order mirrors the server list; adjusted live during a drag and
+  // persisted on drop. Render-time resync keeps it honest after refresh.
+  const [order, setOrder] = useState<string[]>(() => categories.map((c) => c.name));
+  const [prevCats, setPrevCats] = useState(categories);
+  if (categories !== prevCats) {
+    setPrevCats(categories);
+    setOrder(categories.map((c) => c.name));
+  }
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const byName = new Map(categories.map((c) => [c.name, c]));
 
   const act = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string, after?: () => void) =>
     start(async () => {
@@ -376,8 +386,37 @@ export function CategoriesPanel({
       </form>
 
       <div className="divide-y divide-line-2">
-        {categories.map((c) => (
-          <div key={c.name} className="flex items-center gap-2 py-2">
+        {order.map((name, i) => {
+          const c = byName.get(name);
+          if (!c) return null;
+          return (
+          <div
+            key={c.name}
+            draggable={editing !== c.name}
+            onDragStart={(e) => {
+              setDragIdx(i);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (dragIdx === null || dragIdx === i) return;
+              setOrder((o) => {
+                const next = [...o];
+                next.splice(i, 0, ...next.splice(dragIdx, 1));
+                return next;
+              });
+              setDragIdx(i);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (dragIdx !== null)
+                act(() => reorderCategories({ names: order.map((n) => n) }), t.catReorder);
+              setDragIdx(null);
+            }}
+            onDragEnd={() => setDragIdx(null)}
+            className={`flex items-center gap-2 py-2 ${dragIdx === i ? "opacity-40" : ""}`}
+          >
+            <GripVertical className="size-4 shrink-0 cursor-grab text-faint active:cursor-grabbing" />
             {editing === c.name ? (
               <form
                 className="flex flex-1 items-center gap-2"
@@ -425,7 +464,8 @@ export function CategoriesPanel({
               </>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
