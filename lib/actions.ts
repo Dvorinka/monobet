@@ -569,6 +569,22 @@ export async function renameCategory(input: { from: string; to: string }): Promi
   }
 }
 
+export async function reorderCategories(input: { names: string[] }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await db.transaction(async (tx) => {
+      for (const [i, name] of input.names.entries()) {
+        await tx.update(schema.category).set({ sortIndex: i + 1 }).where(eq(schema.category.name, name));
+      }
+    });
+    revalidatePath("/");
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Reorder failed" };
+  }
+}
+
 export async function deleteCategory(input: { name: string }): Promise<{ ok: boolean; error?: string }> {
   try {
     await requireAdmin();
@@ -612,13 +628,19 @@ export async function proposeMarket(input: {
     const recurDays = [7, 14, 30].includes(input.recurDays ?? 0) ? input.recurDays! : null;
     const maxLeverage = TRADE_LEVERAGES.includes(input.maxLeverage ?? 10) ? input.maxLeverage! : 10;
 
-    // Options may carry an image: "Democratic Party | https://…/logo.png"
+    // Options may carry an image: "Democratic Party | https://…/logo.png" —
+    // data URLs come from the form's upload/paste cell.
     const parsed = (input.outcomes ?? [])
       .map((o) => o.trim())
       .filter(Boolean)
       .map((line) => {
         const [label, url] = line.split("|").map((s) => s.trim());
-        if (url && !/^(https?:\/\/|\/)\S+$/.test(url)) throw new Error(`Bad image URL for "${label}"`);
+        if (url) {
+          const isData = /^data:image\/(jpeg|png|webp);base64,/.test(url);
+          const isUrl = /^(https?:\/\/|\/)\S+$/.test(url);
+          if (!isData && !isUrl) throw new Error(`Bad image URL for "${label}"`);
+          if (isData && url.length > 450_000) throw new Error(`Image too large for "${label}"`);
+        }
         return { label, imageUrl: url || null };
       });
     const seen = new Set<string>();

@@ -27,7 +27,7 @@ export type CommentRow = {
 
 // Client-side compression: cap at 1080px, JPEG ~0.7 → usually well under the
 // server's 450KB data-URL cap.
-function compressImage(file: File): Promise<string> {
+export function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
