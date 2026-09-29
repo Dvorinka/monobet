@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { after } from "next/server";
 import { CategoryTabs } from "@/components/category-tabs";
 import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicker } from "@/components/trade-ticker";
@@ -40,9 +41,10 @@ export default async function Home({
       })
     ),
     cat === "all" && !q ? getExpiredLive() : Promise.resolve([]),
-    // Closing-in-24h reminders land in the bell for watched markets.
-    user ? maybeNotifyClosing(user.id) : Promise.resolve(),
   ]);
+  // Closing-in-24h reminders land in the bell — written after the response
+  // streams so the fan-out never blocks the render.
+  if (user) after(() => maybeNotifyClosing(user.id));
   const watchSet = new Set(watchIds);
   const ids = markets.map((m) => m.id);
   const groupIds = markets.filter((m) => m.kind === "group").map((m) => m.id);
