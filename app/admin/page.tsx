@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { getCurrentUser, isAdmin } from "@/lib/session";
-import { getPendingMarkets, listMarkets, getAllUsers, listCategories, listCategoryRows } from "@/lib/queries";
-import { PendingList, LiveMarketList, GrantPanel, CategoriesPanel, UsersPanel, UserManager } from "@/components/admin-panels";
+import { getPendingMarkets, listMarkets, getAllUsers, listCategories, listCategoryRows, getDisputedDuels } from "@/lib/queries";
+import { PendingList, LiveMarketList, GrantPanel, CategoriesPanel, UsersPanel, UserManager, DuelAdminPanel } from "@/components/admin-panels";
 import { MarketForm } from "@/components/market-form";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Card } from "@/components/ui/primitives";
-import { ShieldCheck, Inbox, Radio, Users, PlusCircle, Tags, UserPlus } from "lucide-react";
+import { ShieldCheck, Inbox, Radio, Users, PlusCircle, Tags, UserPlus, Swords } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Admin" };
@@ -18,12 +18,13 @@ export default async function AdminPage() {
   if (!isAdmin(user)) redirect("/");
   const t = getT(lang);
 
-  const [pending, live, users, categories, categoryRows] = await Promise.all([
+  const [pending, live, users, categories, categoryRows, disputed] = await Promise.all([
     getPendingMarkets(),
     listMarkets({ includeOptions: true }),
     getAllUsers(),
     listCategories(),
     listCategoryRows(),
+    getDisputedDuels(),
   ]);
 
   return (
@@ -56,6 +57,26 @@ export default async function AdminPage() {
             <UserManager users={users} selfId={user.id} lang={lang} />
           </Card>
         </section>
+
+        {disputed.length > 0 && (
+          <section className="lg:col-span-2">
+            <SectionTitle icon={<Swords className="size-4" />} title={t.duelDisputes(disputed.length)} />
+            <Card className="overflow-hidden">
+              <DuelAdminPanel
+                lang={lang}
+                items={disputed.map(({ duel: d, creatorName, opponentName }) => ({
+                  id: d.id,
+                  claim: d.claim,
+                  stakeCents: d.stakeCents,
+                  creatorId: d.creatorId,
+                  opponentId: d.opponentId,
+                  creatorName,
+                  opponentName,
+                }))}
+              />
+            </Card>
+          </section>
+        )}
 
         <section className="lg:col-span-2">
           <SectionTitle icon={<Radio className="size-4" />} title={t.liveMarkets(live.length)} />

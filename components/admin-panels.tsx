@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, Input, Select, Badge } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminResetUserPassword } from "@/lib/actions";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminResetUserPassword, adminSettleDuel } from "@/lib/actions";
 import { fmtMarks, fmtDate } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { Check, X, CircleCheck, Ban, Pencil, Trash2, KeyRound, MessageSquareOff, MessageSquare, ShieldPlus, ShieldMinus } from "lucide-react";
@@ -427,6 +427,63 @@ export function CategoriesPanel({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Disputed duels land here for an admin tiebreak — pick a winner for the full
+// pot or refund both stakes.
+export function DuelAdminPanel({
+  items,
+  lang,
+}: {
+  items: {
+    id: string;
+    claim: string;
+    stakeCents: number;
+    creatorId: string;
+    opponentId: string;
+    creatorName: string | null;
+    opponentName: string | null;
+  }[];
+  lang?: Lang;
+}) {
+  const t = getT(lang ?? "en");
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) =>
+    start(async () => {
+      const r = await fn();
+      if (r.ok) {
+        toast.success(ok);
+        router.refresh();
+      } else toast.error(r.error);
+    });
+
+  if (items.length === 0) return <p className="px-4 py-6 text-sm text-mute text-center">{t.duelNoDisputes}</p>;
+  return (
+    <div className="divide-y divide-line">
+      {items.map((d) => (
+        <div key={d.id} className="px-4 py-3 flex items-center gap-3 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] font-medium leading-snug">{d.claim}</div>
+            <div className="text-[11.5px] text-faint mt-0.5">
+              @{d.creatorName} vs @{d.opponentName} · {fmtMarks(d.stakeCents * 2, { lang })}
+            </div>
+          </div>
+          <div className="flex gap-1.5 shrink-0">
+            <Button size="xs" variant="yes" disabled={pending} onClick={() => run(() => adminSettleDuel({ id: d.id, winnerId: d.creatorId }), t.duelSettledToast)}>
+              @{d.creatorName}
+            </Button>
+            <Button size="xs" variant="yes" disabled={pending} onClick={() => run(() => adminSettleDuel({ id: d.id, winnerId: d.opponentId }), t.duelSettledToast)}>
+              @{d.opponentName}
+            </Button>
+            <Button size="xs" variant="outline" disabled={pending} onClick={() => run(() => adminSettleDuel({ id: d.id, winnerId: null }), t.duelSettledToast)}>
+              {t.duelRefundBoth}
+            </Button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

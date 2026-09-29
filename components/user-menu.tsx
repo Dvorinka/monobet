@@ -56,6 +56,9 @@ export function UserMenu({
           <Link href="/portfolio" className={item} onClick={() => setOpen(false)}>
             {t.portfolio}
           </Link>
+          <Link href="/duels" className={item} onClick={() => setOpen(false)}>
+            {t.duelsTitle}
+          </Link>
           <Link href="/propose" className={item} onClick={() => setOpen(false)}>
             {t.newMarket}
           </Link>
