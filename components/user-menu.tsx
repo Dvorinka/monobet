@@ -11,11 +11,13 @@ export function UserMenu({
   name,
   username,
   role,
+  image,
   lang,
 }: {
   name: string;
   username: string | null;
   role: string;
+  image?: string | null;
   lang?: Lang;
 }) {
   const [open, setOpen] = useState(false);
@@ -40,7 +42,7 @@ export function UserMenu({
         className="rounded-full ring-2 ring-transparent hover:ring-line transition cursor-pointer"
         aria-label={t.accountMenu}
       >
-        <Avatar name={username ?? name} />
+        <Avatar name={username ?? name} image={image} />
       </button>
       {open && (
         <div className="absolute right-0 top-11 w-52 rounded-xl border border-line bg-surface shadow-lg p-1.5 z-50 anim-rise">

@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 export const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL ?? "info@tdvorak.dev").toLowerCase();
 
 export const auth = betterAuth({
-  appName: "MonoMark",
+  appName: "MonoBet",
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {

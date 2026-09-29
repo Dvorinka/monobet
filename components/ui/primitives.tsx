@@ -109,13 +109,23 @@ export function Badge({
   );
 }
 
-export function Avatar({ name, className }: { name: string; className?: string }) {
+export function Avatar({ name, image, className }: { name: string; image?: string | null; className?: string }) {
   const initials = name
     .split(/\s+/)
     .map((w) => w[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
+  if (image) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={image}
+        alt={name}
+        className={cn("size-8 rounded-full object-cover shrink-0 bg-surface-2", className)}
+      />
+    );
+  }
   return (
     <div
       className={cn(

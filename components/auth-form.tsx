@@ -30,7 +30,7 @@ export function AuthForm({ lang }: { lang?: Lang }) {
           // username plugin stores username; email is required by core, so a
           // local placeholder keeps signups friction-free unless a real one
           // is given (e.g. the owner's superadmin email).
-          email: customEmail || `${username.trim().toLowerCase()}@monomark.local`,
+          email: customEmail || `${username.trim().toLowerCase()}@monobet.local`,
           name: username.trim(),
           username: username.trim().toLowerCase(),
           password,
@@ -56,7 +56,7 @@ export function AuthForm({ lang }: { lang?: Lang }) {
     <Card className="p-6">
       <div className="flex items-center gap-2 mb-6">
         <LogoMark />
-        <span className="font-bold text-[17px] tracking-tight">MonoMark</span>
+        <span className="font-bold text-[17px] tracking-tight">MonoBet</span>
       </div>
 
       <Segmented

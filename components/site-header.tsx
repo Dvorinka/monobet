@@ -21,7 +21,7 @@ export async function SiteHeader() {
       <div className="mx-auto max-w-6xl px-4 h-14 flex items-center gap-4">
         <Link href="/" className="flex items-center gap-2 shrink-0 group/logo">
           <LogoMark className="transition-transform duration-300 group-hover/logo:rotate-[-6deg] group-hover/logo:scale-105" />
-          <span className="font-bold text-[17px] tracking-tight hidden sm:block">MonoMark</span>
+          <span className="font-bold text-[17px] tracking-tight hidden sm:block">MonoBet</span>
         </Link>
 
         <nav className="hidden md:flex items-center gap-1 text-[13.5px] font-medium text-mute">
@@ -34,6 +34,11 @@ export async function SiteHeader() {
           {user && (
             <Link href="/portfolio" className="px-2.5 py-1.5 rounded-md hover:text-ink hover:bg-surface-2">
               {t.portfolio}
+            </Link>
+          )}
+          {user && (
+            <Link href="/rewards" className="px-2.5 py-1.5 rounded-md text-brand-strong font-semibold hover:bg-brand-soft">
+              {t.rewards}
             </Link>
           )}
           {isAdmin(user) && (
@@ -66,7 +71,7 @@ export async function SiteHeader() {
             >
               <AnimatedMoney cents={user.balanceCents} lang={lang} />
             </Link>
-            <UserMenu name={user.name} username={user.username} role={isAdmin(user) ? "admin" : user.role} lang={lang} />
+            <UserMenu name={user.name} username={user.username} role={isAdmin(user) ? "admin" : user.role} image={user.image} lang={lang} />
           </div>
         ) : (
           <div className="flex items-center gap-2 shrink-0">

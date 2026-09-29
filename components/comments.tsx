@@ -1,29 +1,55 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Avatar, Button, Textarea } from "@/components/ui/primitives";
-import { addComment, deleteComment } from "@/lib/actions";
+import { addComment, deleteComment, voteComment } from "@/lib/actions";
 import { timeAgo } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
-import { Trash2 } from "lucide-react";
+import { ImagePlus, ThumbsDown, ThumbsUp, Trash2, X } from "lucide-react";
 
 export type CommentRow = {
   id: string;
   body: string;
+  imageUrl: string | null;
   createdAt: Date;
   userId: string;
   username: string | null;
   name: string;
+  image: string | null;
+  likes: number;
+  dislikes: number;
+  myVote: number;
 };
+
+// Client-side compression: cap at 1080px, JPEG ~0.7 → usually well under the
+// server's 450KB data-URL cap.
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 1080 / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(img.src);
+      resolve(canvas.toDataURL("image/jpeg", 0.72));
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
 
 export function Comments({
   marketId,
   comments,
   signedIn,
   currentUserId,
+  viewerName,
+  viewerImage,
   isAdmin,
   lang,
 }: {
@@ -31,13 +57,22 @@ export function Comments({
   comments: CommentRow[];
   signedIn: boolean;
   currentUserId?: string;
+  viewerName?: string;
+  viewerImage?: string | null;
   isAdmin?: boolean;
   lang?: Lang;
 }) {
   const [body, setBody] = useState("");
+  const [image, setImage] = useState<string | null>(null);
+  const [sort, setSort] = useState<"new" | "top">("new");
   const [pending, start] = useTransition();
+  const fileRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const t = getT(lang ?? "en");
+
+  const sorted = [...comments].sort((a, b) =>
+    sort === "top" ? b.likes - b.dislikes - (a.likes - a.dislikes) : 0
+  );
 
   return (
     <div>
@@ -48,15 +83,16 @@ export function Comments({
             e.preventDefault();
             if (!body.trim()) return;
             start(async () => {
-              const r = await addComment({ marketId, body });
+              const r = await addComment({ marketId, body, image });
               if (r.ok) {
                 setBody("");
+                setImage(null);
                 router.refresh();
               } else toast.error(r.error);
             });
           }}
         >
-          <Avatar name="you" className="size-8 mt-1" />
+          <Avatar name={viewerName ?? "you"} image={viewerImage} className="size-8 mt-1" />
           <div className="flex-1">
             <Textarea
               value={body}
@@ -65,7 +101,44 @@ export function Comments({
               maxLength={1000}
               className="min-h-16"
             />
-            <div className="mt-2 flex justify-end">
+            {image && (
+              <div className="relative mt-2 w-fit">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={image} alt="" className="max-h-48 rounded-lg border border-line" />
+                <button
+                  type="button"
+                  onClick={() => setImage(null)}
+                  className="absolute -top-2 -right-2 size-5 rounded-full bg-ink text-surface flex items-center justify-center cursor-pointer"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            )}
+            <div className="mt-2 flex items-center justify-between">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!f) return;
+                  try {
+                    setImage(await compressImage(f));
+                  } catch {
+                    toast.error(t.imageBad);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-mute hover:text-ink cursor-pointer transition-colors"
+              >
+                <ImagePlus className="size-4" />
+                {t.attachImage}
+              </button>
               <Button size="sm" disabled={pending || !body.trim()}>
                 {pending ? t.posting : t.comment}
               </Button>
@@ -81,11 +154,27 @@ export function Comments({
         </p>
       )}
 
-      <div className="mt-6 space-y-5">
+      {comments.length > 1 && (
+        <div className="mt-6 flex gap-1 text-[12px] font-semibold">
+          {(["new", "top"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setSort(s)}
+              className={`px-2.5 py-1 rounded-md cursor-pointer transition-colors ${
+                sort === s ? "bg-surface-2 text-ink" : "text-mute hover:text-ink"
+              }`}
+            >
+              {s === "new" ? t.sortNewest : t.sortTop}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-4 space-y-5">
         {comments.length === 0 && <p className="text-[13px] text-faint">{t.noComments}</p>}
-        {comments.map((c) => (
+        {sorted.map((c) => (
           <div key={c.id} className="flex gap-3 group anim-rise">
-            <Avatar name={c.username ?? c.name} className="size-8" />
+            <Avatar name={c.username ?? c.name} image={c.image} className="size-8" />
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-2">
                 <span className="text-[13px] font-semibold">@{c.username ?? c.name}</span>
@@ -107,6 +196,46 @@ export function Comments({
                 )}
               </div>
               <p className="text-sm text-ink-2 whitespace-pre-wrap break-words mt-0.5">{c.body}</p>
+              {c.imageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={c.imageUrl}
+                  alt=""
+                  loading="lazy"
+                  className="mt-2 max-h-64 max-w-full rounded-lg border border-line"
+                />
+              )}
+              <div className="mt-1.5 flex items-center gap-3">
+                {([1, -1] as const).map((v) => {
+                  const Icon = v === 1 ? ThumbsUp : ThumbsDown;
+                  const active = c.myVote === v;
+                  const count = v === 1 ? c.likes : c.dislikes;
+                  return signedIn ? (
+                    <button
+                      key={v}
+                      disabled={pending}
+                      onClick={() =>
+                        start(async () => {
+                          const r = await voteComment({ commentId: c.id, value: v });
+                          if (!r.ok) toast.error(r.error);
+                          else router.refresh();
+                        })
+                      }
+                      className={`inline-flex items-center gap-1 text-[12px] font-medium cursor-pointer transition-colors ${
+                        active ? (v === 1 ? "text-yes" : "text-no") : "text-faint hover:text-ink"
+                      }`}
+                    >
+                      <Icon className="size-3.5" />
+                      {count}
+                    </button>
+                  ) : (
+                    <span key={v} className="inline-flex items-center gap-1 text-[12px] font-medium text-faint">
+                      <Icon className="size-3.5" />
+                      {count}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
           </div>
         ))}

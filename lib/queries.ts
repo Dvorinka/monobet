@@ -152,21 +152,29 @@ export async function getRecentTrades(marketId: string, limit = 25) {
     .limit(limit);
 }
 
-export async function getComments(marketId: string) {
-  return db
+export async function getComments(marketId: string, viewerId?: string) {
+  const rows = await db
     .select({
       id: schema.comment.id,
       body: schema.comment.body,
+      imageUrl: schema.comment.imageUrl,
       createdAt: schema.comment.createdAt,
       userId: schema.comment.userId,
       username: schema.user.username,
       name: schema.user.name,
+      image: schema.user.image,
+      likes: sql<number>`coalesce((select count(*)::int from ${schema.commentVote} where ${schema.commentVote.commentId} = ${schema.comment.id} and ${schema.commentVote.value} = 1), 0)`,
+      dislikes: sql<number>`coalesce((select count(*)::int from ${schema.commentVote} where ${schema.commentVote.commentId} = ${schema.comment.id} and ${schema.commentVote.value} = -1), 0)`,
+      myVote: viewerId
+        ? sql<number>`coalesce((select ${schema.commentVote.value} from ${schema.commentVote} where ${schema.commentVote.commentId} = ${schema.comment.id} and ${schema.commentVote.userId} = ${viewerId}), 0)`
+        : sql<number>`0`,
     })
     .from(schema.comment)
     .innerJoin(schema.user, eq(schema.comment.userId, schema.user.id))
     .where(eq(schema.comment.marketId, marketId))
     .orderBy(asc(schema.comment.createdAt))
     .limit(200);
+  return rows;
 }
 
 export async function getUserPosition(marketId: string, userId: string) {
@@ -236,6 +244,7 @@ export async function getLeaderboard() {
       id: schema.user.id,
       username: schema.user.username,
       name: schema.user.name,
+      image: schema.user.image,
       balanceCents: schema.user.balanceCents,
       createdAt: schema.user.createdAt,
     })
@@ -382,4 +391,23 @@ export async function getRelatedMarkets(marketId: string, category: string, limi
     .where(and(eq(schema.market.category, category), eq(schema.market.status, "live"), isNull(schema.market.parentId), sql`${schema.market.id} <> ${marketId}`))
     .orderBy(desc(schema.market.volumeCents))
     .limit(limit);
+}
+
+// Rewards state for /rewards: recurring cooldowns, claimed bonuses, and
+// milestone eligibility in one round trip per user.
+export async function getRewardsState(userId: string) {
+  const claims = await db
+    .select({ kind: schema.rewardClaim.kind, createdAt: schema.rewardClaim.createdAt })
+    .from(schema.rewardClaim)
+    .where(eq(schema.rewardClaim.userId, userId))
+    .orderBy(desc(schema.rewardClaim.createdAt));
+  const [bet] = await db.select({ id: schema.trade.id }).from(schema.trade).where(eq(schema.trade.userId, userId)).limit(1);
+  const [mk] = await db.select({ id: schema.market.id }).from(schema.market).where(eq(schema.market.creatorId, userId)).limit(1);
+  const [cm] = await db.select({ id: schema.comment.id }).from(schema.comment).where(eq(schema.comment.userId, userId)).limit(1);
+  return {
+    claimed: new Set(claims.map((c) => c.kind)),
+    lastWeekly: claims.find((c) => c.kind === "weekly")?.createdAt ?? null,
+    lastAd: claims.find((c) => c.kind === "ad")?.createdAt ?? null,
+    eligible: { bet: !!bet, market: !!mk, comment: !!cm },
+  };
 }

@@ -11,7 +11,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: { default: "MonoMark", template: "%s · MonoMark" },
+  title: { default: "MonoBet — Markets", template: "MonoBet — %s" },
   description: "Play-money prediction markets. Bet virtual Marks on custom events.",
 };
 
@@ -37,7 +37,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <div className="max-w-xs">
                 <div className="flex items-center gap-2">
                   <LogoMark className="size-6" />
-                  <span className="font-bold text-[15px] tracking-tight">MonoMark</span>
+                  <span className="font-bold text-[15px] tracking-tight">MonoBet</span>
                 </div>
                 <p className="mt-3 text-[13px] text-mute leading-relaxed">
                   {t.tagline}
@@ -50,10 +50,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <Link href="/portfolio" className="text-mute hover:text-ink transition-colors">{t.portfolio}</Link>
               </nav>
             </div>
-            <div className="mt-8 pt-5 border-t border-line-2 flex flex-col sm:flex-row items-center justify-between gap-3 text-[12px] text-faint">
+            <p className="mt-8 pt-5 border-t border-line-2 text-[12px] text-faint leading-relaxed max-w-3xl">
+              {t.legalNotice}
+            </p>
+            <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-[12px] text-faint">
               <p>{t.playMoneyDisclaimer}</p>
               <a
-                href="https://github.com/Dvorinka/monomark"
+                href="https://github.com/Dvorinka/monobet"
                 className="inline-flex items-center gap-1.5 hover:text-ink transition-colors"
                 target="_blank"
                 rel="noreferrer"

@@ -10,6 +10,7 @@ import {
   uuid,
   index,
   primaryKey,
+  smallint,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
@@ -26,7 +27,7 @@ export const user = pgTable("user", {
   // username plugin
   username: text("username").unique(),
   displayUsername: text("display_username"),
-  // MonoMark additional fields
+  // MonoBet additional fields
   role: text("role").notNull().default("user"),
   balanceCents: integer("balance_cents").notNull().default(100_000), // Ɱ1,000.00 start
   lastClaimAt: timestamp("last_claim_at", { withTimezone: true }),
@@ -68,7 +69,7 @@ export const verification = pgTable("verification", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// ---------- MonoMark tables ----------
+// ---------- MonoBet tables ----------
 
 export type MarketStatus = "pending" | "live" | "resolved" | "cancelled" | "rejected";
 export type MarketOutcome = "yes" | "no";
@@ -165,14 +166,40 @@ export const comment = pgTable(
     marketId: uuid("market_id").notNull().references(() => market.id, { onDelete: "cascade" }),
     userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
     body: text("body").notNull(),
+    imageUrl: text("image_url"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("comment_market_idx").on(t.marketId, t.createdAt)]
 );
 
+export const commentVote = pgTable(
+  "comment_vote",
+  {
+    commentId: uuid("comment_id").notNull().references(() => comment.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    value: smallint("value").notNull(), // 1 | -1
+  },
+  (t) => [primaryKey({ columns: [t.commentId, t.userId] })]
+);
+
+export const rewardClaim = pgTable(
+  "reward_claim",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // 'weekly' | 'ad' | 'bonus:<key>'
+    amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("reward_user_idx").on(t.userId, t.createdAt)]
+);
+
 export type LedgerKind =
   | "signup"
   | "claim"
+  | "weekly"
+  | "ad"
+  | "bonus"
   | "grant"
   | "buy"
   | "sell"

@@ -66,7 +66,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
     const [options, trades, comments, related] = await Promise.all([
       getGroupOptions(market.id),
       getGroupTrades(market.id),
-      getComments(market.id),
+      getComments(market.id, user?.id),
       getRelatedMarkets(market.id, market.category),
     ]);
     return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} />;
@@ -77,7 +77,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
   const [history, trades, comments, position, related, betCount, categories] = await Promise.all([
     getPriceHistory(market.id),
     getRecentTrades(market.id),
-    getComments(market.id),
+    getComments(market.id, user?.id),
     user ? getUserPosition(market.id, user.id) : null,
     getRelatedMarkets(market.id, market.category),
     getMarketBetCount(market.id),
@@ -191,6 +191,8 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
                   comments={comments}
                   signedIn={!!user}
                   currentUserId={user?.id}
+                  viewerName={user?.username ?? user?.name}
+                  viewerImage={user?.image}
                   isAdmin={isAdmin(user)}
                   lang={lang}
                 />
@@ -451,6 +453,8 @@ async function GroupMarketView({
               comments={comments}
               signedIn={!!user}
               currentUserId={user?.id}
+              viewerName={user?.username ?? user?.name}
+              viewerImage={user?.image}
               isAdmin={isAdmin(user)}
               lang={lang}
             />

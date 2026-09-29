@@ -6,6 +6,7 @@ export type CurrentUser = {
   name: string;
   username: string | null;
   email: string | null;
+  image: string | null;
   role: string;
   balanceCents: number;
   lastClaimAt: Date | null;
@@ -24,12 +25,14 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     balanceCents?: number;
     lastClaimAt?: Date | null;
     username?: string | null;
+    image?: string | null;
   };
   return {
     id: u.id,
     name: u.name,
     username: u.username ?? null,
     email: u.email ?? null,
+    image: u.image ?? null,
     role: u.email?.toLowerCase() === SUPER_ADMIN_EMAIL ? "admin" : (u.role ?? "user"),
     balanceCents: u.balanceCents ?? 0,
     lastClaimAt: u.lastClaimAt ?? null,

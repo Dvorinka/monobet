@@ -10,6 +10,7 @@ import { getLang } from "@/lib/lang-server";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Wallet, TrendingUp, Landmark, ListOrdered } from "lucide-react";
+import { AvatarUpload } from "@/components/avatar-upload";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Portfolio" };
@@ -30,7 +31,13 @@ export default async function PortfolioPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-8">
-      <h1 className="text-[22px] font-bold tracking-tight">{t.portfolio}</h1>
+      <div className="flex items-center gap-4">
+        <AvatarUpload name={user.username ?? user.name} image={user.image} lang={lang} />
+        <div>
+          <h1 className="text-[22px] font-bold tracking-tight">@{user.username ?? user.name}</h1>
+          <p className="text-[12.5px] text-mute">{t.portfolio}</p>
+        </div>
+      </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">
         <Stat icon={<Wallet className="size-4" />} label={t.cashBalance} value={<AnimatedMoney cents={user.balanceCents} lang={lang} />} />
@@ -205,6 +212,9 @@ function KindBadge({ kind, lang }: { kind: string; lang?: Lang }) {
     sell: { label: t.kindSell, tone: "mute" },
     payout: { label: t.kindPayout, tone: "yes" },
     refund: { label: t.kindRefund, tone: "warn" },
+    weekly: { label: t.kindClaim, tone: "ink" },
+    ad: { label: t.kindBonus, tone: "ink" },
+    bonus: { label: t.kindBonus, tone: "ink" },
   };
   const { label, tone } = map[kind] ?? { label: kind, tone: "mute" as const };
   return <Badge tone={tone}>{label}</Badge>;

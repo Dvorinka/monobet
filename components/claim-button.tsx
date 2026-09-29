@@ -23,8 +23,8 @@ export function ClaimButton({ lang }: { lang?: Lang }) {
             toast.success(t.claimedToast);
             router.refresh();
           } else {
-            toast.error(r.error ?? "Claim unavailable");
-            if (r.error?.includes("available in")) setCooling(true);
+            toast.error(r.error === "cooldown" ? t.availableIn(r.retryInH ?? 1) : r.error ?? "Claim unavailable");
+            if (r.error === "cooldown") setCooling(true);
           }
         })
       }

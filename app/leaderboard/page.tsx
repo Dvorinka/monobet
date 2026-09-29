@@ -43,7 +43,7 @@ export default async function LeaderboardPage() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2.5">
-                    <Avatar name={r.username ?? r.name} className="size-7" />
+                    <Avatar name={r.username ?? r.name} image={r.image} className="size-7" />
                     <span className="font-medium">
                       @{r.username ?? r.name}
                       {user?.id === r.id && <span className="text-yes-strong text-[11px] font-semibold ml-1.5">{t.lbYou}</span>}

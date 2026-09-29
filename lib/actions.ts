@@ -1,16 +1,22 @@
 "use server";
 
 import { db, schema } from "@/lib/db";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { yesPrice, tradeCost, sharesForSpend, qForProb } from "@/lib/lmsr";
 import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
+import {
+  DAILY_AMOUNT,
+  DAILY_COOLDOWN_MS,
+  WEEKLY_AMOUNT,
+  WEEKLY_COOLDOWN_MS,
+  AD_AMOUNT,
+  AD_COOLDOWN_MS,
+  BONUS_MAP,
+} from "@/lib/rewards";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-const CLAIM_AMOUNT = 25_000; // Ɱ250.00
-const CLAIM_COOLDOWN_MS = 20 * 3600 * 1000;
 
 // ---------- helpers ----------
 
@@ -225,24 +231,128 @@ export async function placeTrade(input: {
 
 // ---------- wallet ----------
 
-export async function claimDaily(): Promise<{ ok: boolean; error?: string; amount?: number }> {
+export async function claimDaily(): Promise<{ ok: boolean; error?: string; amount?: number; retryInH?: number }> {
   try {
     const u = await requireUser();
     await db.transaction(async (tx) => {
       const user = await lockUser(tx, u.id);
       const last = user.lastClaimAt ? new Date(user.lastClaimAt).getTime() : 0;
-      const wait = CLAIM_COOLDOWN_MS - (Date.now() - last);
+      const wait = DAILY_COOLDOWN_MS - (Date.now() - last);
       if (wait > 0) {
-        const h = Math.ceil(wait / 3600000);
-        throw new Error(`Next claim available in ~${h}h`);
+        const err = new Error("cooldown") as Error & { retryInH: number };
+        err.retryInH = Math.ceil(wait / 3600000);
+        throw err;
       }
       await tx.update(schema.user).set({ lastClaimAt: new Date() }).where(eq(schema.user.id, u.id));
-      return credit(tx, u.id, CLAIM_AMOUNT, "claim", null, "Daily faucet");
+      return credit(tx, u.id, DAILY_AMOUNT, "claim", null, "Daily faucet");
     });
     revalidatePath("/");
-    return { ok: true, amount: CLAIM_AMOUNT };
+    return { ok: true, amount: DAILY_AMOUNT };
+  } catch (e) {
+    const h = (e as { retryInH?: number }).retryInH;
+    return { ok: false, error: e instanceof Error ? e.message : "Claim failed", retryInH: h };
+  }
+}
+
+// Recurring rewards (weekly faucet, ad views) share one ledger table: latest
+// claim per kind drives the cooldown; one-time bonuses use the unique index.
+async function claimRecurring(
+  kind: "weekly" | "ad",
+  cooldownMs: number,
+  amountCents: number,
+  memo: string
+): Promise<{ ok: boolean; error?: string; retryInH?: number }> {
+  try {
+    const u = await requireUser();
+    await db.transaction(async (tx) => {
+      await lockUser(tx, u.id);
+      const [last] = await tx
+        .select({ createdAt: schema.rewardClaim.createdAt })
+        .from(schema.rewardClaim)
+        .where(and(eq(schema.rewardClaim.userId, u.id), eq(schema.rewardClaim.kind, kind)))
+        .orderBy(desc(schema.rewardClaim.createdAt))
+        .limit(1)
+        .for("update");
+      const wait = last ? cooldownMs - (Date.now() - new Date(last.createdAt).getTime()) : 0;
+      if (wait > 0) {
+        const err = new Error("cooldown") as Error & { retryInH: number };
+        err.retryInH = Math.ceil(wait / 3600000);
+        throw err;
+      }
+      await tx.insert(schema.rewardClaim).values({ userId: u.id, kind, amountCents });
+      await credit(tx, u.id, amountCents, kind, null, memo);
+    });
+    revalidatePath("/rewards");
+    return { ok: true };
+  } catch (e) {
+    const h = (e as { retryInH?: number }).retryInH;
+    return { ok: false, error: e instanceof Error ? e.message : "Claim failed", retryInH: h };
+  }
+}
+
+export async function claimWeekly() {
+  return claimRecurring("weekly", WEEKLY_COOLDOWN_MS, WEEKLY_AMOUNT, "Weekly faucet");
+}
+
+export async function claimAdReward() {
+  return claimRecurring("ad", AD_COOLDOWN_MS, AD_AMOUNT, "Ad reward");
+}
+
+export async function claimBonus(key: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const bonus = BONUS_MAP.get(key as never);
+    if (!bonus) throw new Error("Unknown reward");
+
+    await db.transaction(async (tx) => {
+      await lockUser(tx, u.id);
+      const [existing] = await tx
+        .select({ id: schema.rewardClaim.id })
+        .from(schema.rewardClaim)
+        .where(and(eq(schema.rewardClaim.userId, u.id), eq(schema.rewardClaim.kind, `bonus:${key}`)))
+        .limit(1);
+      if (existing) throw new Error("Already claimed");
+
+      // Milestone bonuses are verified against real activity.
+      if (bonus.check === "bet") {
+        const [t] = await tx.select({ id: schema.trade.id }).from(schema.trade).where(eq(schema.trade.userId, u.id)).limit(1);
+        if (!t) throw new Error("Place a bet first");
+      } else if (bonus.check === "market") {
+        const [m] = await tx.select({ id: schema.market.id }).from(schema.market).where(eq(schema.market.creatorId, u.id)).limit(1);
+        if (!m) throw new Error("Create a market first");
+      } else if (bonus.check === "comment") {
+        const [c] = await tx.select({ id: schema.comment.id }).from(schema.comment).where(eq(schema.comment.userId, u.id)).limit(1);
+        if (!c) throw new Error("Post a comment first");
+      }
+
+      try {
+        await tx.insert(schema.rewardClaim).values({ userId: u.id, kind: `bonus:${key}`, amountCents: bonus.amountCents });
+      } catch {
+        throw new Error("Already claimed"); // unique index raced us
+      }
+      await credit(tx, u.id, bonus.amountCents, "bonus", null, `Bonus: ${key}`);
+    });
+    revalidatePath("/rewards");
+    return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Claim failed" };
+  }
+}
+
+// Avatar: client compresses to a ~256px JPEG data URL; kept in user.image.
+export async function updateAvatar(image: string | null): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    if (image !== null) {
+      if (!/^data:image\/(jpeg|png|webp);base64,/.test(image)) throw new Error("Bad image format");
+      if (image.length > 120_000) throw new Error("Image too large");
+    }
+    await db.update(schema.user).set({ image }).where(eq(schema.user.id, u.id));
+    revalidatePath("/");
+    revalidatePath("/portfolio");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Upload failed" };
   }
 }
 
@@ -676,7 +786,7 @@ export async function adminCreateUser(input: {
         .limit(1);
       if (dupe.length) throw new Error("Username taken");
       const id = crypto.randomUUID();
-      const email = `${username}@monomark.local`;
+      const email = `${username}@monobet.local`;
       await tx.insert(schema.user).values({
         id,
         name: username,
@@ -746,13 +856,19 @@ export async function cancelMarket(marketId: string): Promise<{ ok: boolean; err
 export async function addComment(input: {
   marketId: string;
   body: string;
+  image?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
     const body = input.body.trim();
     if (!body) throw new Error("Empty comment");
     if (body.length > 1000) throw new Error("Comment too long (max 1000)");
-    await db.insert(schema.comment).values({ marketId: input.marketId, userId: u.id, body });
+    const image = input.image ?? null;
+    if (image) {
+      if (!/^data:image\/(jpeg|png|webp);base64,/.test(image)) throw new Error("Bad image format");
+      if (image.length > 450_000) throw new Error("Image too large");
+    }
+    await db.insert(schema.comment).values({ marketId: input.marketId, userId: u.id, body, imageUrl: image });
     const [m] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, input.marketId)).limit(1);
     if (m) revalidatePath(`/market/${m.slug}`);
     return { ok: true };
@@ -766,13 +882,55 @@ export async function deleteComment(commentId: string): Promise<{ ok: boolean; e
     const u = await requireUser();
     const [c] = await db.select().from(schema.comment).where(eq(schema.comment.id, commentId)).limit(1);
     if (!c) throw new Error("Not found");
-    if (c.userId !== u.id && u.role !== "admin") throw new Error("Not yours");
+    if (c.userId !== u.id && !isAdmin(u)) throw new Error("Not yours");
     await db.delete(schema.comment).where(eq(schema.comment.id, commentId));
     const [m] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, c.marketId)).limit(1);
     if (m) revalidatePath(`/market/${m.slug}`);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Delete failed" };
+  }
+}
+
+// value: 1 = like, -1 = dislike; sending the same value again removes the vote.
+export async function voteComment(input: {
+  commentId: string;
+  value: 1 | -1;
+}): Promise<{ ok: boolean; error?: string; myVote?: number }> {
+  try {
+    const u = await requireUser();
+    if (input.value !== 1 && input.value !== -1) throw new Error("Bad vote");
+    const [c] = await db.select().from(schema.comment).where(eq(schema.comment.id, input.commentId)).limit(1);
+    if (!c) throw new Error("Not found");
+
+    let myVote: number = input.value;
+    await db.transaction(async (tx) => {
+      const [cur] = await tx
+        .select({ value: schema.commentVote.value })
+        .from(schema.commentVote)
+        .where(and(eq(schema.commentVote.commentId, input.commentId), eq(schema.commentVote.userId, u.id)))
+        .for("update")
+        .limit(1);
+      if (cur?.value === input.value) {
+        myVote = 0;
+        await tx
+          .delete(schema.commentVote)
+          .where(and(eq(schema.commentVote.commentId, input.commentId), eq(schema.commentVote.userId, u.id)));
+      } else {
+        await tx
+          .insert(schema.commentVote)
+          .values({ commentId: input.commentId, userId: u.id, value: input.value })
+          .onConflictDoUpdate({
+            target: [schema.commentVote.commentId, schema.commentVote.userId],
+            set: { value: input.value },
+          });
+      }
+    });
+    const [m] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, c.marketId)).limit(1);
+    if (m) revalidatePath(`/market/${m.slug}`);
+    return { ok: true, myVote };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Vote failed" };
   }
 }
 
