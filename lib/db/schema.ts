@@ -11,6 +11,7 @@ import {
   index,
   primaryKey,
   smallint,
+  unique,
   uniqueIndex,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
@@ -306,6 +307,23 @@ export const squad = pgTable(
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   }
+);
+
+// Invites let squad members pull friends in by username instead of relying on
+// them typing the exact squad name. One pending invite per (squad, invitee).
+export const squadInvite = pgTable(
+  "squad_invite",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    squadId: uuid("squad_id").notNull().references(() => squad.id, { onDelete: "cascade" }),
+    inviterId: text("inviter_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    inviteeId: text("invitee_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("squad_invite_invitee_idx").on(t.inviteeId),
+    unique("squad_invite_pair").on(t.squadId, t.inviteeId),
+  ]
 );
 
 // ---------- duels (head-to-head) ----------

@@ -13,30 +13,36 @@
   }
   .stage { position: relative; width: 100%; height: 100%; overflow: hidden;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    text-align: center; padding: 24px; }
+    text-align: center; padding: clamp(20px, 5vw, 48px); }
+  .stage.left { align-items: flex-start; text-align: left; padding-left: clamp(28px, 8vw, 80px); }
+  .stage.left h1 { margin-left: 0; }
+  .stage.left .mark { margin-left: 0; margin-bottom: 18px; }
   .glow { position: absolute; inset: -40%; filter: blur(60px); opacity: .55;
     animation: drift 9s ease-in-out infinite alternate; }
   @keyframes drift { from { transform: translate(-6%, -4%) scale(1); } to { transform: translate(6%, 4%) scale(1.12); } }
   .grain { position: absolute; inset: 0; opacity: .07;
     background-image: repeating-linear-gradient(0deg, transparent 0 2px, #000 2px 3px); }
-  .mark { position: relative; width: 74px; height: 74px; border-radius: 20px;
-    display: flex; align-items: center; justify-content: center; margin-bottom: 22px;
-    font-size: 38px; font-weight: 800; box-shadow: 0 18px 50px rgba(0,0,0,.45);
+  .ghost { position: absolute; right: -2%; bottom: -14%; font-size: clamp(160px, 34vw, 340px);
+    font-weight: 900; line-height: 1; opacity: .07; user-select: none; pointer-events: none; }
+  .stage.center .ghost { display: none; }
+  .mark { position: relative; width: clamp(64px, 9vw, 96px); height: clamp(64px, 9vw, 96px); border-radius: 24px;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 26px;
+    font-size: clamp(34px, 5vw, 50px); font-weight: 800; box-shadow: 0 18px 50px rgba(0,0,0,.45);
     animation: pop .7s cubic-bezier(.2, 1.4, .3, 1) both .15s, bob 4s ease-in-out .9s infinite; }
   @keyframes pop { from { transform: scale(.4); opacity: 0; } }
   @keyframes bob { 0%,100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-7px) rotate(2deg); } }
-  h1 { position: relative; font-size: clamp(26px, 7vw, 44px); font-weight: 800; letter-spacing: -.03em;
-    line-height: 1.05; max-width: 14em; animation: rise .8s cubic-bezier(.2,.9,.3,1) both .5s; }
-  p.sub { position: relative; margin-top: 12px; font-size: clamp(13px, 3vw, 17px); font-weight: 500;
-    opacity: .85; max-width: 30em; animation: rise .8s cubic-bezier(.2,.9,.3,1) both .85s; }
-  .cta { position: relative; margin-top: 26px; padding: 11px 26px; border-radius: 999px;
-    font-size: 14.5px; font-weight: 700; letter-spacing: .01em; background: #fff; color: #111;
+  h1 { position: relative; font-size: clamp(30px, 6vw, 58px); font-weight: 800; letter-spacing: -.03em;
+    line-height: 1.04; max-width: 15em; animation: rise .8s cubic-bezier(.2,.9,.3,1) both .5s; }
+  p.sub { position: relative; margin-top: 14px; font-size: clamp(14px, 2.4vw, 20px); font-weight: 500;
+    opacity: .85; max-width: 32em; animation: rise .8s cubic-bezier(.2,.9,.3,1) both .85s; }
+  .cta { position: relative; margin-top: 30px; padding: 13px 30px; border-radius: 999px;
+    font-size: clamp(14px, 2vw, 17px); font-weight: 700; letter-spacing: .01em; background: #fff; color: #111;
     box-shadow: 0 10px 30px rgba(0,0,0,.35);
     animation: rise .8s cubic-bezier(.2,.9,.3,1) both 1.2s, pulse 2.2s ease-in-out 2.4s infinite; }
   @keyframes rise { from { transform: translateY(26px); opacity: 0; } }
   @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-  .badge { position: absolute; top: 12px; right: 14px; font-size: 10px; font-weight: 700;
-    letter-spacing: .14em; text-transform: uppercase; padding: 4px 9px; border-radius: 6px;
+  .badge { position: absolute; top: 14px; right: 16px; font-size: 11px; font-weight: 700;
+    letter-spacing: .14em; text-transform: uppercase; padding: 5px 10px; border-radius: 6px;
     background: rgba(0,0,0,.4); color: rgba(255,255,255,.75); backdrop-filter: blur(4px); }
   .bubbles i { position: absolute; bottom: -60px; border-radius: 50%;
     background: rgba(255,255,255,.14); animation: float linear infinite; }
@@ -47,6 +53,7 @@
 <div class="stage" id="s">
   <div class="glow" id="glow"></div>
   <div class="grain"></div>
+  <div class="ghost" id="ghost"></div>
   <div class="mark" id="mark"></div>
   <h1 id="h"></h1>
   <p class="sub" id="sub"></p>
@@ -55,40 +62,53 @@
   <div class="badge">Sponsored</div>
 </div>
 <script>
-// Ten self-contained ad creatives — two for MonoBet itself, the rest
-// fictional sponsors. Picked at random or via ?i=<0-9> for testing.
+// Self-contained ad creatives — two for MonoBet itself, the rest fictional
+// sponsors. "layout: left" swaps the centered composition for an editorial
+// left-aligned one with a ghost watermark glyph. ?i=<n> pins a creative.
 const ADS = [
-  { bg: ["#06120c", "#0d2f1e"], glow: "#0f9d58", mark: "#0f9d58", markColor: "#06120c", glyph: "M",
+  { layout: "center", bg: ["#06120c", "#0d2f1e"], glow: "#0f9d58", mark: "#0f9d58", markColor: "#06120c", glyph: "M",
     h: "Bet on anything. Prove everyone wrong.", sub: "MonoBet — play-money prediction markets. Make markets, trade outcomes, climb the board.", cta: "Start predicting" },
-  { bg: ["#0a0f0c", "#123324"], glow: "#22c55e", mark: "#e7f5ec", markColor: "#0a0f0c", glyph: "Ɱ",
+  { layout: "left", bg: ["#0a0f0c", "#123324"], glow: "#22c55e", mark: "#e7f5ec", markColor: "#0a0f0c", glyph: "Ɱ",
     h: "Ɱ isn't real money. Your takes are.", sub: "Daily faucet, weekly drops, zero risk — all the conviction, none of the credit card debt.", cta: "Claim free Marks" },
-  { bg: ["#1a1400", "#3d2e00"], glow: "#f5c518", mark: "#f5c518", markColor: "#1a1400", glyph: "⚡",
+  { layout: "center", bg: ["#1a1400", "#3d2e00"], glow: "#f5c518", mark: "#f5c518", markColor: "#1a1400", glyph: "⚡",
     h: "VOLT COLA", sub: "400% of your daily voltage. Now in Thunderberry. Do not exceed one per reality.", cta: "Feel the hum" },
-  { bg: ["#0c0618", "#241040"], glow: "#8b5cf6", mark: "#2a1450", markColor: "#c4b5fd", glyph: "✦",
+  { layout: "left", bg: ["#0c0618", "#241040"], glow: "#8b5cf6", mark: "#2a1450", markColor: "#c4b5fd", glyph: "✦",
     h: "STARFORGE", sub: "Forge a fleet. Burn a galaxy. The hit space sim — season 3: The Ashen Armada is live.", cta: "Launch now" },
-  { bg: ["#160800", "#3d1a00"], glow: "#f97316", mark: "#f97316", markColor: "#160800", glyph: "◮",
+  { layout: "center", bg: ["#160800", "#3d1a00"], glow: "#f97316", mark: "#f97316", markColor: "#160800", glyph: "◮",
     h: "AeroStride Vapor 9", sub: "Carbon plate. Zero gravity energy return. Your knees will file a thank-you note.", cta: "Run faster" },
-  { bg: ["#170e05", "#3a2410"], glow: "#b45309", mark: "#92400e", markColor: "#fde68a", glyph: "☕",
+  { layout: "left", bg: ["#170e05", "#3a2410"], glow: "#b45309", mark: "#92400e", markColor: "#fde68a", glyph: "☕",
     h: "Dusk Roast", sub: "Single-origin beans roasted at twilight, for reasons that are mostly vibes.", cta: "Brew better" },
-  { bg: ["#040d1a", "#0b2b4d"], glow: "#38bdf8", mark: "#38bdf8", markColor: "#040d1a", glyph: "◉",
+  { layout: "center", bg: ["#040d1a", "#0b2b4d"], glow: "#38bdf8", mark: "#38bdf8", markColor: "#040d1a", glyph: "◉",
     h: "FocusPilot", sub: "The app that closes your other apps. Ruthless productivity, delivered gently.", cta: "Get focused" },
-  { bg: ["#020617", "#0f1f33"], glow: "#2dd4bf", mark: "#134e4a", markColor: "#99f6e4", glyph: "◐",
+  { layout: "left", bg: ["#020617", "#0f1f33"], glow: "#2dd4bf", mark: "#134e4a", markColor: "#99f6e4", glyph: "◐",
     h: "Night Harbor", sub: "A detective. A lighthouse. A town that remembers. Streaming exclusively on StreamPlus.", cta: "Watch ep. 1 free" },
-  { bg: ["#12001f", "#2d0a4d"], glow: "#c084fc", mark: "#7e22ce", markColor: "#f3e8ff", glyph: "Q",
+  { layout: "center", bg: ["#12001f", "#2d0a4d"], glow: "#c084fc", mark: "#7e22ce", markColor: "#f3e8ff", glyph: "Q",
     h: "Quill Browser", sub: "Tabs that organize themselves. Tracking that doesn't exist. Browse like it's 2007 again.", cta: "Download Quill" },
-  { bg: ["#060b02", "#16290a"], glow: "#a3e635", mark: "#365314", markColor: "#d9f99d", glyph: "N",
+  { layout: "left", bg: ["#060b02", "#16290a"], glow: "#a3e635", mark: "#365314", markColor: "#d9f99d", glyph: "N",
     h: "NovaCard", sub: "The card that rounds up your dreams. 2% cashback, 100% drip.", cta: "Apply in 60s" },
+  { layout: "center", bg: ["#1a0505", "#3d0a0a"], glow: "#ef4444", mark: "#7f1d1d", markColor: "#fecaca", glyph: "🔥",
+    h: "Inferno Wheels", sub: "Dice carved from volcanic glass. Each roll leaves a scorch mark on probability itself.", cta: "Roll hot" },
+  { layout: "left", bg: ["#0a0a14", "#1b1b3a"], glow: "#818cf8", mark: "#312e81", markColor: "#c7d2fe", glyph: "☾",
+    h: "SleepWire", sub: "Earbuds that play your dreams back to you in the morning. Side effects include remembering them.", cta: "Sleep smarter" },
+  { layout: "center", bg: ["#0d0202", "#290505"], glow: "#f43f5e", mark: "#881337", markColor: "#fda4af", glyph: "♦",
+    h: "Crimson Table", sub: "Private poker nights, minus the poker faces. Table stakes are vibes; fold is a lifestyle.", cta: "Take a seat" },
+  { layout: "left", bg: ["#02120e", "#062a22"], glow: "#2dd4bf", mark: "#0f766e", markColor: "#99f6e4", glyph: "~",
+    h: "Tidepool.fm", sub: "Ocean sounds engineered by retired submarine sonar operators. Certification: very wet.", cta: "Dive in" },
+  { layout: "center", bg: ["#110d00", "#332600"], glow: "#fbbf24", mark: "#a16207", markColor: "#fef3c7", glyph: "◈",
+    h: "Honeywire", sub: "The messaging app where every message is exactly seven words. No more, no less. Bee-lieve it.", cta: "Buzz now" },
 ];
 const params = new URLSearchParams(location.search);
 let i = Number(params.get("i"));
 if (!Number.isInteger(i) || i < 0 || i >= ADS.length) i = Math.floor(Math.random() * ADS.length);
 const ad = ADS[i];
 const s = document.getElementById("s");
+s.classList.add(ad.layout === "left" ? "left" : "center");
 s.style.background = `radial-gradient(120% 120% at 50% 0%, ${ad.bg[1]} 0%, ${ad.bg[0]} 70%)`;
 const glow = document.getElementById("glow");
 glow.style.background = `radial-gradient(50% 50% at 30% 30%, ${ad.glow}55, transparent 60%), radial-gradient(45% 45% at 75% 70%, ${ad.glow}33, transparent 60%)`;
 const mark = document.getElementById("mark");
 mark.style.background = ad.mark; mark.style.color = ad.markColor; mark.textContent = ad.glyph;
+document.getElementById("ghost").textContent = ad.glyph;
 document.getElementById("h").textContent = ad.h;
 document.getElementById("sub").textContent = ad.sub;
 const cta = document.getElementById("cta");

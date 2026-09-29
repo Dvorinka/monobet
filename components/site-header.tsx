@@ -38,11 +38,6 @@ export async function SiteHeader() {
           <Link href="/games" className="px-2.5 py-1.5 rounded-md hover:text-ink hover:bg-surface-2">
             {t.games}
           </Link>
-          {user && (
-            <Link href="/portfolio" className="px-2.5 py-1.5 rounded-md hover:text-ink hover:bg-surface-2">
-              {t.portfolio}
-            </Link>
-          )}
         </nav>
 
         <div className="flex-1 max-w-sm ml-auto">
@@ -51,11 +46,11 @@ export async function SiteHeader() {
 
         <Link
           href="/propose"
-          className="hidden sm:inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-brand text-brand-on text-[13px] font-semibold hover:bg-brand-strong transition-all duration-150 active:scale-[0.97] shrink-0"
-          title={t.createMarket}
+          className="hidden sm:grid size-9 place-items-center rounded-lg bg-brand text-brand-on hover:bg-brand-strong transition-all duration-150 active:scale-[0.97] shrink-0"
+          title={t.newMarket}
+          aria-label={t.newMarket}
         >
-          <Plus className="size-3.5" />
-          {t.newMarket}
+          <Plus className="size-4" />
         </Link>
 
         {user ? (
@@ -69,7 +64,7 @@ export async function SiteHeader() {
               className="num hidden sm:inline-flex items-center h-9 px-3 rounded-lg bg-surface-2 text-sm font-semibold hover:bg-surface-3"
               title={t.yourBalance}
             >
-              <AnimatedMoney cents={user.balanceCents} lang={lang} />
+              <AnimatedMoney cents={user.balanceCents} lang={lang} short />
             </Link>
             <NotifBell items={notifs} userId={user.id} lang={lang} />
             <UserMenu name={user.name} username={user.username} role={isAdmin(user) ? "admin" : user.role} image={user.image} lang={lang} />

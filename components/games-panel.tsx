@@ -27,7 +27,7 @@ import {
 import { fmtMarks } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Coins, Dices, Timer, Rocket, Disc3, Info } from "lucide-react";
+import { Coins, Dices, Timer, Rocket, Disc3 } from "lucide-react";
 
 type Net = { netCents: number; won: boolean; stamp: number } | null;
 
@@ -612,22 +612,17 @@ function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   );
 }
 
-export function GamesPanel({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
-  const t = getT(lang ?? "en");
-  return (
-    <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-      <CoinFlipCard balanceCents={balanceCents} lang={lang} />
-      <DiceCard balanceCents={balanceCents} lang={lang} />
-      <TimerCard balanceCents={balanceCents} lang={lang} />
-      <LimboCard balanceCents={balanceCents} lang={lang} />
-      <WheelCard balanceCents={balanceCents} lang={lang} />
-      <Card className="p-5 flex flex-col justify-center gap-2">
-        <div className="flex items-center gap-2 text-brand-strong">
-          <Info className="size-5" />
-          <span className="text-[17px] font-bold">{t.gHouseTitle}</span>
-        </div>
-        <p className="text-[13px] text-mute leading-relaxed">{t.gHouseSub}</p>
-      </Card>
-    </div>
-  );
+export const GAME_COMPONENTS = {
+  coinflip: CoinFlipCard,
+  dice: DiceCard,
+  timer: TimerCard,
+  limbo: LimboCard,
+  wheel: WheelCard,
+} as const;
+
+export type GameSlug = keyof typeof GAME_COMPONENTS;
+
+export function GameView({ game, balanceCents, lang }: { game: GameSlug; balanceCents: number; lang?: Lang }) {
+  const Game = GAME_COMPONENTS[game];
+  return <Game balanceCents={balanceCents} lang={lang} />;
 }

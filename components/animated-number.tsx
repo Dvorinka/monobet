@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fmtMarks } from "@/lib/money";
+import { fmtMarks, fmtMarksShort } from "@/lib/money";
 import type { Lang } from "@/lib/i18n";
 
 // Tweens a number toward its target with easeOutCubic. Used so live-refresh
@@ -38,8 +38,14 @@ export function AnimatedPct({ value, className }: { value: number; className?: s
   return <span className={className}>{Math.round(v * 100)}%</span>;
 }
 
-// Marks balance that glides between values on refresh.
-export function AnimatedMoney({ cents, className, lang }: { cents: number; className?: string; lang?: Lang }) {
+// Marks balance that glides between values on refresh. `short` shows the
+// compact form (Ɱ12.3k) and the full value on hover.
+export function AnimatedMoney({ cents, className, lang, short }: { cents: number; className?: string; lang?: Lang; short?: boolean }) {
   const v = useTweenedNumber(cents);
-  return <span className={className}>{fmtMarks(Math.round(v), { lang })}</span>;
+  const rounded = Math.round(v);
+  return (
+    <span className={className} title={short ? fmtMarks(rounded, { lang }) : undefined}>
+      {short ? fmtMarksShort(rounded) : fmtMarks(rounded, { lang })}
+    </span>
+  );
 }

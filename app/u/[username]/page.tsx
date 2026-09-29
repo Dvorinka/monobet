@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getAchievements, getPublicProfile } from "@/lib/queries";
+import { getAchievements, getPublicProfile, getSquadInvites } from "@/lib/queries";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
@@ -96,6 +96,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
         <div className="mt-4">
           <ProfileSettings
             squadName={squadName}
+            invites={await getSquadInvites(u.id)}
             notifResolve={u.notifResolve}
             notifClosing={u.notifClosing}
             lang={lang}
