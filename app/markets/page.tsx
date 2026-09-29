@@ -119,7 +119,7 @@ export default async function MarketsPage({
           </p>
         </div>
       ) : (
-        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {markets.map((m, i) => (
             <MarketCard
               key={m.id}

@@ -170,7 +170,7 @@ export function GroupTrade({
                         e.stopPropagation();
                         select(o, "yes");
                       }}
-                      className="num grid place-items-center h-8 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold hover:brightness-95 transition cursor-pointer"
+                      className="num grid place-items-center h-8 px-1.5 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold whitespace-nowrap hover:brightness-95 transition cursor-pointer"
                     >
                       {t.yes} {fmtMarks(Math.round(py * 100), { lang })}
                     </button>
@@ -180,7 +180,7 @@ export function GroupTrade({
                         e.stopPropagation();
                         select(o, "no");
                       }}
-                      className="num grid place-items-center h-8 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold hover:brightness-95 transition cursor-pointer"
+                      className="num grid place-items-center h-8 px-1.5 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold whitespace-nowrap hover:brightness-95 transition cursor-pointer"
                     >
                       {t.no} {fmtMarks(Math.round((1 - py) * 100), { lang })}
                     </button>

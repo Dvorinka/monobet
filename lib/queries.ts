@@ -136,14 +136,28 @@ export async function getGroupTrades(parentId: string, limit = 25) {
     .limit(limit);
 }
 
+// Full-range chart data, decimated to ~240 points in SQL — a canvas/SVG chart
+// can't resolve more, and price_point grows without bound otherwise.
 export async function getPriceHistory(marketId: string, since?: Date) {
-  const conds = [eq(schema.pricePoint.marketId, marketId)];
-  if (since) conds.push(sql`${schema.pricePoint.createdAt} >= ${since}`);
-  return db
-    .select({ t: schema.pricePoint.createdAt, p: schema.pricePoint.yesPrice })
-    .from(schema.pricePoint)
-    .where(and(...conds))
-    .orderBy(asc(schema.pricePoint.createdAt));
+  if (since) {
+    return db
+      .select({ t: schema.pricePoint.createdAt, p: schema.pricePoint.yesPrice })
+      .from(schema.pricePoint)
+      .where(and(eq(schema.pricePoint.marketId, marketId), sql`${schema.pricePoint.createdAt} >= ${since}`))
+      .orderBy(asc(schema.pricePoint.createdAt));
+  }
+  const rows = await db.execute<{ t: string; p: number }>(sql`
+    SELECT created_at AS t, yes_price AS p FROM (
+      SELECT yes_price, created_at,
+             ROW_NUMBER() OVER (ORDER BY created_at) AS rn,
+             COUNT(*) OVER () AS cnt
+      FROM price_point
+      WHERE market_id = ${marketId}
+    ) s
+    WHERE rn = 1 OR rn = cnt OR rn % GREATEST(cnt / 240, 1) = 0
+    ORDER BY created_at
+  `);
+  return rows.rows.map((r) => ({ t: new Date(r.t), p: Number(r.p) }));
 }
 
 export async function getRecentTrades(marketId: string, limit = 25) {
@@ -335,18 +349,26 @@ export async function getAllUsers() {
 
 // Timestamped price history for every option of a group — feeds the
 // multi-line chart on group pages. One query, grouped in JS.
+// Downsampled to ~240 points per market in SQL — charts can't resolve more
+// than that anyway, and history grows without bound otherwise.
 export async function getGroupHistories(marketIds: string[]) {
   const map = new Map<string, { t: string; p: number }[]>();
   if (marketIds.length === 0) return map;
-  const rows = await db
-    .select({ marketId: schema.pricePoint.marketId, p: schema.pricePoint.yesPrice, t: schema.pricePoint.createdAt })
-    .from(schema.pricePoint)
-    .where(inArray(schema.pricePoint.marketId, marketIds))
-    .orderBy(asc(schema.pricePoint.createdAt));
-  for (const r of rows) {
-    const arr = map.get(r.marketId) ?? [];
-    arr.push({ t: r.t.toISOString(), p: Number(r.p) });
-    map.set(r.marketId, arr);
+  const rows = await db.execute<{ market_id: string; p: number; t: string }>(sql`
+    SELECT market_id, yes_price AS p, created_at AS t FROM (
+      SELECT market_id, yes_price, created_at,
+             ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY created_at) AS rn,
+             COUNT(*) OVER (PARTITION BY market_id) AS cnt
+      FROM price_point
+      WHERE market_id IN ${marketIds}
+    ) s
+    WHERE rn = 1 OR rn = cnt OR rn % GREATEST(cnt / 240, 1) = 0
+    ORDER BY market_id, created_at
+  `);
+  for (const r of rows.rows) {
+    const arr = map.get(r.market_id) ?? [];
+    arr.push({ t: new Date(r.t).toISOString(), p: Number(r.p) });
+    map.set(r.market_id, arr);
   }
   return map;
 }

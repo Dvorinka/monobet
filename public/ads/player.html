@@ -50,7 +50,8 @@
 </style>
 </head>
 <body>
-<div class="stage" id="s">
+<video id="v" autoplay muted loop playsinline style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none"></video>
+<div class="stage" id="s" style="display:none">
   <div class="glow" id="glow"></div>
   <div class="grain"></div>
   <div class="ghost" id="ghost"></div>
@@ -59,8 +60,8 @@
   <p class="sub" id="sub"></p>
   <div class="cta" id="cta"></div>
   <div class="bubbles" id="b"></div>
-  <div class="badge">Sponsored</div>
 </div>
+<div class="badge" style="z-index:2">Sponsored</div>
 <script>
 // Self-contained ad creatives — two for MonoBet itself, the rest fictional
 // sponsors. "layout: left" swaps the centered composition for an editorial
@@ -107,52 +108,83 @@ const ADS = [
   { layout: "left", bg: ["#070d04", "#15240c"], glow: "#4ade80", mark: "#166534", markColor: "#dcfce7", glyph: "❋",
     h: "Meadow Lane", sub: "The farming sim where your crops bet on rain. Harvest profits — or harvest lessons.", cta: "Plant a take" },
 ];
+// Rendered MP4 creatives (generated, ~10s loops, muted). Video plays via
+// shuffle-bag; any failure falls back to a CSS creative from ADS.
+const VIDEOS = 10;
 const params = new URLSearchParams(location.search);
-let i = Number(params.get("i"));
-if (!Number.isInteger(i) || i < 0 || i >= ADS.length) {
-  // Shuffle-bag: every creative plays once before any repeats, and a refill
-  // never opens with the ad that just closed the last bag.
+const vEl = document.getElementById("v");
+const sEl = document.getElementById("s");
+
+// Shuffle-bag: every item plays once before any repeats, and a refill never
+// opens with the item that just closed the last bag.
+function pick(bagKey, lastKey, n) {
   try {
-    const last = Number(localStorage.getItem("mb.adLast"));
-    let bag = (JSON.parse(localStorage.getItem("mb.adBag") || "[]") || [])
-      .filter((n) => Number.isInteger(n) && n >= 0 && n < ADS.length);
+    const last = Number(localStorage.getItem(lastKey));
+    let bag = (JSON.parse(localStorage.getItem(bagKey) || "[]") || [])
+      .filter((x) => Number.isInteger(x) && x >= 0 && x < n);
     if (!bag.length) {
-      bag = ADS.map((_, k) => k);
+      bag = Array.from({ length: n }, (_, k) => k);
       for (let k = bag.length - 1; k > 0; k--) {
         const j = Math.floor(Math.random() * (k + 1));
         [bag[k], bag[j]] = [bag[j], bag[k]];
       }
       if (bag.length > 1 && bag[bag.length - 1] === last) {
-        const j = bag.findIndex((n) => n !== last);
+        const j = bag.findIndex((x) => x !== last);
         [bag[j], bag[bag.length - 1]] = [bag[bag.length - 1], bag[j]];
       }
     }
-    i = bag.pop();
-    localStorage.setItem("mb.adBag", JSON.stringify(bag));
-    localStorage.setItem("mb.adLast", String(i));
+    const x = bag.pop();
+    localStorage.setItem(bagKey, JSON.stringify(bag));
+    localStorage.setItem(lastKey, String(x));
+    return x;
   } catch {
-    i = Math.floor(Math.random() * ADS.length);
+    return Math.floor(Math.random() * n);
   }
 }
-const ad = ADS[i];
-const s = document.getElementById("s");
-s.classList.add(ad.layout === "left" ? "left" : "center");
-s.style.background = `radial-gradient(120% 120% at 50% 0%, ${ad.bg[1]} 0%, ${ad.bg[0]} 70%)`;
-const glow = document.getElementById("glow");
-glow.style.background = `radial-gradient(50% 50% at 30% 30%, ${ad.glow}55, transparent 60%), radial-gradient(45% 45% at 75% 70%, ${ad.glow}33, transparent 60%)`;
-const mark = document.getElementById("mark");
-mark.style.background = ad.mark; mark.style.color = ad.markColor; mark.textContent = ad.glyph;
-document.getElementById("ghost").textContent = ad.glyph;
-document.getElementById("h").textContent = ad.h;
-document.getElementById("sub").textContent = ad.sub;
-const cta = document.getElementById("cta");
-cta.textContent = ad.cta; cta.style.boxShadow = `0 10px 30px ${ad.glow}66`;
-const b = document.getElementById("b");
-for (let k = 0; k < 14; k++) {
-  const e = document.createElement("i");
-  const sz = 4 + Math.random() * 10;
-  e.style.cssText = `left:${Math.random() * 100}%;width:${sz}px;height:${sz}px;animation-duration:${5 + Math.random() * 7}s;animation-delay:${-Math.random() * 10}s;opacity:${.3 + Math.random() * .5}`;
-  b.appendChild(e);
+
+function renderHtmlAd() {
+  sEl.style.display = "";
+  vEl.style.display = "none";
+  vEl.removeAttribute("src");
+  let i = Number(params.get("i"));
+  if (!Number.isInteger(i) || i < 0 || i >= ADS.length) i = pick("mb.adBag", "mb.adLast", ADS.length);
+  const ad = ADS[i];
+  const s = sEl;
+  s.classList.add(ad.layout === "left" ? "left" : "center");
+  s.style.background = `radial-gradient(120% 120% at 50% 0%, ${ad.bg[1]} 0%, ${ad.bg[0]} 70%)`;
+  const glow = document.getElementById("glow");
+  glow.style.background = `radial-gradient(50% 50% at 30% 30%, ${ad.glow}55, transparent 60%), radial-gradient(45% 45% at 75% 70%, ${ad.glow}33, transparent 60%)`;
+  const mark = document.getElementById("mark");
+  mark.style.background = ad.mark; mark.style.color = ad.markColor; mark.textContent = ad.glyph;
+  document.getElementById("ghost").textContent = ad.glyph;
+  document.getElementById("h").textContent = ad.h;
+  document.getElementById("sub").textContent = ad.sub;
+  const cta = document.getElementById("cta");
+  cta.textContent = ad.cta; cta.style.boxShadow = `0 10px 30px ${ad.glow}66`;
+  const b = document.getElementById("b");
+  for (let k = 0; k < 14; k++) {
+    const e = document.createElement("i");
+    const sz = 4 + Math.random() * 10;
+    e.style.cssText = `left:${Math.random() * 100}%;width:${sz}px;height:${sz}px;animation-duration:${5 + Math.random() * 7}s;animation-delay:${-Math.random() * 10}s;opacity:${.3 + Math.random() * .5}`;
+    b.appendChild(e);
+  }
+}
+
+let fell = false;
+const fallback = () => { if (!fell) { fell = true; renderHtmlAd(); } };
+vEl.addEventListener("error", fallback);
+if (params.get("i") !== null) {
+  fallback(); // ?i= pins a CSS creative
+} else {
+  let vi = Number(params.get("v"));
+  if (!Number.isInteger(vi) || vi < 0 || vi >= VIDEOS) vi = pick("mb.vidBag", "mb.vidLast", VIDEOS);
+  const kick = setTimeout(fallback, 5000);
+  vEl.addEventListener("canplay", () => {
+    clearTimeout(kick);
+    vEl.style.display = "block";
+    vEl.play().catch(fallback);
+  }, { once: true });
+  vEl.src = `/ads/ad-${vi}.mp4`;
 }
 </script>
 </body>

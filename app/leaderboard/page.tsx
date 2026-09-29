@@ -15,14 +15,14 @@ export const metadata: Metadata = { title: "Leaderboard" };
 const MEDALS = ["text-amber-500", "text-slate-400", "text-amber-700"];
 
 export default async function LeaderboardPage() {
-  const [season, rows, user, lang] = await Promise.all([
+  const [season, rows, user, lang, history, squads] = await Promise.all([
     ensureSeason(),
     getLeaderboard(),
     getCurrentUser(),
     getLang(),
+    getSeasonHistory(4),
+    getSquads(),
   ]);
-  const history = await getSeasonHistory(4);
-  const squads = await getSquads();
   const t = getT(lang);
 
   return (
