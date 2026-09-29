@@ -23,3 +23,13 @@ export const BONUS_MAP = new Map(BONUSES.map((b) => [b.key, b]));
 // Referral: the invitee gets this once, the referrer gets REFERRER_BONUS per join.
 export const REFEREE_BONUS = 10_000;
 export const REFERRER_BONUS = 20_000;
+
+// Claim streaks: gap must stay under 48h (20h cooldown + slack) to keep the
+// streak alive; each streak day adds Marks up to a 7-day cap.
+export const STREAK_WINDOW_MS = 48 * 3600 * 1000;
+export const STREAK_PER_DAY_CENTS = 1_000;
+export const STREAK_CAP_DAYS = 7;
+
+// Weekly seasons: lazy settlement, podium rewards.
+export const SEASON_LENGTH_MS = 7 * 24 * 3600 * 1000;
+export const SEASON_REWARDS = [200_000, 100_000, 50_000] as const;

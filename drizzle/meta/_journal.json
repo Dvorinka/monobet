@@ -71,6 +71,13 @@
       "when": 1790687228774,
       "tag": "0009_position-debt",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790688180050,
+      "tag": "0010_retention",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,7 @@ import {
   index,
   primaryKey,
   smallint,
+  uniqueIndex,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
@@ -31,6 +32,8 @@ export const user = pgTable("user", {
   role: text("role").notNull().default("user"),
   balanceCents: integer("balance_cents").notNull().default(100_000), // Ɱ1,000.00 start
   lastClaimAt: timestamp("last_claim_at", { withTimezone: true }),
+  // Consecutive daily claims inside the 48h streak window.
+  claimStreak: integer("claim_streak").notNull().default(0),
   // Moderation: a full ban (sign-in rejected, sessions dropped) and a lighter
   // comments-only ban, both toggled from /admin.
   bannedAt: timestamp("banned_at", { withTimezone: true }),
@@ -229,4 +232,33 @@ export const ledger = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("ledger_user_idx").on(t.userId, t.createdAt)]
+);
+
+// ---------- retention: weekly seasons ----------
+
+// One live season at a time (settledAt IS NULL). Settlement is lazy: the first
+// leaderboard view after endsAt closes it inside a guarded transaction.
+export const season = pgTable(
+  "season",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    index: integer("index").notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("season_index_key").on(t.index)]
+);
+
+export const seasonResult = pgTable(
+  "season_result",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    seasonId: uuid("season_id").notNull().references(() => season.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    rank: integer("rank").notNull(),
+    netWorthCents: bigint("net_worth_cents", { mode: "number" }).notNull(),
+    rewardCents: integer("reward_cents").notNull(),
+  },
+  (t) => [index("season_result_season_idx").on(t.seasonId, t.rank)]
 );

@@ -1,14 +1,14 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getPublicProfile } from "@/lib/queries";
+import { getAchievements, getPublicProfile } from "@/lib/queries";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Avatar, Badge, Card } from "@/components/ui/primitives";
 import { fmtMarks, fmtDate, fmtShares } from "@/lib/money";
 import { marketYesPrice } from "@/lib/queries";
-import { ShieldCheck, Trophy } from "lucide-react";
+import { CheckCircle2, Lock, ShieldCheck, Trophy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,24 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   if (!profile) notFound();
   const t = getT(lang);
   const { user: u, stats, positions, created, netWorthCents, rank } = profile;
+  const achievements = await getAchievements(u.id);
   const isSelf = viewer?.id === u.id;
+
+  const achMeta: Record<string, { title: string; desc: string }> = {
+    portfolio: { title: t.bonusPortfolio, desc: t.bonusPortfolioDesc },
+    instagram: { title: t.bonusInstagram, desc: t.bonusInstagramDesc },
+    github: { title: t.bonusGithub, desc: t.bonusGithubDesc },
+    first_bet: { title: t.bonusFirstBet, desc: t.bonusFirstBetDesc },
+    first_market: { title: t.bonusFirstMarket, desc: t.bonusFirstMarketDesc },
+    first_comment: { title: t.bonusFirstComment, desc: t.bonusFirstCommentDesc },
+    streak_7: { title: t.achStreak7, desc: t.achStreak7Desc },
+    trades_10: { title: t.achTrades10, desc: t.achTrades10Desc },
+    trades_50: { title: t.achTrades50, desc: t.achTrades50Desc },
+    markets_5: { title: t.achMarkets5, desc: t.achMarkets5Desc },
+    comments_10: { title: t.achComments10, desc: t.achComments10Desc },
+    season_podium: { title: t.achPodium, desc: t.achPodiumDesc },
+    whale: { title: t.achWhale, desc: t.achWhaleDesc },
+  };
 
   return (
     <div className="mx-auto max-w-4xl px-4 pt-8 pb-10">
@@ -58,6 +75,34 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
         <Stat label={t.trades} value={String(stats.trades)} />
         <Stat label={t.markets} value={String(stats.markets)} />
       </div>
+
+      {/* Achievements */}
+      <section className="mt-8">
+        <h2 className="text-[15px] font-semibold mb-3">{t.achievements}</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {achievements.map((a) => {
+            const meta = achMeta[a.key] ?? { title: a.key, desc: "" };
+            return (
+              <Card key={a.key} className={`p-3.5 ${a.unlocked ? "" : "opacity-60"}`}>
+                <div className="flex items-center gap-2">
+                  {a.unlocked ? (
+                    <CheckCircle2 className="size-4 text-yes shrink-0" />
+                  ) : (
+                    <Lock className="size-4 text-faint shrink-0" />
+                  )}
+                  <span className="text-[13px] font-semibold truncate">{meta.title}</span>
+                </div>
+                <div className="text-[11.5px] text-mute mt-1 line-clamp-2">{meta.desc}</div>
+                {!a.unlocked && a.progress > 0 && (
+                  <div className="mt-2 h-1 rounded-full bg-surface-3 overflow-hidden">
+                    <div className="h-full bg-brand" style={{ width: `${Math.round(a.progress * 100)}%` }} />
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-2 mt-8">
         {/* Open positions */}

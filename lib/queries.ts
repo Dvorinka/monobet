@@ -1,5 +1,6 @@
 import { db, schema } from "@/lib/db";
-import { eq, desc, asc, and, ilike, or, sql, inArray, isNull } from "drizzle-orm";
+import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS } from "@/lib/rewards";
+import { eq, desc, asc, and, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { yesPrice } from "@/lib/lmsr";
 import type { MarketStatus } from "@/lib/db/schema";
 
@@ -481,4 +482,156 @@ export async function getNotifications(userId: string, limit = 10) {
     .where(and(eq(schema.ledger.userId, userId), inArray(schema.ledger.kind, NOTIF_KINDS)))
     .orderBy(desc(schema.ledger.createdAt))
     .limit(limit);
+}
+
+// ---------- retention: weekly seasons ----------
+
+// Idempotent rollover: whoever loads the leaderboard after endsAt settles the
+// season. The guarded UPDATE (settledAt IS NULL) makes concurrent renders safe —
+// the loser sees zero affected rows and re-reads the new live season instead.
+export async function ensureSeason() {
+  const [live] = await db
+    .select()
+    .from(schema.season)
+    .where(isNull(schema.season.settledAt))
+    .orderBy(desc(schema.season.index))
+    .limit(1);
+  if (live && live.endsAt.getTime() > Date.now()) return live;
+
+  const board = live ? await getLeaderboard() : [];
+  try {
+    return await db.transaction(async (tx) => {
+      const now = new Date();
+      let nextIndex = 1;
+      if (live) {
+        const [locked] = await tx
+          .update(schema.season)
+          .set({ settledAt: now })
+          .where(and(eq(schema.season.id, live.id), isNull(schema.season.settledAt)))
+          .returning({ id: schema.season.id });
+        if (!locked) {
+          const [fresh] = await tx
+            .select()
+            .from(schema.season)
+            .where(isNull(schema.season.settledAt))
+            .orderBy(desc(schema.season.index))
+            .limit(1);
+          if (fresh) return fresh;
+        } else {
+          nextIndex = live.index + 1;
+          for (const [i, row] of board.slice(0, SEASON_REWARDS.length).entries()) {
+            const reward = SEASON_REWARDS[i] ?? 0;
+            await tx.insert(schema.seasonResult).values({
+              seasonId: live.id,
+              userId: row.id,
+              rank: i + 1,
+              netWorthCents: row.netWorthCents,
+              rewardCents: reward,
+            });
+            if (reward > 0) {
+              const [u] = await tx
+                .update(schema.user)
+                .set({ balanceCents: sql`${schema.user.balanceCents} + ${reward}` })
+                .where(eq(schema.user.id, row.id))
+                .returning({ balanceCents: schema.user.balanceCents });
+              await tx.insert(schema.ledger).values({
+                userId: row.id,
+                amountCents: reward,
+                balanceAfterCents: u?.balanceCents ?? 0,
+                kind: "bonus",
+                memo: `Season ${live.index} · #${i + 1}`,
+              });
+            }
+          }
+        }
+      }
+      const [next] = await tx
+        .insert(schema.season)
+        .values({ index: nextIndex, startsAt: now, endsAt: new Date(now.getTime() + SEASON_LENGTH_MS) })
+        .returning();
+      return next;
+    });
+  } catch {
+    // season.index is unique — a concurrent rollover that won the race surfaces
+    // as a conflict here; just read the live row they created.
+    const [fresh] = await db
+      .select()
+      .from(schema.season)
+      .where(isNull(schema.season.settledAt))
+      .orderBy(desc(schema.season.index))
+      .limit(1);
+    if (fresh) return fresh;
+    throw new Error("Season rollover failed");
+  }
+}
+
+export async function getSeasonHistory(limit = 4) {
+  const seasons = await db
+    .select()
+    .from(schema.season)
+    .where(isNotNull(schema.season.settledAt))
+    .orderBy(desc(schema.season.index))
+    .limit(limit);
+  if (seasons.length === 0) return [];
+  const results = await db
+    .select({
+      seasonId: schema.seasonResult.seasonId,
+      rank: schema.seasonResult.rank,
+      netWorthCents: schema.seasonResult.netWorthCents,
+      rewardCents: schema.seasonResult.rewardCents,
+      username: schema.user.username,
+      name: schema.user.name,
+      image: schema.user.image,
+    })
+    .from(schema.seasonResult)
+    .innerJoin(schema.user, eq(schema.seasonResult.userId, schema.user.id))
+    .where(inArray(schema.seasonResult.seasonId, seasons.map((s) => s.id)))
+    .orderBy(asc(schema.seasonResult.rank));
+  return seasons.map((s) => ({ season: s, podium: results.filter((r) => r.seasonId === s.id) }));
+}
+
+// ---------- achievements (derived, no dedicated table) ----------
+
+export type Achievement = { key: string; unlocked: boolean; progress: number };
+
+export async function getAchievements(userId: string): Promise<Achievement[]> {
+  const [u] = await db
+    .select({ claimStreak: schema.user.claimStreak, balanceCents: schema.user.balanceCents })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+    .limit(1);
+  if (!u) return [];
+
+  const [claims, counts, podium] = await Promise.all([
+    db.select({ kind: schema.rewardClaim.kind }).from(schema.rewardClaim).where(eq(schema.rewardClaim.userId, userId)),
+    db
+      .select({
+        trades: sql<number>`(select count(*)::int from ${schema.trade} where ${schema.trade.userId} = ${userId})`,
+        markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.creatorId} = ${userId})`,
+        comments: sql<number>`(select count(*)::int from ${schema.comment} where ${schema.comment.userId} = ${userId})`,
+      })
+      .from(schema.user)
+      .where(eq(schema.user.id, userId)),
+    db
+      .select({ id: schema.seasonResult.id })
+      .from(schema.seasonResult)
+      .where(eq(schema.seasonResult.userId, userId))
+      .limit(1),
+  ]);
+  const positions = await getUserPositions(userId);
+  const netWorth = u.balanceCents + positions.reduce((s, p) => s + p.valueCents, 0);
+  const claimed = new Set(claims.map((c) => c.kind));
+  const c = counts[0] ?? { trades: 0, markets: 0, comments: 0 };
+  const done = (cur: number, need: number) => ({ unlocked: cur >= need, progress: Math.min(1, cur / need) });
+
+  return [
+    ...BONUSES.map((b) => ({ key: b.key, unlocked: claimed.has(`bonus:${b.key}`), progress: claimed.has(`bonus:${b.key}`) ? 1 : 0 })),
+    { key: "streak_7", ...done(u.claimStreak, 7) },
+    { key: "trades_10", ...done(c.trades, 10) },
+    { key: "trades_50", ...done(c.trades, 50) },
+    { key: "markets_5", ...done(c.markets, 5) },
+    { key: "comments_10", ...done(c.comments, 10) },
+    { key: "season_podium", unlocked: podium.length > 0, progress: podium.length > 0 ? 1 : 0 },
+    { key: "whale", ...done(netWorth, 1_000_000) },
+  ];
 }

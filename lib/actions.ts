@@ -19,6 +19,9 @@ import {
   BONUS_MAP,
   REFEREE_BONUS,
   REFERRER_BONUS,
+  STREAK_WINDOW_MS,
+  STREAK_PER_DAY_CENTS,
+  STREAK_CAP_DAYS,
 } from "@/lib/rewards";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -312,7 +315,7 @@ export async function claimDaily(): Promise<{
 }> {
   try {
     const u = await requireUser();
-    await db.transaction(async (tx) => {
+    const paid = await db.transaction(async (tx) => {
       const user = await lockUser(tx, u.id);
       const last = user.lastClaimAt ? new Date(user.lastClaimAt).getTime() : 0;
       const wait = DAILY_COOLDOWN_MS - (Date.now() - last);
@@ -322,11 +325,18 @@ export async function claimDaily(): Promise<{
         err.retryInMs = wait;
         throw err;
       }
-      await tx.update(schema.user).set({ lastClaimAt: new Date() }).where(eq(schema.user.id, u.id));
-      return credit(tx, u.id, DAILY_AMOUNT, "claim", null, "Daily faucet");
+      const streak =
+        last === 0 ? 1 : Date.now() - last <= STREAK_WINDOW_MS ? user.claimStreak + 1 : 1;
+      const bonus = Math.min(streak, STREAK_CAP_DAYS) * STREAK_PER_DAY_CENTS;
+      await tx
+        .update(schema.user)
+        .set({ lastClaimAt: new Date(), claimStreak: streak })
+        .where(eq(schema.user.id, u.id));
+      await credit(tx, u.id, DAILY_AMOUNT + bonus, "claim", null, `Daily faucet · day ${streak} streak`);
+      return DAILY_AMOUNT + bonus;
     });
     revalidatePath("/");
-    return { ok: true, amount: DAILY_AMOUNT };
+    return { ok: true, amount: paid };
   } catch (e) {
     const { retryInH: h, retryInMs } = e as { retryInH?: number; retryInMs?: number };
     return { ok: false, error: e instanceof Error ? e.message : "Claim failed", retryInH: h, retryInMs };
