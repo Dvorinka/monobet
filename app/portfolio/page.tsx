@@ -215,6 +215,8 @@ function KindBadge({ kind, lang }: { kind: string; lang?: Lang }) {
     weekly: { label: t.kindClaim, tone: "ink" },
     ad: { label: t.kindBonus, tone: "ink" },
     bonus: { label: t.kindBonus, tone: "ink" },
+    game: { label: t.kindGame, tone: "ink" },
+    liq: { label: t.kindLiq, tone: "no" },
   };
   const { label, tone } = map[kind] ?? { label: kind, tone: "mute" as const };
   return <Badge tone={tone}>{label}</Badge>;

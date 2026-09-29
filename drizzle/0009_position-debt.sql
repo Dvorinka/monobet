@@ -1,0 +1,1 @@
+ALTER TABLE "position" ADD COLUMN "debt_cents" bigint DEFAULT 0 NOT NULL;

@@ -37,6 +37,7 @@ export function TradeTicket({
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [outcome, setOutcome] = useState<"yes" | "no">("yes");
   const [amount, setAmount] = useState("");
+  const [leverage, setLeverage] = useState("1");
   const [pending, start] = useTransition();
   const router = useRouter();
   const t = getT(lang ?? "en");
@@ -46,16 +47,17 @@ export function TradeTicket({
   const spendCents = Math.round(parseFloat(amount || "0") * 100);
   const sellShares = parseFloat(amount || "0");
 
+  const lev = Number(leverage);
   const est = useMemo(() => {
     if (side === "buy") {
       if (spendCents < 100) return null;
-      const sh = sharesForSpend(qYes, qNo, b, outcome, spendCents / 100);
-      return { shares: sh, avg: spendCents / 100 / sh, toWin: sh * 100 };
+      const sh = sharesForSpend(qYes, qNo, b, outcome, (spendCents * lev) / 100);
+      return { shares: sh, avg: (spendCents * lev) / 100 / sh, toWin: sh * 100 };
     }
     if (sellShares <= 0) return null;
     const refund = tradeCost(qYes, qNo, b, outcome, -sellShares);
     return { shares: sellShares, avg: refund / sellShares, toWin: Math.round(refund * 100) };
-  }, [side, spendCents, sellShares, qYes, qNo, b, outcome]);
+  }, [side, spendCents, sellShares, qYes, qNo, b, outcome, lev]);
 
   if (!live) return null;
 
@@ -140,10 +142,25 @@ export function TradeTicket({
         </div>
       </div>
 
+      {side === "buy" && (
+        <div className="mt-3">
+          <div className="text-[13px] font-medium text-mute mb-1.5">{t.leverage}</div>
+          <Segmented
+            options={["1", "2", "3", "5", "10"].map((v) => ({ value: v, label: `${v}×` }))}
+            value={leverage}
+            onChange={setLeverage}
+          />
+          {lev > 1 && <p className="mt-1.5 text-[11px] text-faint">{t.liqNote}</p>}
+        </div>
+      )}
+
       {est && (
         <div className="mt-4 space-y-1.5 text-[13px]">
           <Row k={side === "buy" ? t.estShares : t.selling} v={fmtShares(est.shares, lang)} />
           <Row k={t.avgPrice} v={fmtCents(est.avg)} />
+          {side === "buy" && lev > 1 && (
+            <Row k={t.loanLabel} v={fmtMarks(spendCents * (lev - 1), { lang })} />
+          )}
           {side === "buy" ? (
             <Row k={t.toWin} v={fmtMarks(est.toWin, { lang })} accent />
           ) : (
@@ -165,6 +182,7 @@ export function TradeTicket({
               side,
               spendCents: side === "buy" ? spendCents : undefined,
               shares: side === "sell" ? sellShares : undefined,
+              leverage: side === "buy" ? lev : undefined,
             });
             if (r.ok) {
               const oc = (outcome === "yes" ? t.yes : t.no).toUpperCase();

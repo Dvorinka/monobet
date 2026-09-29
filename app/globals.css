@@ -126,6 +126,26 @@ body {
   100% { opacity: 0.55; }
 }
 
+@keyframes dice-shake {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  25% { transform: rotate(-9deg) translateY(-2px); }
+  75% { transform: rotate(8deg) translateY(1px); }
+}
+
+.anim-dice-shake {
+  animation: dice-shake 130ms linear infinite;
+}
+
+@keyframes win-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.12); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.anim-win-pop {
+  animation: win-pop 420ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
 .anim-ticker {
   animation: ticker-scroll 55s linear infinite;
 }

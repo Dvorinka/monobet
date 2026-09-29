@@ -32,6 +32,9 @@ export async function SiteHeader() {
           <Link href="/leaderboard" className="px-2.5 py-1.5 rounded-md hover:text-ink hover:bg-surface-2">
             {t.leaderboard}
           </Link>
+          <Link href="/games" className="px-2.5 py-1.5 rounded-md hover:text-ink hover:bg-surface-2">
+            {t.games}
+          </Link>
           {user && (
             <Link href="/portfolio" className="px-2.5 py-1.5 rounded-md hover:text-ink hover:bg-surface-2">
               {t.portfolio}

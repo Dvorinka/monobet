@@ -149,6 +149,9 @@ export const position = pgTable(
     userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
     yesShares: numeric("yes_shares", { precision: 24, scale: 6 }).notNull().default("0"),
     noShares: numeric("no_shares", { precision: 24, scale: 6 }).notNull().default("0"),
+    // Leverage: cents borrowed against this position. Repaid out of sells,
+    // resolutions, and refunds; auto-liquidates when value can't cover it.
+    debtCents: bigint("debt_cents", { mode: "number" }).notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.marketId, t.userId] }), index("position_user_idx").on(t.userId)]
 );
@@ -209,7 +212,9 @@ export type LedgerKind =
   | "buy"
   | "sell"
   | "payout"
-  | "refund";
+  | "refund"
+  | "game"
+  | "liq";
 
 export const ledger = pgTable(
   "ledger",
