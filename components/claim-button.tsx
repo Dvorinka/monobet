@@ -1,17 +1,43 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { claimDaily } from "@/lib/actions";
-import { Coins } from "lucide-react";
+import { DAILY_COOLDOWN_MS } from "@/lib/rewards";
+import { Coins, Timer } from "lucide-react";
 import { getT, type Lang } from "@/lib/i18n";
 
-export function ClaimButton({ lang }: { lang?: Lang }) {
+// H:MM:SS — numeric, locale-free.
+function fmtCountdown(ms: number) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${h}:${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+export function ClaimButton({ lang, nextAt }: { lang?: Lang; nextAt: number | null }) {
   const [pending, start] = useTransition();
-  const [cooling, setCooling] = useState(false);
+  const [next, setNext] = useState(nextAt);
+  const [now, setNow] = useState(() => Date.now());
   const router = useRouter();
   const t = getT(lang ?? "en");
+
+  // Server re-render after a claim pushes a fresh lastClaimAt down as nextAt.
+  useEffect(() => setNext(nextAt), [nextAt]);
+
+  useEffect(() => {
+    if (!next) return;
+    setNow(Date.now());
+    const id = setInterval(() => {
+      const n = Date.now();
+      setNow(n);
+      if (n >= next) clearInterval(id);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [next]);
+
+  const cooling = !!next && next > now;
 
   return (
     <button
@@ -21,10 +47,11 @@ export function ClaimButton({ lang }: { lang?: Lang }) {
           const r = await claimDaily();
           if (r.ok) {
             toast.success(t.claimedToast);
+            setNext(Date.now() + DAILY_COOLDOWN_MS);
             router.refresh();
           } else {
             toast.error(r.error === "cooldown" ? t.availableIn(r.retryInH ?? 1) : r.error ?? "Claim unavailable");
-            if (r.error === "cooldown") setCooling(true);
+            if (r.retryInMs) setNext(Date.now() + r.retryInMs);
           }
         })
       }
@@ -32,8 +59,10 @@ export function ClaimButton({ lang }: { lang?: Lang }) {
         bg-brand-soft text-brand-strong hover:bg-brand active:scale-[0.97] hover:text-brand-on disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
       title={t.claimTitle}
     >
-      <Coins className="size-4" />
-      <span className="hidden sm:inline">{pending ? t.claiming : t.claim}</span>
+      {cooling ? <Timer className="size-4" /> : <Coins className="size-4" />}
+      <span className="hidden sm:inline num">
+        {pending ? t.claiming : cooling ? fmtCountdown(next - now) : t.claim}
+      </span>
     </button>
   );
 }

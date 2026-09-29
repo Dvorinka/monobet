@@ -231,7 +231,13 @@ export async function placeTrade(input: {
 
 // ---------- wallet ----------
 
-export async function claimDaily(): Promise<{ ok: boolean; error?: string; amount?: number; retryInH?: number }> {
+export async function claimDaily(): Promise<{
+  ok: boolean;
+  error?: string;
+  amount?: number;
+  retryInH?: number;
+  retryInMs?: number;
+}> {
   try {
     const u = await requireUser();
     await db.transaction(async (tx) => {
@@ -239,8 +245,9 @@ export async function claimDaily(): Promise<{ ok: boolean; error?: string; amoun
       const last = user.lastClaimAt ? new Date(user.lastClaimAt).getTime() : 0;
       const wait = DAILY_COOLDOWN_MS - (Date.now() - last);
       if (wait > 0) {
-        const err = new Error("cooldown") as Error & { retryInH: number };
+        const err = new Error("cooldown") as Error & { retryInH: number; retryInMs: number };
         err.retryInH = Math.ceil(wait / 3600000);
+        err.retryInMs = wait;
         throw err;
       }
       await tx.update(schema.user).set({ lastClaimAt: new Date() }).where(eq(schema.user.id, u.id));
@@ -249,8 +256,8 @@ export async function claimDaily(): Promise<{ ok: boolean; error?: string; amoun
     revalidatePath("/");
     return { ok: true, amount: DAILY_AMOUNT };
   } catch (e) {
-    const h = (e as { retryInH?: number }).retryInH;
-    return { ok: false, error: e instanceof Error ? e.message : "Claim failed", retryInH: h };
+    const { retryInH: h, retryInMs } = e as { retryInH?: number; retryInMs?: number };
+    return { ok: false, error: e instanceof Error ? e.message : "Claim failed", retryInH: h, retryInMs };
   }
 }
 
