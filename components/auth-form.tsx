@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { signIn, signUp } from "@/lib/auth-client";
+import { claimReferral } from "@/lib/actions";
 import { Button, Card, Input, Segmented } from "@/components/ui/primitives";
 import { LogoMark } from "@/components/logo";
 import { getT, type Lang } from "@/lib/i18n";
@@ -39,6 +40,11 @@ export function AuthForm({ lang }: { lang?: Lang }) {
         if (r.error) {
           toast.error(r.error.message ?? t.authSignupFailed);
           return;
+        }
+        const ref = params.get("ref");
+        if (ref) {
+          const rr = await claimReferral({ ref });
+          if (rr.ok) toast.success(`+Ɱ100 — ${t.referralApplied}`);
         }
         toast.success(t.authWelcome);
       } else {

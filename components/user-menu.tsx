@@ -50,6 +50,9 @@ export function UserMenu({
             <div className="text-sm font-semibold truncate">@{username ?? name}</div>
             <div className="text-xs text-mute">{role === "admin" ? t.admin : t.trader}</div>
           </div>
+          <Link href={`/u/${username ?? name}`} className={item} onClick={() => setOpen(false)}>
+            {t.myProfile}
+          </Link>
           <Link href="/portfolio" className={item} onClick={() => setOpen(false)}>
             {t.portfolio}
           </Link>

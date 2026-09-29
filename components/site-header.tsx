@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 import { getCurrentUser, isAdmin } from "@/lib/session";
+import { getNotifications } from "@/lib/queries";
+import { NotifBell } from "@/components/notif-bell";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { SearchBox } from "@/components/search-box";
@@ -16,6 +18,7 @@ import { DAILY_COOLDOWN_MS } from "@/lib/rewards";
 export async function SiteHeader() {
   const [user, lang] = await Promise.all([getCurrentUser(), getLang()]);
   const t = getT(lang);
+  const notifs = user ? await getNotifications(user.id) : [];
 
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line">
@@ -68,6 +71,7 @@ export async function SiteHeader() {
             >
               <AnimatedMoney cents={user.balanceCents} lang={lang} />
             </Link>
+            <NotifBell items={notifs} lang={lang} />
             <UserMenu name={user.name} username={user.username} role={isAdmin(user) ? "admin" : user.role} image={user.image} lang={lang} />
           </div>
         ) : (

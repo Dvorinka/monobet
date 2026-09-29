@@ -17,6 +17,8 @@ import {
   AD_AMOUNT,
   AD_COOLDOWN_MS,
   BONUS_MAP,
+  REFEREE_BONUS,
+  REFERRER_BONUS,
 } from "@/lib/rewards";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -1305,5 +1307,44 @@ export async function playWheel(input: {
     return { ok: true, index, mult, netCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Spin failed" };
+  }
+}
+
+// ---------- referral ----------
+
+// Referee gets Ɱ100 once; the referrer gets Ɱ200 per friend who joins.
+// The referrer row is keyed bonus:referrer:<refereeId> so reward_once_idx
+// allows unlimited referrals while still blocking the same pair twice.
+export async function claimReferral(input: { ref: string }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const ref = input.ref.trim().toLowerCase();
+    if (!/^[a-z0-9_.-]+$/.test(ref)) throw new Error("Invalid referral link");
+    if (ref === (u.username ?? "").toLowerCase()) throw new Error("Can't refer yourself");
+    await db.transaction(async (tx) => {
+      const [used] = await tx
+        .select({ id: schema.rewardClaim.id })
+        .from(schema.rewardClaim)
+        .where(and(eq(schema.rewardClaim.userId, u.id), eq(schema.rewardClaim.kind, "bonus:referral")))
+        .limit(1);
+      if (used) throw new Error("Referral already used");
+      const [refUser] = await tx
+        .select({ id: schema.user.id })
+        .from(schema.user)
+        .where(sql`lower(${schema.user.username}) = ${ref}`)
+        .limit(1);
+      if (!refUser) throw new Error("Referrer not found");
+      await tx.insert(schema.rewardClaim).values({ userId: u.id, kind: "bonus:referral", amountCents: REFEREE_BONUS });
+      await credit(tx, u.id, REFEREE_BONUS, "bonus", null, `Referral bonus via @${ref}`);
+      await tx.insert(schema.rewardClaim).values({
+        userId: refUser.id,
+        kind: `bonus:referrer:${u.id}`,
+        amountCents: REFERRER_BONUS,
+      });
+      await credit(tx, refUser.id, REFERRER_BONUS, "bonus", null, `Referral: @${u.username ?? u.name} joined`);
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Referral failed" };
   }
 }

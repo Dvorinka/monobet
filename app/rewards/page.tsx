@@ -55,6 +55,7 @@ export default async function RewardsPage() {
         }}
         ad={{ nextAt: nextAt(state.lastAd, AD_COOLDOWN_MS), amount: fmtMarks(5_000, { lang }) }}
         bonuses={bonusState}
+        username={user.username ?? user.name}
       />
     </div>
   );

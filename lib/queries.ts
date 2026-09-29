@@ -417,3 +417,68 @@ export async function getRewardsState(userId: string) {
     eligible: { bet: !!bet, market: !!mk, comment: !!cm },
   };
 }
+
+// ---------- social ----------
+
+// Public profile bundle for /u/[username] — stats + open positions + markets
+// created. Leaderboard rank comes from the same net-worth math.
+export async function getPublicProfile(username: string) {
+  const [u] = await db
+    .select({
+      id: schema.user.id,
+      username: schema.user.username,
+      name: schema.user.name,
+      email: schema.user.email,
+      image: schema.user.image,
+      role: schema.user.role,
+      balanceCents: schema.user.balanceCents,
+      createdAt: schema.user.createdAt,
+    })
+    .from(schema.user)
+    .where(sql`lower(${schema.user.username}) = lower(${username})`)
+    .limit(1);
+  if (!u) return null;
+
+  const [stats] = await db
+    .select({
+      trades: sql<number>`(select count(*)::int from ${schema.trade} where ${schema.trade.userId} = ${u.id})`,
+      markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.creatorId} = ${u.id})`,
+      comments: sql<number>`(select count(*)::int from ${schema.comment} where ${schema.comment.userId} = ${u.id})`,
+    })
+    .from(schema.user)
+    .where(eq(schema.user.id, u.id));
+
+  const positions = await getUserPositions(u.id);
+  const created = await db
+    .select()
+    .from(schema.market)
+    .where(eq(schema.market.creatorId, u.id))
+    .orderBy(desc(schema.market.createdAt))
+    .limit(12);
+
+  const netWorthCents = u.balanceCents + positions.reduce((s, p) => s + p.valueCents, 0);
+  const lb = await getLeaderboard();
+  const rank = lb.findIndex((r) => r.id === u.id) + 1;
+
+  return { user: u, stats: stats ?? { trades: 0, markets: 0, comments: 0 }, positions, created, netWorthCents, rank };
+}
+
+// Credit-side ledger events the user didn't trigger — feeds the header bell.
+const NOTIF_KINDS = ["payout", "refund", "liq", "grant", "bonus"];
+
+export async function getNotifications(userId: string, limit = 10) {
+  return db
+    .select({
+      id: schema.ledger.id,
+      kind: schema.ledger.kind,
+      amountCents: schema.ledger.amountCents,
+      memo: schema.ledger.memo,
+      createdAt: schema.ledger.createdAt,
+      slug: schema.market.slug,
+    })
+    .from(schema.ledger)
+    .leftJoin(schema.market, eq(schema.ledger.marketId, schema.market.id))
+    .where(and(eq(schema.ledger.userId, userId), inArray(schema.ledger.kind, NOTIF_KINDS)))
+    .orderBy(desc(schema.ledger.createdAt))
+    .limit(limit);
+}
