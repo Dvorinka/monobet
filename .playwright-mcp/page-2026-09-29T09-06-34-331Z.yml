@@ -1,0 +1,45 @@
+- generic [active] [ref=f11e1]:
+  - banner [ref=f11e2]:
+    - generic [ref=f11e3]:
+      - link "MonoMark" [ref=f11e4] [cursor=pointer]:
+        - /url: /
+      - navigation [ref=f11e10]:
+        - link "Markets" [ref=f11e11] [cursor=pointer]:
+          - /url: /
+        - link "Leaderboard" [ref=f11e12] [cursor=pointer]:
+          - /url: /leaderboard
+        - link "Portfolio" [ref=f11e13] [cursor=pointer]:
+          - /url: /portfolio
+        - link "Admin" [ref=f11e14] [cursor=pointer]:
+          - /url: /admin
+      - textbox "Search markets" [ref=f11e17]
+      - link "New market" [ref=f11e18] [cursor=pointer]:
+        - /url: /propose
+      - generic [ref=f11e20]:
+        - button "Claim" [ref=f11e21] [cursor=pointer]
+        - link "Ɱ900" [ref=f11e28] [cursor=pointer]:
+          - /url: /portfolio
+        - button "Account menu" [ref=f11e31] [cursor=pointer]:
+          - generic [ref=f11e32]: C
+  - main [ref=f11e33]
+  - contentinfo [ref=f11e115]:
+    - generic [ref=f11e116]:
+      - generic [ref=f11e117]:
+        - generic [ref=f11e118]:
+          - generic [ref=f11e119]: MonoMark
+          - paragraph [ref=f11e125]: Play-money prediction markets for friends. Bet virtual Marks on anything — no deposits, no withdrawals, no regrets.
+        - navigation [ref=f11e126]:
+          - link "Markets" [ref=f11e127] [cursor=pointer]:
+            - /url: /
+          - link "Leaderboard" [ref=f11e128] [cursor=pointer]:
+            - /url: /leaderboard
+          - link "New market" [ref=f11e129] [cursor=pointer]:
+            - /url: /propose
+          - link "Portfolio" [ref=f11e130] [cursor=pointer]:
+            - /url: /portfolio
+      - generic [ref=f11e131]:
+        - paragraph [ref=f11e132]: Play money only. Not financial advice — not even real money.
+        - link "Open source" [ref=f11e133] [cursor=pointer]:
+          - /url: https://github.com/Dvorinka/monomark
+  - region "Notifications alt+T"
+  - alert [ref=f11e136]

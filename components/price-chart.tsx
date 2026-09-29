@@ -21,6 +21,29 @@ const PAD_R = 12;
 const PAD_T = 16;
 const PAD_B = 26;
 
+// Catmull-Rom-flavored smoothing: quadratic curves through segment midpoints.
+function smoothPath(coords: readonly (readonly [number, number])[]): string {
+  if (coords.length < 2) return "";
+  if (coords.length === 2) return `M${coords[0][0]},${coords[0][1]} L${coords[1][0]},${coords[1][1]}`;
+  let d = `M${coords[0][0].toFixed(1)},${coords[0][1].toFixed(1)}`;
+  for (let i = 1; i < coords.length - 1; i++) {
+    const [x1, y1] = coords[i];
+    const [x2, y2] = coords[i + 1];
+    d += ` Q${x1.toFixed(1)},${y1.toFixed(1)} ${((x1 + x2) / 2).toFixed(1)},${((y1 + y2) / 2).toFixed(1)}`;
+  }
+  const [lx, ly] = coords[coords.length - 1];
+  d += ` L${lx.toFixed(1)},${ly.toFixed(1)}`;
+  return d;
+}
+
+function fmtTick(t: number, span: number): string {
+  const d = new Date(t);
+  if (span <= 6 * 3600_000) return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (span <= 2 * 86400_000)
+    return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 export function PriceChart({ points, now, live }: { points: Pt[]; now: number; live?: boolean }) {
   const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("ALL");
   const [hover, setHover] = useState<number | null>(null);
@@ -47,7 +70,7 @@ export function PriceChart({ points, now, live }: { points: Pt[]; now: number; l
     const x = (t: number) => PAD_L + ((t - t0) / span) * (W - PAD_L - PAD_R);
     const y = (p: number) => PAD_T + (1 - Math.min(1, Math.max(0, p))) * (H - PAD_T - PAD_B);
     const coords = data.map((d) => [x(new Date(d.t).getTime()), y(d.p)] as const);
-    const line = `M${coords.map((c) => `${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(" L")}`;
+    const line = smoothPath(coords);
     const area = `${line} L${coords[coords.length - 1][0].toFixed(1)},${y(0)} L${coords[0][0].toFixed(1)},${y(0)} Z`;
     return { linePath: line, areaPath: area, last: data[data.length - 1] };
   }, [data]);
@@ -200,12 +223,11 @@ export function PriceChart({ points, now, live }: { points: Pt[]; now: number; l
       </div>
 
       <div className="flex justify-between text-[11px] text-faint num -mt-1 pl-11 pr-3">
-        {data.length > 0 && (
-          <>
-            <span>{new Date(t0).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-            <span>{new Date(t1).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-          </>
-        )}
+        {data.length > 0 &&
+          [0, 0.25, 0.5, 0.75, 1].map((k) => {
+            const t = t0 + (t1 - t0) * k;
+            return <span key={k}>{fmtTick(t, t1 - t0)}</span>;
+          })}
       </div>
     </div>
   );

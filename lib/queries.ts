@@ -237,3 +237,43 @@ export async function getCommentCount(marketIds: string[]) {
     .groupBy(schema.comment.marketId);
   return new Map(rows.map((r) => [r.marketId, r.count]));
 }
+
+// Latest trades across all markets — feeds the homepage ticker.
+export async function getGlobalTrades(limit = 14) {
+  return db
+    .select({
+      id: schema.trade.id,
+      side: schema.trade.side,
+      outcome: schema.trade.outcome,
+      amountCents: schema.trade.amountCents,
+      createdAt: schema.trade.createdAt,
+      username: schema.user.username,
+      name: schema.user.name,
+      slug: schema.market.slug,
+      question: schema.market.question,
+    })
+    .from(schema.trade)
+    .innerJoin(schema.user, eq(schema.trade.userId, schema.user.id))
+    .innerJoin(schema.market, eq(schema.trade.marketId, schema.market.id))
+    .orderBy(desc(schema.trade.createdAt))
+    .limit(limit);
+}
+
+export async function getSiteStats() {
+  const [users] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.user);
+  const [vol] = await db
+    .select({ n: sql<number>`coalesce(sum(${schema.market.volumeCents}),0)::int` })
+    .from(schema.market);
+  const [trades] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.trade);
+  return { users: users?.n ?? 0, volumeCents: vol?.n ?? 0, trades: trades?.n ?? 0 };
+}
+
+// Same-category markets excluding the given one — "More markets" rail.
+export async function getRelatedMarkets(marketId: string, category: string, limit = 3) {
+  return db
+    .select()
+    .from(schema.market)
+    .where(and(eq(schema.market.category, category), eq(schema.market.status, "live"), sql`${schema.market.id} <> ${marketId}`))
+    .orderBy(desc(schema.market.volumeCents))
+    .limit(limit);
+}

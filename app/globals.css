@@ -75,6 +75,24 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes ticker-scroll {
+  to { transform: translateX(-50%); }
+}
+
+@keyframes shimmer {
+  0% { opacity: 0.55; }
+  50% { opacity: 1; }
+  100% { opacity: 0.55; }
+}
+
+.anim-ticker {
+  animation: ticker-scroll 55s linear infinite;
+}
+
+.anim-shimmer {
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
 .anim-draw {
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
@@ -105,7 +123,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .anim-draw, .anim-fade, .anim-ping, .anim-rise, .live-dot {
+  .anim-draw, .anim-fade, .anim-ping, .anim-rise, .anim-ticker, .anim-shimmer, .live-dot {
     animation: none;
   }
 }

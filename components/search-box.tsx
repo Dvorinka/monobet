@@ -25,7 +25,7 @@ export function SearchBox() {
         key={q}
         defaultValue={q}
         placeholder="Search markets"
-        className="h-9 w-full rounded-lg bg-surface-2 pl-9 pr-3 text-sm text-ink placeholder:text-faint focus:outline-2 focus:outline-ink"
+        className="h-9 w-full rounded-full border border-transparent bg-surface-2 pl-9 pr-3 text-sm text-ink placeholder:text-faint transition-all focus:bg-surface focus:border-line focus:ring-2 focus:ring-ink/10 focus:outline-none"
       />
     </form>
   );

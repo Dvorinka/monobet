@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getUserPositions, getUserTrades, getUserLedger, marketYesPrice } from "@/lib/queries";
 import { fmtMarks, fmtCents, fmtShares, timeAgo } from "@/lib/money";
 import { Badge, Card } from "@/components/ui/primitives";
+import { AnimatedMoney } from "@/components/animated-number";
 import { cn } from "@/lib/utils";
 import { Wallet, TrendingUp, Landmark, ListOrdered } from "lucide-react";
 
@@ -29,9 +30,9 @@ export default async function PortfolioPage() {
       <h1 className="text-[22px] font-bold tracking-tight">Portfolio</h1>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-3">
-        <Stat icon={<Wallet className="size-4" />} label="Cash balance" value={fmtMarks(user.balanceCents)} />
-        <Stat icon={<TrendingUp className="size-4" />} label="Positions value" value={fmtMarks(portfolioCents)} />
-        <Stat icon={<Landmark className="size-4" />} label="Net worth" value={fmtMarks(netWorth)} highlight />
+        <Stat icon={<Wallet className="size-4" />} label="Cash balance" value={<AnimatedMoney cents={user.balanceCents} />} />
+        <Stat icon={<TrendingUp className="size-4" />} label="Positions value" value={<AnimatedMoney cents={portfolioCents} />} />
+        <Stat icon={<Landmark className="size-4" />} label="Net worth" value={<AnimatedMoney cents={netWorth} />} highlight />
       </div>
 
       <section className="mt-10">
@@ -135,9 +136,9 @@ export default async function PortfolioPage() {
   );
 }
 
-function Stat({ icon, label, value, highlight }: { icon: React.ReactNode; label: string; value: string; highlight?: boolean }) {
+function Stat({ icon, label, value, highlight }: { icon: React.ReactNode; label: string; value: React.ReactNode; highlight?: boolean }) {
   return (
-    <Card className="p-4">
+    <Card className="p-4 anim-rise">
       <div className="flex items-center gap-1.5 text-[12px] font-medium text-mute">
         {icon}
         {label}

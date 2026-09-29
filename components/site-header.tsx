@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
+import { LogoMark } from "@/components/logo";
 import { getCurrentUser } from "@/lib/session";
-import { fmtMarks } from "@/lib/money";
 import { SearchBox } from "@/components/search-box";
+import { AnimatedMoney } from "@/components/animated-number";
 import { UserMenu } from "@/components/user-menu";
 import { ClaimButton } from "@/components/claim-button";
 import { Button } from "@/components/ui/primitives";
@@ -13,10 +14,8 @@ export async function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line">
       <div className="mx-auto max-w-6xl px-4 h-14 flex items-center gap-4">
-        <Link href="/" className="flex items-center gap-2 shrink-0">
-          <div className="grid place-items-center size-7 rounded-md bg-ink text-white text-[13px] font-extrabold tracking-tight">
-            M
-          </div>
+        <Link href="/" className="flex items-center gap-2 shrink-0 group/logo">
+          <LogoMark className="transition-transform duration-300 group-hover/logo:rotate-[-6deg] group-hover/logo:scale-105" />
           <span className="font-bold text-[17px] tracking-tight hidden sm:block">MonoMark</span>
         </Link>
 
@@ -60,7 +59,7 @@ export async function SiteHeader() {
               className="num hidden sm:inline-flex items-center h-9 px-3 rounded-lg bg-surface-2 text-sm font-semibold hover:bg-surface-3"
               title="Your balance"
             >
-              {fmtMarks(user.balanceCents)}
+              <AnimatedMoney cents={user.balanceCents} />
             </Link>
             <UserMenu name={user.name} username={user.username} role={user.role} />
           </div>

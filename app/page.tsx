@@ -1,8 +1,10 @@
 import { Suspense } from "react";
 import { CategoryTabs } from "@/components/category-tabs";
 import { LiveRefresher } from "@/components/live-refresher";
+import { TradeTicker } from "@/components/trade-ticker";
 import { MarketCard } from "@/components/market-card";
-import { listMarkets, getSparklines, getCommentCount } from "@/lib/queries";
+import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats } from "@/lib/queries";
+import { fmtMarks } from "@/lib/money";
 import { getCurrentUser } from "@/lib/session";
 import type { Metadata } from "next";
 
@@ -26,7 +28,12 @@ export default async function Home({
     includePendingForUser: user?.role === "admin" ? user.id : undefined,
   });
   const ids = markets.map((m) => m.id);
-  const [sparks, comments] = await Promise.all([getSparklines(ids), getCommentCount(ids)]);
+  const [sparks, comments, ticker, stats] = await Promise.all([
+    getSparklines(ids),
+    getCommentCount(ids),
+    getGlobalTrades(),
+    getSiteStats(),
+  ]);
 
   return (
     <div className="mx-auto max-w-6xl px-4">
@@ -34,12 +41,15 @@ export default async function Home({
       <Suspense>
         <CategoryTabs />
       </Suspense>
+      <TradeTicker trades={ticker} />
 
-      <div className="py-5 flex items-baseline justify-between">
+      <div className="py-5 flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-[22px] font-bold tracking-tight capitalize">
           {q ? `Results for “${q}”` : cat === "all" ? "All markets" : cat === "trending" ? "Trending" : cat === "new" ? "Newest" : cat}
         </h1>
-        <span className="text-[13px] text-mute">{markets.length} markets</span>
+        <span className="num text-[12.5px] text-mute font-medium">
+          {fmtMarks(stats.volumeCents)} traded · {stats.trades.toLocaleString()} {stats.trades === 1 ? "bet" : "bets"} · {stats.users} {stats.users === 1 ? "trader" : "traders"} · {markets.length} markets
+        </span>
       </div>
 
       {markets.length === 0 ? (
@@ -51,8 +61,8 @@ export default async function Home({
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {markets.map((m) => (
-            <MarketCard key={m.id} market={m} spark={sparks.get(m.id) ?? []} comments={comments.get(m.id) ?? 0} />
+          {markets.map((m, i) => (
+            <MarketCard key={m.id} market={m} spark={sparks.get(m.id) ?? []} comments={comments.get(m.id) ?? 0} index={i} />
           ))}
         </div>
       )}

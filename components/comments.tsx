@@ -80,7 +80,7 @@ export function Comments({
       <div className="mt-6 space-y-5">
         {comments.length === 0 && <p className="text-[13px] text-faint">No comments yet.</p>}
         {comments.map((c) => (
-          <div key={c.id} className="flex gap-3 group">
+          <div key={c.id} className="flex gap-3 group anim-rise">
             <Avatar name={c.username ?? c.name} className="size-8" />
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-2">

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { signIn, signUp } from "@/lib/auth-client";
 import { Button, Card, Input, Segmented } from "@/components/ui/primitives";
+import { LogoMark } from "@/components/logo";
 
 export function AuthForm() {
   const params = useSearchParams();
@@ -49,7 +50,7 @@ export function AuthForm() {
   return (
     <Card className="p-6">
       <div className="flex items-center gap-2 mb-6">
-        <div className="grid place-items-center size-7 rounded-md bg-ink text-white text-[13px] font-extrabold">M</div>
+        <LogoMark />
         <span className="font-bold text-[17px] tracking-tight">MonoMark</span>
       </div>
 

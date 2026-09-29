@@ -22,7 +22,7 @@ export function ActivityFeed({ trades }: { trades: TradeRow[] }) {
         const buy = t.side === "buy";
         const yes = t.outcome === "yes";
         return (
-          <div key={t.id} className="py-2.5 flex items-center gap-3 text-[13px]">
+          <div key={t.id} className="py-2.5 flex items-center gap-3 text-[13px] anim-rise">
             <span className="font-medium w-28 truncate">@{t.username ?? t.name}</span>
             <span className="text-mute">{buy ? "bought" : "sold"}</span>
             <span

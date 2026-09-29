@@ -8,6 +8,8 @@ import {
   getRecentTrades,
   getComments,
   getUserPosition,
+  getRelatedMarkets,
+  getSparklines,
   marketYesPrice,
 } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
@@ -19,6 +21,7 @@ import { MarketTabs } from "@/components/market-tabs";
 import { Comments } from "@/components/comments";
 import { ActivityFeed } from "@/components/activity-feed";
 import { Badge, Card } from "@/components/ui/primitives";
+import { MarketCard } from "@/components/market-card";
 
 export const dynamic = "force-dynamic";
 
@@ -44,12 +47,14 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
     if (!canSee) notFound();
   }
 
-  const [history, trades, comments, position] = await Promise.all([
+  const [history, trades, comments, position, related] = await Promise.all([
     getPriceHistory(market.id),
     getRecentTrades(market.id),
     getComments(market.id),
     user ? getUserPosition(market.id, user.id) : null,
+    getRelatedMarkets(market.id, market.category),
   ]);
+  const relatedSparks = await getSparklines(related.map((m) => m.id));
 
   const py = marketYesPrice(market);
   const heldYes = Number(position?.yesShares ?? 0);
@@ -164,7 +169,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
           />
 
           {(heldYes > 0.001 || heldNo > 0.001) && (
-            <Card className="p-4">
+            <Card className="p-4 anim-rise">
               <h3 className="text-[13px] font-semibold text-mute uppercase tracking-wide">Your position</h3>
               <div className="mt-2.5 space-y-1.5 text-sm">
                 {heldYes > 0.001 && (
@@ -188,6 +193,17 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
           )}
         </div>
       </div>
+
+      {related.length > 0 && (
+        <div className="mt-12 border-t border-line pt-8">
+          <h2 className="text-[15px] font-bold tracking-tight mb-4">More {market.category} markets</h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {related.map((m, i) => (
+              <MarketCard key={m.id} market={m} spark={relatedSparks.get(m.id) ?? []} index={i} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
