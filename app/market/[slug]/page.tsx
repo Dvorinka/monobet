@@ -11,6 +11,7 @@ import {
   getGroupOptions,
   getComments,
   getUserPosition,
+  getMyPositions,
   getPositionBadges,
   getRelatedMarkets,
   getSparklines,
@@ -37,13 +38,13 @@ import { MarketTabs } from "@/components/market-tabs";
 import { Comments } from "@/components/comments";
 import { ActivityFeed } from "@/components/activity-feed";
 import { Badge, Card, Avatar } from "@/components/ui/primitives";
-import { MarketIcon, OptionChip } from "@/components/market-card";
+import { MarketIcon } from "@/components/market-icon";
+import { GroupTrade } from "@/components/group-trade";
 import { MultiPriceChart } from "@/components/multi-chart";
 import { DeleteMarketButton } from "@/components/delete-market-button";
 import { MarketManagePanel } from "@/components/market-manage";
 import { ResolutionPanel } from "@/components/resolution-panel";
 import { optionColor } from "@/lib/option-style";
-import { Sparkline } from "@/components/sparkline";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -235,6 +236,24 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
             </div>
           </div>
 
+          {/* Mobile ticket — sits right under the chart; the sticky rail copy
+              takes over on desktop. */}
+          <div className="mt-4 lg:hidden">
+            <TradeTicket
+              marketId={market.id}
+              qYes={Number(market.qYes)}
+              qNo={Number(market.qNo)}
+              b={market.b}
+              live={market.status === "live"}
+              signedIn={!!user}
+              userBalanceCents={user?.balanceCents ?? null}
+              heldYes={heldYes}
+              heldNo={heldNo}
+              maxLeverage={market.maxLeverage}
+              lang={lang}
+            />
+          </div>
+
           {/* rules + market context, Polymarket-style tabs block */}
           <div className="mt-8">
             <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
@@ -335,19 +354,21 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
 
         {/* right column */}
         <div className="space-y-4 lg:sticky lg:top-20 self-start">
-          <TradeTicket
-            marketId={market.id}
-            qYes={Number(market.qYes)}
-            qNo={Number(market.qNo)}
-            b={market.b}
-            live={market.status === "live"}
-            signedIn={!!user}
-            userBalanceCents={user?.balanceCents ?? null}
-            heldYes={heldYes}
-            heldNo={heldNo}
-            maxLeverage={market.maxLeverage}
-            lang={lang}
-          />
+          <div className="hidden lg:block">
+            <TradeTicket
+              marketId={market.id}
+              qYes={Number(market.qYes)}
+              qNo={Number(market.qNo)}
+              b={market.b}
+              live={market.status === "live"}
+              signedIn={!!user}
+              userBalanceCents={user?.balanceCents ?? null}
+              heldYes={heldYes}
+              heldNo={heldNo}
+              maxLeverage={market.maxLeverage}
+              lang={lang}
+            />
+          </div>
 
           {(heldYes > 0.001 || heldNo > 0.001) && (
             <Card className="p-4 anim-rise">
@@ -435,18 +456,14 @@ async function GroupMarketView({
   const t: Dict = getT(lang);
   const optionIds = options.map((o) => o.id);
   const live = options.filter((o) => o.status === "live");
-  // The selected option trades in the right column — ?opt=<id> switches without
-  // leaving the parent page.
-  const sel = live.find((o) => o.id === selOpt) ?? live[0];
-  const [optionSparks, histories, betCount, categories, posRows, selPos] = await Promise.all([
+  const [optionSparks, histories, betCount, categories, posRows, myPositions] = await Promise.all([
     getSparklines(optionIds),
     getGroupHistories(optionIds),
     getMarketBetCount(market.id),
     listCategories(),
     getPositionBadges(optionIds),
-    user && sel ? getUserPosition(sel.id, user.id) : null,
+    user ? getMyPositions(user.id, optionIds) : {},
   ]);
-  const closed = options.filter((o) => o.status !== "live");
   // Comment badges: each commenter's dominant option position. YES-side holders
   // get the option color, NO-side holders a red "No <option>" tag.
   const badges: Record<string, { label: string; shares: number; tone: "yes" | "no"; color?: string }> = {};
@@ -524,198 +541,108 @@ async function GroupMarketView({
         )}
       </div>
 
-      <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_340px]">
-        <div className="min-w-0">
-      {series.length > 0 && (
-        <div className="rounded-[14px] border border-line bg-surface p-4">
-          <MultiPriceChart
-            series={series}
-            // eslint-disable-next-line react-hooks/purity -- server component renders once per request
-            now={Date.now()}
-            live={anyLive}
-            lang={lang}
-          />
-        </div>
-      )}
-
-      <div className="mt-8 rounded-[14px] border border-line bg-surface overflow-hidden">
-        <div className="grid grid-cols-[1fr_auto_auto_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-2.5 border-b border-line text-[11px] font-semibold uppercase tracking-wide text-faint">
-          <span>{t.option}</span>
-          <span className="hidden sm:block text-right">{t.volume}</span>
-          <span className="hidden sm:block text-right">{t.tradersW}</span>
-          <span className="text-right">{t.chance}</span>
-          <span className="hidden sm:block" />
-        </div>
-        <div className="divide-y divide-line-2">
-          {live.map((o) => {
-            const py = marketYesPrice(o);
-            const oi = options.indexOf(o);
-            return (
-              <div
-                key={o.id}
-                className={cn(
-                  "grid grid-cols-[1fr_auto_auto_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors",
-                  sel?.id === o.id && "bg-surface-2 shadow-[inset_2px_0_0_var(--brand)]"
-                )}
-              >
-                <Link
-                  href={`/market/${market.slug}?opt=${o.id}`}
-                  scroll={false}
-                  className="min-w-0 flex items-center gap-3"
-                >
-                  <OptionChip label={o.label ?? o.question} index={oi} imageUrl={o.imageUrl} />
-                  <span className="text-[14px] font-semibold text-ink truncate">{o.label}</span>
-                  <Sparkline points={optionSparks.get(o.id) ?? []} className="hidden md:block shrink-0 opacity-80" />
-                </Link>
-                <Link href={`/market/${market.slug}?opt=${o.id}`} scroll={false} className="num hidden sm:block text-right text-[12.5px] text-mute">
-                  {fmtMarks(o.volumeCents, { lang })}
-                </Link>
-                <Link href={`/market/${market.slug}?opt=${o.id}`} scroll={false} className="num hidden sm:block text-right text-[12.5px] text-mute">
-                  {o.traderCount}
-                </Link>
-                <Link
-                  href={`/market/${market.slug}?opt=${o.id}`}
-                  scroll={false}
-                  className={cn("num text-right text-[15px] font-bold", py >= 0.5 ? "text-yes" : "text-ink")}
-                >
-                  {Math.round(py * 100)}%
-                </Link>
-                <span className="hidden sm:grid grid-cols-2 gap-1.5">
-                  <Link
-                    href={`/market/${market.slug}?opt=${o.id}&side=yes`}
-                    scroll={false}
-                    className="num grid place-items-center h-8 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold hover:brightness-95 transition"
-                  >
-                    {t.yes} {fmtMarks(Math.round(py * 100), { lang })}
-                  </Link>
-                  <Link
-                    href={`/market/${market.slug}?opt=${o.id}&side=no`}
-                    scroll={false}
-                    className="num grid place-items-center h-8 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold hover:brightness-95 transition"
-                  >
-                    {t.no} {fmtMarks(Math.round((1 - py) * 100), { lang })}
-                  </Link>
-                </span>
-              </div>
-            );
-          })}
-          {live.length === 0 && (
-            <p className="px-4 py-6 text-[13px] text-mute">{t.allClosed}</p>
-          )}
-        </div>
-        {closed.length > 0 && (
-          <details className="border-t border-line">
-            <summary className="cursor-pointer list-none px-4 py-3 text-[13px] font-semibold text-mute hover:text-ink select-none">
-              {t.viewResolved(closed.length)}
-            </summary>
-            <div className="divide-y divide-line-2 border-t border-line-2">
-              {closed.map((o) => (
-                <Link
-                  key={o.id}
-                  href={`/market/${o.slug}`}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors"
-                >
-                  <OptionChip label={o.label ?? o.question} index={options.indexOf(o)} imageUrl={o.imageUrl} />
-                  <span className="text-[14px] font-medium text-mute truncate flex-1">{o.label}</span>
-                  <span className="num text-[12px] text-faint">{fmtMarks(o.volumeCents, { lang })} {t.vol}</span>
-                  <Badge tone={o.status === "resolved" ? (o.outcome === "yes" ? "yes" : "no") : "mute"}>
-                    {o.status === "resolved"
-                      ? `${(o.outcome === "yes" ? t.yes : t.no).toUpperCase()} ${t.won}`
-                      : t.cancelled}
-                  </Badge>
-                </Link>
-              ))}
+      <GroupTrade
+        slug={market.slug}
+        options={options.map((o, i) => ({
+          id: o.id,
+          slug: o.slug,
+          label: o.label ?? o.question,
+          imageUrl: o.imageUrl,
+          status: o.status,
+          outcome: o.outcome,
+          qYes: Number(o.qYes),
+          qNo: Number(o.qNo),
+          b: o.b,
+          volumeCents: o.volumeCents,
+          traderCount: o.traderCount,
+          index: i,
+        }))}
+        sparks={Object.fromEntries(optionSparks)}
+        positions={myPositions}
+        balanceCents={user?.balanceCents ?? null}
+        signedIn={!!user}
+        maxLeverage={market.maxLeverage}
+        lang={lang}
+        initialOpt={selOpt}
+        initialSide={selSide}
+        chart={
+          series.length > 0 ? (
+            <div className="rounded-[14px] border border-line bg-surface p-4">
+              <MultiPriceChart
+                series={series}
+                // eslint-disable-next-line react-hooks/purity -- server component renders once per request
+                now={Date.now()}
+                live={anyLive}
+                lang={lang}
+              />
             </div>
-          </details>
-        )}
-      </div>
-
-      {market.description && (
-        <div className="mt-8">
-          <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
-            <Scale className="size-4" /> {t.rules}
-          </h2>
-          <p className="text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">{market.description}</p>
-        </div>
-      )}
-
-      <div className="mt-8">
-        <MarketTabs
-          lang={lang}
-          activity={<ActivityFeed trades={trades} lang={lang} />}
-          comments={
-            <Comments
-              marketId={market.id}
-              comments={comments}
-              signedIn={!!user}
-              currentUserId={user?.id}
-              viewerName={user?.username ?? user?.name}
-              viewerImage={user?.image}
-              isAdmin={isAdmin(user)}
-              lang={lang}
-              badges={badges}
-            />
-          }
-          commentCount={comments.length}
-          tradeCount={trades.length}
-        />
-      </div>
-        </div>
-
-        {/* right column — selected-option ticket + related rail + manage */}
-        <div className="space-y-4 lg:sticky lg:top-20 self-start">
-          {sel && (
-            <TradeTicket
-              key={`${sel.id}:${selSide ?? "yes"}`}
-              marketId={sel.id}
-              qYes={Number(sel.qYes)}
-              qNo={Number(sel.qNo)}
-              b={sel.b}
-              live={sel.status === "live"}
-              signedIn={!!user}
-              userBalanceCents={user?.balanceCents ?? null}
-              heldYes={Number(selPos?.yesShares ?? 0)}
-              heldNo={Number(selPos?.noShares ?? 0)}
-              maxLeverage={market.maxLeverage}
-              lang={lang}
-              defaultOutcome={selSide === "no" ? "no" : "yes"}
-              title={
-                <div className="mb-3 flex items-center gap-2.5">
-                  <OptionChip label={sel.label ?? sel.question} index={options.indexOf(sel)} imageUrl={sel.imageUrl} />
-                  <span className="min-w-0 flex-1 text-[14px] font-semibold truncate">{sel.label}</span>
-                  <span className="num text-[15px] font-bold shrink-0">{Math.round(marketYesPrice(sel) * 100)}%</span>
-                </div>
-              }
-            />
-          )}
-          {related.length > 0 && (
-            <Card className="p-1.5">
-              <h3 className="px-2.5 pt-2 pb-1 text-[12px] font-semibold uppercase tracking-wide text-faint">
-                {t.relatedMarkets}
-              </h3>
-              <div className="divide-y divide-line-2">
-                {related.slice(0, 6).map((m) => (
-                  <Link
-                    key={m.id}
-                    href={`/market/${m.slug}`}
-                    className="flex items-center gap-2.5 px-2.5 py-2.5 hover:bg-surface-2 rounded-lg transition-colors"
-                  >
-                    <MarketIcon market={m} size="size-8" />
-                    <span className="min-w-0 flex-1 text-[13px] font-medium leading-snug line-clamp-2">{m.question}</span>
-                    <span className="num text-[13px] font-bold text-ink-2 shrink-0">
-                      {Math.round(marketYesPrice(m) * 100)}%
-                    </span>
-                  </Link>
-                ))}
+          ) : null
+        }
+        left={
+          <>
+            {market.description && (
+              <div className="mt-8">
+                <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
+                  <Scale className="size-4" /> {t.rules}
+                </h2>
+                <p className="text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">{market.description}</p>
               </div>
-            </Card>
-          )}
+            )}
 
-          {canManage && market.status !== "resolved" && (
-            <MarketManagePanel market={market} categories={categories} betCount={betCount} lang={lang} />
-          )}
-        </div>
-      </div>
+            <div className="mt-8">
+              <MarketTabs
+                lang={lang}
+                activity={<ActivityFeed trades={trades} lang={lang} />}
+                comments={
+                  <Comments
+                    marketId={market.id}
+                    comments={comments}
+                    signedIn={!!user}
+                    currentUserId={user?.id}
+                    viewerName={user?.username ?? user?.name}
+                    viewerImage={user?.image}
+                    isAdmin={isAdmin(user)}
+                    lang={lang}
+                    badges={badges}
+                  />
+                }
+                commentCount={comments.length}
+                tradeCount={trades.length}
+              />
+            </div>
+          </>
+        }
+        rail={
+          <>
+            {related.length > 0 && (
+              <Card className="p-1.5">
+                <h3 className="px-2.5 pt-2 pb-1 text-[12px] font-semibold uppercase tracking-wide text-faint">
+                  {t.relatedMarkets}
+                </h3>
+                <div className="divide-y divide-line-2">
+                  {related.slice(0, 6).map((m) => (
+                    <Link
+                      key={m.id}
+                      href={`/market/${m.slug}`}
+                      className="flex items-center gap-2.5 px-2.5 py-2.5 hover:bg-surface-2 rounded-lg transition-colors"
+                    >
+                      <MarketIcon market={m} size="size-8" />
+                      <span className="min-w-0 flex-1 text-[13px] font-medium leading-snug line-clamp-2">{m.question}</span>
+                      <span className="num text-[13px] font-bold text-ink-2 shrink-0">
+                        {Math.round(marketYesPrice(m) * 100)}%
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            {canManage && market.status !== "resolved" && (
+              <MarketManagePanel market={market} categories={categories} betCount={betCount} lang={lang} />
+            )}
+          </>
+        }
+      />
     </div>
   );
 }

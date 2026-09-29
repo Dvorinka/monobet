@@ -3,8 +3,10 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CircleCheck, Ban, Pencil, Lock } from "lucide-react";
+import { CircleCheck, Ban, Pencil, Lock, ChevronDown, ChevronRight } from "lucide-react";
 import { Button, Card, Input, Textarea, Select } from "@/components/ui/primitives";
+import { ImageCell, IconPicker } from "@/components/image-cell";
+import { MarketIcon } from "@/components/market-icon";
 import { resolveMarket, cancelMarket, updateMarket } from "@/lib/actions";
 import { fmtMarks } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
@@ -94,15 +96,18 @@ export function MarketManagePanel({
 
       <button
         type="button"
-        className="text-[12.5px] font-semibold text-brand-strong hover:underline cursor-pointer"
+        className="flex w-full items-center justify-between rounded-lg border border-line-2 bg-surface-2/50 px-3 py-2 text-[12.5px] font-semibold text-ink hover:bg-surface-2 transition-colors cursor-pointer"
         onClick={() => setEditing((v) => !v)}
       >
-        {editing ? "▾" : "▸"} {t.editMarket}
+        <span className="inline-flex items-center gap-1.5">
+          <Pencil className="size-3.5 text-faint" /> {t.editMarket}
+        </span>
+        {editing ? <ChevronDown className="size-4 text-faint" /> : <ChevronRight className="size-4 text-faint" />}
       </button>
 
       {editing && (
         <form
-          className="space-y-2.5 pt-1"
+          className="space-y-3 pt-1"
           onSubmit={(e) => {
             e.preventDefault();
             run(
@@ -119,7 +124,31 @@ export function MarketManagePanel({
             );
           }}
         >
+          {/* Live preview — icon + question exactly as cards render them. */}
+          <div className="rounded-xl border border-line-2 bg-surface-2/40 p-2.5">
+            <div className="flex items-center gap-2.5">
+              <MarketIcon market={{ question, category, imageUrl: imageUrl || null }} size="size-10" />
+              <span className="min-w-0 flex-1 text-[12.5px] font-medium leading-snug line-clamp-2 text-ink-2">
+                {question || "…"}
+              </span>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <ImageCell
+                image={imageUrl}
+                onImage={setImageUrl}
+                imageHint={t.optionImageHint}
+                onBadImage={() => toast.error(t.imageBad)}
+                className="size-9"
+              />
+              <IconPicker onPick={setImageUrl} hint={t.iconPickerHint} />
+              <p className="min-w-0 flex-1 text-[10.5px] leading-tight text-faint">{t.marketIconHint}</p>
+            </div>
+          </div>
+
           <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+              {t.question}
+            </label>
             <Input
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
@@ -133,16 +162,38 @@ export function MarketManagePanel({
               </p>
             )}
           </div>
-          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t.rulesPh} className="min-h-20 text-[13px]" />
-          <div className="grid grid-cols-2 gap-2">
-            <Select value={category} onChange={(e) => setCategory(e.target.value)}>
-              {categories.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </Select>
-            <Input type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} />
+
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+              {t.rules}
+            </label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={t.rulesPh}
+              className="min-h-24 text-[13px]"
+            />
           </div>
-          <Input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder={t.imageUrlPh} />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+                {t.category}
+              </label>
+              <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+                {t.closes}
+              </label>
+              <Input type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} />
+            </div>
+          </div>
+
           <Button size="sm" className="w-full" disabled={pending || question.trim().length < 10}>
             {pending ? "…" : t.save}
           </Button>

@@ -197,6 +197,21 @@ export async function getUserPosition(marketId: string, userId: string) {
   return rows[0] ?? null;
 }
 
+// The viewer's positions across a set of markets — feeds the group ticket so
+// it can show held shares for whichever option is selected.
+export async function getMyPositions(userId: string, marketIds: string[]) {
+  if (!marketIds.length) return {} as Record<string, { yes: number; no: number }>;
+  const rows = await db
+    .select({
+      marketId: schema.position.marketId,
+      yes: schema.position.yesShares,
+      no: schema.position.noShares,
+    })
+    .from(schema.position)
+    .where(and(eq(schema.position.userId, userId), inArray(schema.position.marketId, marketIds)));
+  return Object.fromEntries(rows.map((r) => [r.marketId, { yes: Number(r.yes), no: Number(r.no) }]));
+}
+
 export type PositionRow = {
   market: MarketRow;
   yesShares: number;
