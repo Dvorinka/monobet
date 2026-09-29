@@ -1,29 +1,50 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getLeaderboard } from "@/lib/queries";
+import { ensureSeason, getLeaderboard, getSeasonHistory } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
-import { fmtMarks } from "@/lib/money";
+import { fmtMarks, fmtDate, fmtCountdown } from "@/lib/money";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
-import { Avatar, Card } from "@/components/ui/primitives";
+import { Avatar, Badge, Card } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
-import { Trophy } from "lucide-react";
+import { CalendarClock, Medal, Trophy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Leaderboard" };
 
+const MEDALS = ["text-amber-500", "text-slate-400", "text-amber-700"];
+
 export default async function LeaderboardPage() {
-  const [rows, user, lang] = await Promise.all([getLeaderboard(), getCurrentUser(), getLang()]);
+  const [season, rows, user, lang] = await Promise.all([
+    ensureSeason(),
+    getLeaderboard(),
+    getCurrentUser(),
+    getLang(),
+  ]);
+  const history = await getSeasonHistory(4);
   const t = getT(lang);
 
   return (
-    <div className="mx-auto max-w-3xl px-4 pt-8">
+    <div className="mx-auto max-w-3xl px-4 pt-8 pb-10">
       <h1 className="text-[22px] font-bold tracking-tight flex items-center gap-2">
         <Trophy className="size-5" /> {t.lbTitle}
       </h1>
       <p className="text-[13px] text-mute mt-1">{t.lbSub}</p>
 
-      <Card className="mt-6 overflow-hidden">
+      <Card className="mt-5 px-4 py-3 flex items-center gap-3 flex-wrap">
+        <div className="size-9 rounded-lg bg-brand-soft text-brand-strong flex items-center justify-center shrink-0">
+          <CalendarClock className="size-4.5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[14px] font-semibold">{t.seasonLive(season.index)}</div>
+          <div className="text-[12px] text-mute">
+            {t.seasonEndsIn(fmtCountdown(season.endsAt))} · {t.seasonPrize}
+          </div>
+        </div>
+        <Badge tone="warn" className="text-[11px]">{fmtDate(season.endsAt, lang)}</Badge>
+      </Card>
+
+      <Card className="mt-4 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line text-left text-[11.5px] uppercase tracking-wide text-mute">
@@ -66,6 +87,36 @@ export default async function LeaderboardPage() {
           </tbody>
         </table>
       </Card>
+
+      {history.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-[15px] font-semibold mb-3">{t.seasonPast}</h2>
+          <div className="space-y-3">
+            {history.map(({ season: s, podium }) => (
+              <Card key={s.id} className="px-4 py-3">
+                <div className="text-[12px] font-semibold text-mute mb-2">
+                  {t.seasonLive(s.index)} · {fmtDate(s.startsAt, lang)} – {fmtDate(s.endsAt, lang)}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {podium.map((r) => (
+                    <Link
+                      key={r.rank}
+                      href={`/u/${r.username ?? r.name}`}
+                      className="flex items-center gap-2 rounded-lg bg-surface-2 px-2.5 py-1.5 hover:bg-surface-3"
+                    >
+                      <Medal className={cn("size-4", MEDALS[r.rank - 1] ?? "text-mute")} />
+                      <Avatar name={r.username ?? r.name} image={r.image} className="size-5" />
+                      <span className="text-[12.5px] font-medium">@{r.username ?? r.name}</span>
+                      <span className="num text-[12px] font-bold text-yes">+{fmtMarks(r.rewardCents, { lang, decimals: false })}</span>
+                    </Link>
+                  ))}
+                  {podium.length === 0 && <span className="text-[12px] text-faint">{t.lbEmpty}</span>}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

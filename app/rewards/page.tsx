@@ -48,7 +48,7 @@ export default async function RewardsPage() {
 
       <RewardsPanels
         lang={lang}
-        daily={{ nextAt: nextAt(user.lastClaimAt, DAILY_COOLDOWN_MS), amount: fmtMarks(25_000, { lang }) }}
+        daily={{ nextAt: nextAt(user.lastClaimAt, DAILY_COOLDOWN_MS), amount: fmtMarks(25_000, { lang }), streak: user.claimStreak }}
         weekly={{
           nextAt: nextAt(state.lastWeekly, WEEKLY_COOLDOWN_MS),
           amount: fmtMarks(100_000, { lang }),

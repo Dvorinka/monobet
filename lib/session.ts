@@ -10,6 +10,7 @@ export type CurrentUser = {
   role: string;
   balanceCents: number;
   lastClaimAt: Date | null;
+  claimStreak: number;
   commentsBanned: boolean;
 };
 
@@ -29,6 +30,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     image?: string | null;
     bannedAt?: Date | null;
     commentsBanned?: boolean;
+    claimStreak?: number;
   };
   // Banned accounts keep a session cookie until it expires; treat them as
   // signed out everywhere so requireUser blocks them.
@@ -42,6 +44,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     role: u.email?.toLowerCase() === SUPER_ADMIN_EMAIL ? "admin" : (u.role ?? "user"),
     balanceCents: u.balanceCents ?? 0,
     lastClaimAt: u.lastClaimAt ?? null,
+    claimStreak: u.claimStreak ?? 0,
     commentsBanned: u.commentsBanned ?? false,
   };
 }

@@ -13,12 +13,13 @@ import {
   CheckCircle2,
   Clapperboard,
   ExternalLink,
+  Flame,
   Gift,
   Lock,
   Play,
 } from "lucide-react";
 
-type Recurring = { nextAt: number | null; amount: string };
+type Recurring = { nextAt: number | null; amount: string; streak?: number };
 type BonusState = {
   key: string;
   amountCents: number;
@@ -43,6 +44,7 @@ function RecurringCard({
   desc,
   amount,
   nextAt,
+  streak,
   run,
   t,
 }: {
@@ -51,6 +53,7 @@ function RecurringCard({
   desc: string;
   amount: string;
   nextAt: number | null;
+  streak?: number;
   run: () => Promise<{ ok: boolean; error?: string; retryInH?: number }>;
   t: ReturnType<typeof getT>;
 }) {
@@ -66,7 +69,15 @@ function RecurringCard({
         <span className="num text-sm font-bold text-yes">{amount}</span>
       </div>
       <div>
-        <div className="text-[15px] font-semibold">{title}</div>
+        <div className="text-[15px] font-semibold flex items-center gap-2">
+          {title}
+          {(streak ?? 0) > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-warn-strong">
+              <Flame className="size-3.5" />
+              {t.dayStreak(streak ?? 0)}
+            </span>
+          )}
+        </div>
         <div className="text-[12.5px] text-mute mt-0.5">{desc}</div>
       </div>
       <button
@@ -248,6 +259,7 @@ export function RewardsPanels({
             desc={t.dailyDesc}
             amount={daily.amount}
             nextAt={daily.nextAt}
+            streak={daily.streak}
             run={claimDaily}
             t={t}
           />

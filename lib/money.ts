@@ -40,6 +40,13 @@ export function timeAgo(d: Date | string, lang?: Lang): string {
   return t.agoD(Math.floor(s / 86400));
 }
 
+export function fmtCountdown(until: Date | string): string {
+  const ms = Math.max(0, new Date(until).getTime() - Date.now());
+  const d = Math.floor(ms / 86_400_000);
+  const h = Math.floor((ms % 86_400_000) / 3_600_000);
+  return d > 0 ? `${d}d ${h}h` : `${h}h`;
+}
+
 export function fmtDate(d: Date | string | null | undefined, lang?: Lang): string {
   if (!d) return "—";
   return new Date(d).toLocaleDateString(LOCALES[lang ?? "en"], {
