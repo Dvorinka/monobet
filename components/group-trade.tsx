@@ -75,8 +75,8 @@ export function GroupTrade({
   const t = getT(lang ?? "en");
   const live = options.filter((o) => o.status === "live");
   const closed = options.filter((o) => o.status !== "live");
-  // ?opt= accepts the option slug (readable) or the id (legacy links).
-  const byOpt = (o: GroupOption) => o.id === initialOpt || slugifyLabel(o.label) === initialOpt;
+  // ?opt= accepts the option label slug (readable), the child market slug, or the id (legacy links).
+  const byOpt = (o: GroupOption) => o.id === initialOpt || o.slug === initialOpt || slugifyLabel(o.label) === initialOpt;
   const [selId, setSelId] = useState(() => live.find(byOpt)?.id ?? live[0]?.id ?? "");
   const [side, setSide] = useState<"yes" | "no">(initialSide === "no" ? "no" : "yes");
 
