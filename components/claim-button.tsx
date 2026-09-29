@@ -38,11 +38,13 @@ export function ClaimButton({ lang, nextAt }: { lang?: Lang; nextAt: number | nu
   }, [next]);
 
   const cooling = !!next && next > now;
+  const remaining = cooling ? next - now : 0;
 
   return (
     <button
-      disabled={pending || cooling}
-      onClick={() =>
+      disabled={pending}
+      onClick={() => {
+        if (cooling) return router.push("/rewards");
         start(async () => {
           const r = await claimDaily();
           if (r.ok) {
@@ -53,11 +55,11 @@ export function ClaimButton({ lang, nextAt }: { lang?: Lang; nextAt: number | nu
             toast.error(r.error === "cooldown" ? t.availableIn(r.retryInH ?? 1) : r.error ?? "Claim unavailable");
             if (r.retryInMs) setNext(Date.now() + r.retryInMs);
           }
-        })
-      }
+        });
+      }}
       className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-semibold cursor-pointer transition-all duration-150
         bg-brand-soft text-brand-strong hover:bg-brand active:scale-[0.97] hover:text-brand-on disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
-      title={t.claimTitle}
+      title={cooling ? t.availableIn(Math.max(1, Math.ceil(remaining / 3600000))) : t.claimTitle}
     >
       {cooling ? <Timer className="size-4" /> : <Coins className="size-4" />}
       <span className="hidden sm:inline num">

@@ -37,16 +37,6 @@ export async function SiteHeader() {
               {t.portfolio}
             </Link>
           )}
-          {user && (
-            <Link href="/rewards" className="px-2.5 py-1.5 rounded-md text-brand-strong font-semibold hover:bg-brand-soft">
-              {t.rewards}
-            </Link>
-          )}
-          {isAdmin(user) && (
-            <Link href="/admin" className="px-2.5 py-1.5 rounded-md text-ink font-semibold hover:bg-surface-2">
-              {t.admin}
-            </Link>
-          )}
         </nav>
 
         <div className="flex-1 max-w-sm ml-auto">

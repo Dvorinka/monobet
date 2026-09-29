@@ -4,7 +4,7 @@ export const DAILY_COOLDOWN_MS = 20 * 3600 * 1000;
 export const WEEKLY_AMOUNT = 100_000; // Ɱ1,000
 export const WEEKLY_COOLDOWN_MS = 7 * 24 * 3600 * 1000;
 export const AD_AMOUNT = 5_000; // Ɱ50
-export const AD_COOLDOWN_MS = 2 * 3600 * 1000;
+export const AD_COOLDOWN_MS = 5 * 60 * 1000;
 export const AD_WATCH_MS = 12_000;
 
 // One-time bonuses. `check` milestones are verified server-side; links are honor-system.
