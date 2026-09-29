@@ -189,7 +189,8 @@ export function TradeTicket({
               toast.success(
                 side === "buy"
                   ? t.boughtToast(fmtShares(r.shares, lang), oc, fmtMarks(r.costCents, { lang }))
-                  : t.soldToast(fmtShares(r.shares, lang), oc, fmtMarks(r.costCents, { lang }))
+                  : t.soldToast(fmtShares(r.shares, lang), oc, fmtMarks(r.costCents, { lang })),
+                { description: t.priceMoved(Math.round(py * 100), Math.round(r.price * 100)) }
               );
               setAmount("");
               router.refresh();
