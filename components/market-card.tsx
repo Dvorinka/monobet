@@ -23,6 +23,7 @@ import { marketYesPrice } from "@/lib/queries";
 import { optionColor, optionSoftBg } from "@/lib/option-style";
 import { fmtCents, fmtMarks, fmtDate } from "@/lib/money";
 import { Sparkline } from "@/components/sparkline";
+import { WatchButton } from "@/components/watch-button";
 import { AnimatedPct } from "@/components/animated-number";
 import { Badge } from "@/components/ui/primitives";
 import { getT, type Lang } from "@/lib/i18n";
@@ -105,6 +106,7 @@ export function MarketCard({
   index = 0,
   options,
   lang,
+  watching,
 }: {
   market: MarketRow;
   spark: number[];
@@ -112,9 +114,10 @@ export function MarketCard({
   index?: number;
   options?: MarketRow[];
   lang?: Lang;
+  watching?: boolean;
 }) {
   const t = getT(lang ?? "en");
-  if (market.kind === "group") return <GroupCard market={market} options={options ?? []} index={index} lang={lang} />;
+  if (market.kind === "group") return <GroupCard market={market} options={options ?? []} index={index} lang={lang} watching={watching} />;
 
   const py = marketYesPrice(market);
   const resolved = market.status === "resolved";
@@ -170,10 +173,13 @@ export function MarketCard({
           <MessageSquare className="size-3" />
           {comments}
         </span>
-        <span className="ml-auto inline-flex items-center gap-1">
+        <span className={cn("inline-flex items-center gap-1", watching === undefined && "ml-auto")}>
           <Clock className="size-3" />
           {fmtDate(market.closesAt, lang)}
         </span>
+        {watching !== undefined && (
+          <WatchButton marketId={market.id} watching={watching} lang={lang} className="ml-auto -my-0.5" />
+        )}
       </div>
     </Link>
   );
@@ -181,7 +187,7 @@ export function MarketCard({
 
 // Multi-outcome card — Polymarket's "X by when?" style. Each option row links
 // to its own binary market; resolved options collapse under "View resolved".
-function GroupCard({ market, options, index, lang }: { market: MarketRow; options: MarketRow[]; index: number; lang?: Lang }) {
+function GroupCard({ market, options, index, lang, watching }: { market: MarketRow; options: MarketRow[]; index: number; lang?: Lang; watching?: boolean }) {
   const t = getT(lang ?? "en");
   const live = options.filter((o) => o.status === "live");
   const closed = options.filter((o) => o.status !== "live");
@@ -236,10 +242,13 @@ function GroupCard({ market, options, index, lang }: { market: MarketRow; option
           <Users className="size-3" />
           {traders}
         </span>
-        <span className="ml-auto inline-flex items-center gap-1">
+        <span className={cn("inline-flex items-center gap-1", watching === undefined && "ml-auto")}>
           <Clock className="size-3" />
           {fmtDate(market.closesAt, lang)}
         </span>
+        {watching !== undefined && (
+          <WatchButton marketId={market.id} watching={watching} lang={lang} className="ml-auto -my-0.5" />
+        )}
       </div>
     </div>
   );

@@ -1358,3 +1358,26 @@ export async function claimReferral(input: { ref: string }): Promise<{ ok: boole
     return { ok: false, error: e instanceof Error ? e.message : "Referral failed" };
   }
 }
+
+// ---------- watchlist ----------
+
+export async function toggleWatchlist(input: { marketId: string }): Promise<{ ok: boolean; error?: string; watching?: boolean }> {
+  try {
+    const u = await requireUser();
+    const [existing] = await db
+      .select()
+      .from(schema.watchlist)
+      .where(and(eq(schema.watchlist.userId, u.id), eq(schema.watchlist.marketId, input.marketId)))
+      .limit(1);
+    if (existing) {
+      await db
+        .delete(schema.watchlist)
+        .where(and(eq(schema.watchlist.userId, u.id), eq(schema.watchlist.marketId, input.marketId)));
+      return { ok: true, watching: false };
+    }
+    await db.insert(schema.watchlist).values({ userId: u.id, marketId: input.marketId });
+    return { ok: true, watching: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
