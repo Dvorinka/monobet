@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { signIn, signUp } from "@/lib/auth-client";
@@ -127,6 +128,15 @@ export function AuthForm({ lang }: { lang?: Lang }) {
       <p className="mt-4 text-center text-[12px] text-faint">
         {t.authPlayMoney}
       </p>
+      {mode === "signup" && (
+        <p className="mt-1.5 text-center text-[12px] text-faint">
+          {t.authAgree}{" "}
+          <Link href="/terms" className="underline hover:text-ink">
+            {t.termsLink}
+          </Link>
+          .
+        </p>
+      )}
     </Card>
   );
 }

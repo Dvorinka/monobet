@@ -48,6 +48,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <Link href="/leaderboard" className="text-mute hover:text-ink transition-colors">{t.leaderboard}</Link>
                 <Link href="/propose" className="text-mute hover:text-ink transition-colors">{t.newMarket}</Link>
                 <Link href="/portfolio" className="text-mute hover:text-ink transition-colors">{t.portfolio}</Link>
+                <Link href="/terms" className="text-mute hover:text-ink transition-colors">{t.terms}</Link>
               </nav>
             </div>
             <p className="mt-8 pt-5 border-t border-line-2 text-[12px] text-faint leading-relaxed max-w-3xl">
