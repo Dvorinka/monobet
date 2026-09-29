@@ -1,0 +1,130 @@
+- generic [active] [ref=f7e1]:
+  - banner [ref=f7e2]:
+    - generic [ref=f7e3]:
+      - link "M MonoMark" [ref=f7e4] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f7e5]: M
+        - generic [ref=f7e6]: MonoMark
+      - navigation [ref=f7e7]:
+        - link "Markets" [ref=f7e8] [cursor=pointer]:
+          - /url: /
+        - link "Leaderboard" [ref=f7e9] [cursor=pointer]:
+          - /url: /leaderboard
+        - link "Portfolio" [ref=f7e10] [cursor=pointer]:
+          - /url: /portfolio
+        - link "Admin" [ref=f7e11] [cursor=pointer]:
+          - /url: /admin
+      - textbox "Search markets" [ref=f7e14]
+      - link "New market" [ref=f7e15] [cursor=pointer]:
+        - /url: /propose
+      - generic [ref=f7e17]:
+        - button "Claim" [ref=f7e18] [cursor=pointer]
+        - link "Ɱ1,000" [ref=f7e25] [cursor=pointer]:
+          - /url: /portfolio
+        - button "Account menu" [ref=f7e27] [cursor=pointer]:
+          - generic [ref=f7e28]: C
+  - main [ref=f7e29]:
+    - generic [ref=f7e30]:
+      - generic [ref=f7e32]:
+        - link "all" [ref=f7e33] [cursor=pointer]:
+          - /url: /?
+        - link "trending" [ref=f7e34] [cursor=pointer]:
+          - /url: /?cat=trending
+        - link "new" [ref=f7e35] [cursor=pointer]:
+          - /url: /?cat=new
+        - link "Politics" [ref=f7e36] [cursor=pointer]:
+          - /url: /?cat=Politics
+        - link "Sports" [ref=f7e37] [cursor=pointer]:
+          - /url: /?cat=Sports
+        - link "Crypto" [ref=f7e38] [cursor=pointer]:
+          - /url: /?cat=Crypto
+        - link "Tech" [ref=f7e39] [cursor=pointer]:
+          - /url: /?cat=Tech
+        - link "Culture" [ref=f7e40] [cursor=pointer]:
+          - /url: /?cat=Culture
+        - link "Friends" [ref=f7e41] [cursor=pointer]:
+          - /url: /?cat=Friends
+        - link "Other" [ref=f7e42] [cursor=pointer]:
+          - /url: /?cat=Other
+      - generic [ref=f7e43]:
+        - heading "All markets" [level=1] [ref=f7e44]
+        - generic [ref=f7e45]: 5 markets
+      - generic [ref=f7e46]:
+        - link "Will the office coffee machine survive the month? 50% chance Buy Yes 50¢ Buy No 50¢ Ɱ0 Vol. 0 0 Oct 17, 2026" [ref=f7e47] [cursor=pointer]:
+          - /url: /market/coffee-machine-survival
+          - heading "Will the office coffee machine survive the month?" [level=3] [ref=f7e53]
+          - generic [ref=f7e57]:
+            - generic [ref=f7e58]: 50%
+            - generic [ref=f7e60]: chance
+          - generic [ref=f7e61]:
+            - generic [ref=f7e62]: Buy Yes 50¢
+            - generic [ref=f7e63]: Buy No 50¢
+          - generic [ref=f7e64]:
+            - generic [ref=f7e65]: Ɱ0 Vol.
+            - generic [ref=f7e66]: "0"
+            - generic [ref=f7e72]: "0"
+            - generic [ref=f7e75]: Oct 17, 2026
+        - link "Next.js 17 released in 2026? 36% chance Buy Yes 36¢ Buy No 64¢ Ɱ0 Vol. 0 0 Dec 31, 2026" [ref=f7e79] [cursor=pointer]:
+          - /url: /market/nextjs-17-2026
+          - heading "Next.js 17 released in 2026?" [level=3] [ref=f7e85]
+          - generic [ref=f7e89]:
+            - generic [ref=f7e90]: 36%
+            - generic [ref=f7e92]: chance
+          - generic [ref=f7e93]:
+            - generic [ref=f7e94]: Buy Yes 36¢
+            - generic [ref=f7e95]: Buy No 64¢
+          - generic [ref=f7e96]:
+            - generic [ref=f7e97]: Ɱ0 Vol.
+            - generic [ref=f7e98]: "0"
+            - generic [ref=f7e104]: "0"
+            - generic [ref=f7e107]: Dec 31, 2026
+        - link "Will Tom win the next poker night? 41% chance Buy Yes 41¢ Buy No 59¢ Ɱ0 Vol. 0 0 Oct 9, 2026" [ref=f7e111] [cursor=pointer]:
+          - /url: /market/poker-tom-undefeated
+          - heading "Will Tom win the next poker night?" [level=3] [ref=f7e116]
+          - generic [ref=f7e120]:
+            - generic [ref=f7e121]: 41%
+            - generic [ref=f7e123]: chance
+          - generic [ref=f7e124]:
+            - generic [ref=f7e125]: Buy Yes 41¢
+            - generic [ref=f7e126]: Buy No 59¢
+          - generic [ref=f7e127]:
+            - generic [ref=f7e128]: Ɱ0 Vol.
+            - generic [ref=f7e129]: "0"
+            - generic [ref=f7e135]: "0"
+            - generic [ref=f7e138]: Oct 9, 2026
+        - link "Will it rain in Brno this weekend? 70% chance Buy Yes 70¢ Buy No 30¢ Ɱ0 Vol. 0 0 Oct 2, 2026" [ref=f7e142] [cursor=pointer]:
+          - /url: /market/rain-brno-weekend
+          - heading "Will it rain in Brno this weekend?" [level=3] [ref=f7e147]
+          - generic [ref=f7e151]:
+            - generic [ref=f7e152]: 70%
+            - generic [ref=f7e154]: chance
+          - generic [ref=f7e155]:
+            - generic [ref=f7e156]: Buy Yes 70¢
+            - generic [ref=f7e157]: Buy No 30¢
+          - generic [ref=f7e158]:
+            - generic [ref=f7e159]: Ɱ0 Vol.
+            - generic [ref=f7e160]: "0"
+            - generic [ref=f7e166]: "0"
+            - generic [ref=f7e169]: Oct 2, 2026
+        - link "Bitcoin above $150,000 before 2027? 57% chance Buy Yes 57¢ Buy No 43¢ Ɱ0 Vol. 0 0 Dec 31, 2026" [ref=f7e173] [cursor=pointer]:
+          - /url: /market/btc-150k-eoy
+          - heading "Bitcoin above $150,000 before 2027?" [level=3] [ref=f7e178]
+          - generic [ref=f7e182]:
+            - generic [ref=f7e183]: 57%
+            - generic [ref=f7e185]: chance
+          - generic [ref=f7e186]:
+            - generic [ref=f7e187]: Buy Yes 57¢
+            - generic [ref=f7e188]: Buy No 43¢
+          - generic [ref=f7e189]:
+            - generic [ref=f7e190]: Ɱ0 Vol.
+            - generic [ref=f7e191]: "0"
+            - generic [ref=f7e197]: "0"
+            - generic [ref=f7e200]: Dec 31, 2026
+  - contentinfo [ref=f7e204]:
+    - generic [ref=f7e205]:
+      - generic [ref=f7e206]:
+        - generic [ref=f7e207]: M
+        - generic [ref=f7e208]: MonoMark
+      - paragraph [ref=f7e209]: Play-money prediction markets. Not financial advice — not even real money.
+  - region "Notifications alt+T"
+  - alert [ref=f7e210]

@@ -13,6 +13,7 @@ import {
 import { getCurrentUser } from "@/lib/session";
 import { fmtMarks, fmtDate, fmtShares } from "@/lib/money";
 import { PriceChart } from "@/components/price-chart";
+import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicket } from "@/components/trade-ticket";
 import { MarketTabs } from "@/components/market-tabs";
 import { Comments } from "@/components/comments";
@@ -57,6 +58,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-5">
+      {market.status === "live" && <LiveRefresher intervalMs={8000} />}
       <div className="text-[12.5px] text-mute font-medium">
         <Link href="/" className="hover:text-ink">Markets</Link>
         <span className="mx-1.5">/</span>
@@ -116,6 +118,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
               points={history.map((h) => ({ t: h.t.toISOString(), p: Number(h.p) }))}
               // eslint-disable-next-line react-hooks/purity -- server component renders once per request
               now={Date.now()}
+              live={market.status === "live"}
             />
           </div>
 

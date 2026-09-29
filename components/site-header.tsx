@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { getCurrentUser } from "@/lib/session";
 import { fmtMarks } from "@/lib/money";
 import { SearchBox } from "@/components/search-box";
@@ -31,11 +32,6 @@ export async function SiteHeader() {
               Portfolio
             </Link>
           )}
-          {user && (
-            <Link href="/propose" className="px-2.5 py-1.5 rounded-md hover:text-ink hover:bg-surface-2">
-              Propose
-            </Link>
-          )}
           {user?.role === "admin" && (
             <Link href="/admin" className="px-2.5 py-1.5 rounded-md text-ink font-semibold hover:bg-surface-2">
               Admin
@@ -46,6 +42,15 @@ export async function SiteHeader() {
         <div className="flex-1 max-w-sm ml-auto">
           <SearchBox />
         </div>
+
+        <Link
+          href="/propose"
+          className="hidden sm:inline-flex items-center gap-1 h-8 px-3 rounded-lg border border-line text-[13px] font-semibold text-ink hover:bg-surface-2 shrink-0"
+          title="Create a market"
+        >
+          <Plus className="size-3.5" />
+          New market
+        </Link>
 
         {user ? (
           <div className="flex items-center gap-2 shrink-0">

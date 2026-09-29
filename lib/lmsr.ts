@@ -11,6 +11,11 @@ export function yesPrice(qYes: number, qNo: number, b: number): number {
   return 1 / (1 + Math.exp((qNo - qYes) / b));
 }
 
+// Yes-side quantity that makes the LMSR open at probability `p` (qNo = 0).
+export function qForProb(p: number, b: number): number {
+  return b * Math.log(p / (1 - p));
+}
+
 // Cost in marks to buy `shares` of `outcome` (or refund when shares < 0).
 export function tradeCost(
   qYes: number,

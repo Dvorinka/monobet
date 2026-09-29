@@ -6,19 +6,28 @@ import { toast } from "sonner";
 import { Button, Input, Select, Textarea, Card } from "@/components/ui/primitives";
 import { proposeMarket } from "@/lib/actions";
 import { CATEGORIES } from "@/lib/db/schema";
+import { cn } from "@/lib/utils";
+
+const LIQUIDITY = [
+  { b: 100, label: "Thin", hint: "Trades swing the price hard" },
+  { b: 300, label: "Standard", hint: "Balanced" },
+  { b: 900, label: "Deep", hint: "Prices move slowly" },
+] as const;
 
 export function MarketForm({ isAdmin }: { isAdmin: boolean }) {
   const [question, setQuestion] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<string>("Friends");
   const [closesAt, setClosesAt] = useState("");
+  const [odds, setOdds] = useState(50);
+  const [liquidity, setLiquidity] = useState<number>(300);
   const [pending, start] = useTransition();
   const router = useRouter();
 
   return (
     <Card className="p-6">
       <form
-        className="space-y-4"
+        className="space-y-5"
         onSubmit={(e) => {
           e.preventDefault();
           start(async () => {
@@ -27,18 +36,12 @@ export function MarketForm({ isAdmin }: { isAdmin: boolean }) {
               description,
               category,
               closesAt: closesAt || undefined,
+              initialProb: odds / 100,
+              liquidity,
             });
             if (r.ok) {
-              if (r.live) {
-                toast.success("Market is live");
-                router.push(`/market/${r.slug}`);
-              } else {
-                toast.success("Submitted for admin review");
-                setQuestion("");
-                setDescription("");
-                setClosesAt("");
-                router.refresh();
-              }
+              toast.success("Market is live");
+              router.push(`/market/${r.slug}`);
             } else toast.error(r.error);
           });
         }}
@@ -100,15 +103,66 @@ export function MarketForm({ isAdmin }: { isAdmin: boolean }) {
           </div>
         </div>
 
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] font-medium text-mute" htmlFor="odds">
+              Starting odds
+            </label>
+            <span className="num text-[13px] font-bold text-ink">{odds}%</span>
+          </div>
+          <div className="mt-2 flex h-9 overflow-hidden rounded-lg border border-line">
+            <div
+              className="grid place-items-center bg-yes-soft text-yes-strong text-[12.5px] font-bold transition-all duration-150"
+              style={{ width: `${odds}%` }}
+            >
+              {odds >= 14 && `Yes ${odds}%`}
+            </div>
+            <div className="grid flex-1 place-items-center bg-no-soft text-no-strong text-[12.5px] font-bold">
+              {odds <= 86 && `No ${100 - odds}%`}
+            </div>
+          </div>
+          <input
+            id="odds"
+            type="range"
+            min={3}
+            max={97}
+            value={odds}
+            onChange={(e) => setOdds(Number(e.target.value))}
+            className="mt-2 w-full accent-ink cursor-pointer"
+          />
+          <p className="text-[11.5px] text-faint">Where the price opens. Traders move it from here.</p>
+        </div>
+
+        <div>
+          <label className="text-[13px] font-medium text-mute">Liquidity</label>
+          <div className="mt-1.5 grid grid-cols-3 gap-2">
+            {LIQUIDITY.map((l) => (
+              <button
+                key={l.b}
+                type="button"
+                onClick={() => setLiquidity(l.b)}
+                className={cn(
+                  "rounded-lg border px-3 py-2.5 text-left cursor-pointer transition-colors",
+                  liquidity === l.b
+                    ? "border-ink bg-surface-2"
+                    : "border-line hover:border-faint/60"
+                )}
+              >
+                <div className="text-[13px] font-bold">{l.label}</div>
+                <div className="mt-0.5 text-[11px] leading-tight text-mute">{l.hint}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <Button className="w-full" size="lg" disabled={pending}>
-          {pending ? "…" : isAdmin ? "Create live market" : "Submit for review"}
+          {pending ? "Creating…" : "Create market"}
         </Button>
 
-        {!isAdmin && (
-          <p className="text-[12px] text-faint text-center">
-            An admin reviews proposals before trading opens.
-          </p>
-        )}
+        <p className="text-[12px] text-faint text-center">
+          Goes live for everyone the moment you create it.
+          {isAdmin ? " You're admin — you can edit, resolve, or cancel it anytime." : " Admins can resolve or cancel markets later."}
+        </p>
       </form>
     </Card>
   );

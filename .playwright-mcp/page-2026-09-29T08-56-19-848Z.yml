@@ -1,0 +1,84 @@
+- generic [active] [ref=f8e1]:
+  - banner [ref=f8e2]:
+    - generic [ref=f8e3]:
+      - link "M MonoMark" [ref=f8e4] [cursor=pointer]:
+        - /url: /
+        - generic [ref=f8e5]: M
+        - generic [ref=f8e6]: MonoMark
+      - navigation [ref=f8e7]:
+        - link "Markets" [ref=f8e8] [cursor=pointer]:
+          - /url: /
+        - link "Leaderboard" [ref=f8e9] [cursor=pointer]:
+          - /url: /leaderboard
+        - link "Portfolio" [ref=f8e10] [cursor=pointer]:
+          - /url: /portfolio
+        - link "Admin" [ref=f8e11] [cursor=pointer]:
+          - /url: /admin
+      - textbox "Search markets" [ref=f8e14]
+      - link "New market" [ref=f8e15] [cursor=pointer]:
+        - /url: /propose
+      - generic [ref=f8e17]:
+        - button "Claim" [ref=f8e18] [cursor=pointer]
+        - link "Ɱ1,000" [ref=f8e25] [cursor=pointer]:
+          - /url: /portfolio
+        - button "Account menu" [ref=f8e27] [cursor=pointer]:
+          - generic [ref=f8e28]: C
+  - main [ref=f8e29]:
+    - generic [ref=f8e30]:
+      - heading "Create a market" [level=1] [ref=f8e31]
+      - paragraph [ref=f8e32]: It goes live for everyone instantly. You set the starting odds — the crowd takes it from there.
+      - generic [ref=f8e34]:
+        - generic [ref=f8e35]:
+          - text: Question
+          - textbox "Question" [ref=f8e36]:
+            - /placeholder: Will it snow in Prague before Christmas?
+          - paragraph [ref=f8e37]: A clear yes/no question. 200 chars left.
+        - generic [ref=f8e38]:
+          - text: Resolution rules
+          - textbox "Resolution rules" [ref=f8e39]:
+            - /placeholder: How will this be decided? Source, deadline, edge cases…
+        - generic [ref=f8e40]:
+          - generic [ref=f8e41]:
+            - text: Category
+            - combobox "Category" [ref=f8e42] [cursor=pointer]:
+              - option "Politics"
+              - option "Sports"
+              - option "Crypto"
+              - option "Tech"
+              - option "Culture"
+              - option "Friends" [selected]
+              - option "Other"
+          - generic [ref=f8e43]:
+            - text: Betting closes (optional)
+            - textbox "Betting closes (optional)" [ref=f8e44]
+        - generic [ref=f8e45]:
+          - generic [ref=f8e46]:
+            - generic [ref=f8e47]: Starting odds
+            - generic [ref=f8e48]: 50%
+          - generic [ref=f8e49]:
+            - generic [ref=f8e50]: Yes 50%
+            - generic [ref=f8e51]: No 50%
+          - slider "Starting odds" [ref=f8e52] [cursor=pointer]: "50"
+          - paragraph [ref=f8e53]: Where the price opens. Traders move it from here.
+        - generic [ref=f8e54]:
+          - text: Liquidity
+          - generic [ref=f8e55]:
+            - button "Thin Trades swing the price hard" [ref=f8e56] [cursor=pointer]:
+              - generic [ref=f8e57]: Thin
+              - generic [ref=f8e58]: Trades swing the price hard
+            - button "Standard Balanced" [ref=f8e59] [cursor=pointer]:
+              - generic [ref=f8e60]: Standard
+              - generic [ref=f8e61]: Balanced
+            - button "Deep Prices move slowly" [ref=f8e62] [cursor=pointer]:
+              - generic [ref=f8e63]: Deep
+              - generic [ref=f8e64]: Prices move slowly
+        - button "Create market" [ref=f8e65] [cursor=pointer]
+        - paragraph [ref=f8e66]: Goes live for everyone the moment you create it. You're admin — you can edit, resolve, or cancel it anytime.
+  - contentinfo [ref=f8e67]:
+    - generic [ref=f8e68]:
+      - generic [ref=f8e69]:
+        - generic [ref=f8e70]: M
+        - generic [ref=f8e71]: MonoMark
+      - paragraph [ref=f8e72]: Play-money prediction markets. Not financial advice — not even real money.
+  - region "Notifications alt+T"
+  - alert [ref=f8e73]

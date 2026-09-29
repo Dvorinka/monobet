@@ -4,6 +4,7 @@ import type { MarketRow } from "@/lib/queries";
 import { marketYesPrice } from "@/lib/queries";
 import { fmtCents, fmtMarks, fmtDate } from "@/lib/money";
 import { Sparkline } from "@/components/sparkline";
+import { AnimatedPct } from "@/components/animated-number";
 import { Badge } from "@/components/ui/primitives";
 
 const CAT_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -32,7 +33,7 @@ export function MarketCard({
   return (
     <Link
       href={`/market/${market.slug}`}
-      className="group flex flex-col rounded-[14px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(16,16,20,0.04)] hover:shadow-[0_4px_16px_rgba(16,16,20,0.08)] hover:border-faint/60 transition-shadow"
+      className="group flex flex-col rounded-[14px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(16,16,20,0.04)] hover:shadow-[0_6px_20px_rgba(16,16,20,0.09)] hover:border-faint/60 hover:-translate-y-0.5 transition-all duration-200 anim-rise"
     >
       <div className="flex gap-3">
         <div className="grid place-items-center size-10 rounded-lg bg-surface-2 border border-line-2 shrink-0 select-none">
@@ -59,13 +60,14 @@ export function MarketCard({
             ) : market.status === "pending" ? (
               <Badge tone="warn">Pending approval</Badge>
             ) : (
-              <span className={py >= 0.5 ? "text-yes" : "text-ink"}>{fmtCents(py)}</span>
+              <AnimatedPct
+                value={py}
+                className={py >= 0.5 ? "text-yes" : "text-ink"}
+              />
             )}
           </div>
           {market.status === "live" && (
-            <div className="text-[11px] text-mute mt-1.5 font-medium">
-              {Math.round(py * 100)}% chance
-            </div>
+            <div className="text-[11px] text-mute mt-1.5 font-medium">chance</div>
           )}
         </div>
       </div>

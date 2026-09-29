@@ -4,7 +4,7 @@ import { db, schema } from "@/lib/db";
 import { eq, and, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin } from "@/lib/session";
-import { yesPrice, tradeCost, sharesForSpend } from "@/lib/lmsr";
+import { yesPrice, tradeCost, sharesForSpend, qForProb } from "@/lib/lmsr";
 import { marketYesPrice } from "@/lib/queries";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -247,11 +247,17 @@ export async function grantBalance(input: {
 
 // ---------- markets ----------
 
+// Everyone can open a live market. The creator sets the starting odds and
+// liquidity; the LMSR takes it from there.
+const LIQUIDITY_OPTIONS = [100, 300, 900] as const;
+
 export async function proposeMarket(input: {
   question: string;
   description: string;
   category: string;
   closesAt?: string;
+  initialProb?: number;
+  liquidity?: number;
 }): Promise<{ ok: boolean; error?: string; slug?: string; live?: boolean }> {
   try {
     const u = await requireUser();
@@ -259,7 +265,8 @@ export async function proposeMarket(input: {
     if (question.length < 10) throw new Error("Question too short (min 10 chars)");
     if (question.length > 200) throw new Error("Question too long (max 200)");
     if (input.description.length > 5000) throw new Error("Description too long");
-    const isAdmin = u.role === "admin";
+    const b = LIQUIDITY_OPTIONS.includes(input.liquidity as 100) ? input.liquidity! : 300;
+    const p = Math.min(0.97, Math.max(0.03, input.initialProb ?? 0.5));
     const slug = slugify(question);
     const [m] = await db
       .insert(schema.market)
@@ -268,17 +275,18 @@ export async function proposeMarket(input: {
         question,
         description: input.description.trim(),
         category: input.category,
-        status: isAdmin ? "live" : "pending",
+        status: "live",
         creatorId: u.id,
+        b,
+        qYes: qForProb(p, b).toFixed(6),
+        qNo: "0",
         closesAt: input.closesAt ? new Date(input.closesAt) : null,
       })
       .returning({ id: schema.market.id, slug: schema.market.slug });
-    if (isAdmin) {
-      await db.insert(schema.pricePoint).values({ marketId: m.id, yesPrice: "0.5" });
-    }
+    await db.insert(schema.pricePoint).values({ marketId: m.id, yesPrice: p.toFixed(5) });
     revalidatePath("/admin");
     revalidatePath("/");
-    return { ok: true, slug: m.slug, live: isAdmin };
+    return { ok: true, slug: m.slug, live: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed to create market" };
   }
@@ -291,7 +299,7 @@ export async function approveMarket(marketId: string): Promise<{ ok: boolean; er
       const m = await lockMarket(tx, marketId);
       if (m.status !== "pending") throw new Error("Not pending");
       await tx.update(schema.market).set({ status: "live" }).where(eq(schema.market.id, marketId));
-      await tx.insert(schema.pricePoint).values({ marketId, yesPrice: "0.5" });
+      await tx.insert(schema.pricePoint).values({ marketId, yesPrice: marketYesPrice(m).toFixed(5) });
     });
     revalidatePath("/admin");
     revalidatePath("/");

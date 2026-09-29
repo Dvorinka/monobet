@@ -20,6 +20,8 @@ export function Sparkline({ points, className }: { points: number[]; className?:
         strokeWidth="1.8"
         strokeLinejoin="round"
         strokeLinecap="round"
+        pathLength={1}
+        className="anim-draw"
       />
     </svg>
   );

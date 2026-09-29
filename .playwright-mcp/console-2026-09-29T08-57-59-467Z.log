@@ -1,0 +1,21 @@
+[   30452ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/?_rsc=iaBgPzVoF2ktJU-r:0
+[   30452ms] [ERROR] Failed to fetch RSC payload for http://localhost:3100/. Falling back to browser navigation. TypeError: Failed to fetch
+    at n (http://localhost:3100/_next/static/chunks/1qll-1ekujjxu.js:2:34010)
+    at N (http://localhost:3100/_next/static/chunks/1qll-1ekujjxu.js:1:17685)
+    at async v (http://localhost:3100/_next/static/chunks/1qll-1ekujjxu.js:1:15644)
+    at async k (http://localhost:3100/_next/static/chunks/1qll-1ekujjxu.js:1:27486) @ http://localhost:3100/_next/static/chunks/1qll-1ekujjxu.js:0
+[   30462ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/market/will-the-dev-test-branch-hold-this-market-kpnmd?_rsc=tXyZJ52UQVBCVsD3:0
+[   30462ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/market/coffee-machine-survival?_rsc=tXyZJ52UQVBCVsD3:0
+[   30462ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/market/nextjs-17-2026?_rsc=tXyZJ52UQVBCVsD3:0
+[   30463ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/market/poker-tom-undefeated?_rsc=tXyZJ52UQVBCVsD3:0
+[   30464ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/market/will-the-dev-test-branch-hold-this-market-kpnmd?_rsc=_i_aeImnuN6u1u1r:0
+[   30464ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/market/coffee-machine-survival?_rsc=_i_aeImnuN6u1u1r:0
+[   30464ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/market/nextjs-17-2026?_rsc=_i_aeImnuN6u1u1r:0
+[   30465ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/market/poker-tom-undefeated?_rsc=_i_aeImnuN6u1u1r:0
+[   30465ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/market/rain-brno-weekend?_rsc=_i_aeImnuN6u1u1r:0
+[   30466ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/market/btc-150k-eoy?_rsc=_i_aeImnuN6u1u1r:0
+[   30466ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/?_rsc=_i_aeImnuN6u1u1r:0
+[   30467ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/?cat=trending&_rsc=_i_aeImnuN6u1u1r:0
+[   30467ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/?cat=new&_rsc=_i_aeImnuN6u1u1r:0
+[   30467ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/?cat=Politics&_rsc=_i_aeImnuN6u1u1r:0
+[   30468ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3100/?cat=Sports&_rsc=_i_aeImnuN6u1u1r:0

@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { CategoryTabs } from "@/components/category-tabs";
+import { LiveRefresher } from "@/components/live-refresher";
 import { MarketCard } from "@/components/market-card";
 import { listMarkets, getSparklines, getCommentCount } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
@@ -29,6 +30,7 @@ export default async function Home({
 
   return (
     <div className="mx-auto max-w-6xl px-4">
+      <LiveRefresher intervalMs={15000} />
       <Suspense>
         <CategoryTabs />
       </Suspense>
@@ -44,7 +46,7 @@ export default async function Home({
         <div className="rounded-[14px] border border-dashed border-line py-20 text-center">
           <p className="text-mute font-medium">No markets here yet.</p>
           <p className="text-[13px] text-faint mt-1">
-            Be the first — <a href="/propose" className="underline underline-offset-2 text-ink">propose one</a>.
+            Be the first — <a href="/propose" className="underline underline-offset-2 text-ink">create one</a>.
           </p>
         </div>
       ) : (
