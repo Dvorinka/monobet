@@ -630,7 +630,7 @@ export async function proposeMarket(input: {
     const maxLeverage = TRADE_LEVERAGES.includes(input.maxLeverage ?? 10) ? input.maxLeverage! : 10;
     const marketImage = input.imageUrl?.trim() || null;
     if (marketImage) {
-      const isData = /^data:image\/(jpeg|png|webp);base64,/.test(marketImage);
+      const isData = /^data:image\/(jpeg|png|webp);base64,/.test(marketImage) || /^data:image\/svg\+xml[;,]/.test(marketImage);
       if (!isData && !/^(https?:\/\/|\/)\S+$/.test(marketImage)) throw new Error("Bad image URL");
       if (isData && marketImage.length > 450_000) throw new Error("Image too large");
     }
@@ -643,7 +643,7 @@ export async function proposeMarket(input: {
       .map((line) => {
         const [label, url] = line.split("|").map((s) => s.trim());
         if (url) {
-          const isData = /^data:image\/(jpeg|png|webp);base64,/.test(url);
+          const isData = /^data:image\/(jpeg|png|webp);base64,/.test(url) || /^data:image\/svg\+xml[;,]/.test(url);
           const isUrl = /^(https?:\/\/|\/)\S+$/.test(url);
           if (!isData && !isUrl) throw new Error(`Bad image URL for "${label}"`);
           if (isData && url.length > 450_000) throw new Error(`Image too large for "${label}"`);
@@ -788,7 +788,7 @@ export async function updateMarket(input: {
     const admin = isAdmin(u);
     if (!admin && m[0].creatorId !== u.id) throw new Error("Only the creator or an admin can edit");
     if (m[0].status === "resolved") throw new Error("Cannot edit resolved market");
-    if (input.imageUrl && !/^(https?:\/\/|\/)\S+$/.test(input.imageUrl.trim())) throw new Error("Bad image URL");
+    if (input.imageUrl && !/^(https?:\/\/|\/)\S+$/.test(input.imageUrl.trim()) && !/^data:image\/(jpeg|png|webp);base64,|^data:image\/svg\+xml[;,]/.test(input.imageUrl.trim())) throw new Error("Bad image URL");
 
     const question = input.question.trim();
     if (question !== m[0].question) {

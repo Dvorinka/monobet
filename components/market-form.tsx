@@ -9,7 +9,7 @@ import { compressImage } from "@/components/comments";
 import { getT, type Lang } from "@/lib/i18n";
 import { optionColor } from "@/lib/option-style";
 import { cn } from "@/lib/utils";
-import { ImagePlus, Plus, X } from "lucide-react";
+import { ImagePlus, Plus, X, Shapes, TrendingUp, Trophy, Coins, Zap, Globe, Flag, Star, Heart, Users, Gamepad2, Music, Plane, Car, Home, Cpu, Film, Landmark, Rocket, CalendarDays, Target } from "lucide-react";
 
 const NEW_CATEGORY = "__new__";
 
@@ -156,6 +156,7 @@ export function MarketForm({
               onBadImage={() => toast.error(t.imageBad)}
               className="size-10"
             />
+            <IconPicker onPick={setMarketImage} hint={t.iconPickerHint} />
             <p className="text-[11.5px] text-faint">{t.marketIconHint}</p>
           </div>
         </div>
@@ -519,6 +520,48 @@ function OptionRow({
       >
         <X className="size-4" />
       </button>
+    </div>
+  );
+}
+
+// Curated Lucide glyphs for the market icon. A pick serializes the rendered
+// <svg> to a data URI so it rides the existing imageUrl pipeline.
+const ICON_PICK = [
+  TrendingUp, Trophy, Coins, Zap, Globe, Flag, Star, Heart, Users, Gamepad2,
+  Music, Plane, Car, Home, Cpu, Film, Landmark, Rocket, CalendarDays, Target,
+];
+
+function IconPicker({ onPick, hint }: { onPick: (v: string) => void; hint: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        title={hint}
+        onClick={() => setOpen((v) => !v)}
+        className="size-10 grid place-items-center rounded-lg border border-dashed border-line text-faint hover:text-ink hover:border-faint cursor-pointer"
+      >
+        <Shapes className="size-4" />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-11 z-20 grid w-[188px] grid-cols-5 gap-0.5 rounded-xl border border-line bg-surface p-1.5 shadow-[0_8px_24px_rgba(16,16,20,0.12)]">
+          {ICON_PICK.map((Icon, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={(e) => {
+                // SAFETY: lucide buttons always render a single svg child.
+                const svg = e.currentTarget.querySelector("svg")?.outerHTML;
+                if (svg) onPick(`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`);
+                setOpen(false);
+              }}
+              className="size-8.5 grid place-items-center rounded-md text-mute hover:bg-surface-2 hover:text-ink cursor-pointer"
+            >
+              <Icon className="size-4" />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
