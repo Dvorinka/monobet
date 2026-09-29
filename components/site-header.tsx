@@ -11,6 +11,7 @@ import { ClaimButton } from "@/components/claim-button";
 import { Button } from "@/components/ui/primitives";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LangToggle } from "@/components/lang-toggle";
+import { DAILY_COOLDOWN_MS } from "@/lib/rewards";
 
 export async function SiteHeader() {
   const [user, lang] = await Promise.all([getCurrentUser(), getLang()]);
@@ -63,7 +64,10 @@ export async function SiteHeader() {
 
         {user ? (
           <div className="flex items-center gap-2 shrink-0">
-            <ClaimButton lang={lang} />
+            <ClaimButton
+              lang={lang}
+              nextAt={user.lastClaimAt ? new Date(user.lastClaimAt).getTime() + DAILY_COOLDOWN_MS : null}
+            />
             <Link
               href="/portfolio"
               className="num hidden sm:inline-flex items-center h-9 px-3 rounded-lg bg-surface-2 text-sm font-semibold hover:bg-surface-3"
