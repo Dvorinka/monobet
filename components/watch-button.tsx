@@ -2,14 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Star } from "lucide-react";
+import { Bookmark } from "lucide-react";
 import { toast } from "sonner";
 import { toggleWatchlist } from "@/lib/actions";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-// Star toggle rendered inside market cards and on the market page. Lives in a
-// <Link> card in some contexts, so it swallows the event itself.
+// Bookmark toggle rendered inside market cards and on the market page — adds
+// the market to the Watching tab. Lives in a <Link> card in some contexts, so
+// it swallows the event itself.
 export function WatchButton({
   marketId,
   watching: initial,
@@ -48,11 +49,11 @@ export function WatchButton({
       }}
       className={cn(
         "inline-flex items-center justify-center size-6 rounded-md transition-colors cursor-pointer disabled:opacity-50",
-        watching ? "text-amber-500 hover:text-amber-600" : "text-faint hover:text-amber-500",
+        watching ? "text-brand-strong hover:text-brand" : "text-faint hover:text-brand-strong",
         className
       )}
     >
-      <Star className={cn("size-4", watching && "fill-amber-500")} />
+      <Bookmark className={cn("size-4", watching && "fill-brand text-brand-strong")} />
     </button>
   );
 }

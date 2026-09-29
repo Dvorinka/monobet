@@ -120,6 +120,13 @@
       "when": 1790692782690,
       "tag": "0016_max-leverage",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790694337026,
+      "tag": "0017_market-likes",
+      "breakpoints": true
     }
   ]
 }

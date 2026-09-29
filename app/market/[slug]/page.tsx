@@ -17,6 +17,8 @@ import {
   getMarketBetCount,
   listCategories,
   isWatching,
+  isLiked,
+  getLikeCounts,
   marketYesPrice,
   getResolutionState,
 } from "@/lib/queries";
@@ -26,6 +28,7 @@ import { getT, type Dict } from "@/lib/i18n";
 import { fmtMarks, fmtDate, fmtShares, fmtCents } from "@/lib/money";
 import { PriceChart } from "@/components/price-chart";
 import { WatchButton } from "@/components/watch-button";
+import { LikeButton } from "@/components/like-button";
 import { CopyLink } from "@/components/copy-link";
 import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicket } from "@/components/trade-ticket";
@@ -73,19 +76,21 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
   }
 
   if (market.kind === "group") {
-    const [options, trades, comments, related, watching] = await Promise.all([
+    const [options, trades, comments, related, watching, liked, likes] = await Promise.all([
       getGroupOptions(market.id),
       getGroupTrades(market.id),
       getComments(market.id, user?.id),
       getRelatedMarkets(market.id, market.category),
       user ? isWatching(user.id, market.id) : false,
+      user ? isLiked(user.id, market.id) : false,
+      getLikeCounts([market.id]),
     ]);
-    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} watching={watching} />;
+    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} watching={watching} liked={liked} likes={likes.get(market.id) ?? 0} />;
   }
 
   const parent = market.parentId ? await getMarketById(market.parentId) : null;
 
-  const [history, trades, comments, position, related, betCount, categories, watching, res] = await Promise.all([
+  const [history, trades, comments, position, related, betCount, categories, watching, res, liked, likes] = await Promise.all([
     getPriceHistory(market.id),
     getRecentTrades(market.id),
     getComments(market.id, user?.id),
@@ -95,6 +100,8 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
     listCategories(),
     user ? isWatching(user.id, market.id) : false,
     getResolutionState(market.id, user?.id),
+    user ? isLiked(user.id, market.id) : false,
+    getLikeCounts([market.id]),
   ]);
   const relatedSparks = await getSparklines(related.map((m) => m.id));
   const canDelete = !!user && (isAdmin(user) || (market.creatorId === user.id && betCount === 0));
@@ -133,7 +140,12 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight leading-tight flex-1">
               {market.question}
             </h1>
-            {user && <WatchButton marketId={market.id} watching={watching} lang={lang} className="mt-1.5" />}
+            {user && (
+              <span className="mt-1.5 inline-flex items-center gap-1 shrink-0">
+                <LikeButton marketId={market.id} liked={liked} count={likes.get(market.id) ?? 0} lang={lang} />
+                <WatchButton marketId={market.id} watching={watching} lang={lang} />
+              </span>
+            )}
             {market.status === "resolved" && (
               <Badge tone={market.outcome === "yes" ? "yes" : "no"} className="mt-1.5">
                 {t.resolved} {(market.outcome === "yes" ? t.yes : t.no).toUpperCase()}
@@ -308,6 +320,8 @@ async function GroupMarketView({
   user,
   lang,
   watching,
+  liked,
+  likes = 0,
 }: {
   market: Awaited<ReturnType<typeof getMarketBySlug>> & object;
   options: Awaited<ReturnType<typeof getGroupOptions>>;
@@ -317,6 +331,8 @@ async function GroupMarketView({
   user: Awaited<ReturnType<typeof getCurrentUser>>;
   lang: "en" | "cs";
   watching: boolean;
+  liked: boolean;
+  likes?: number;
 }) {
   const t: Dict = getT(lang);
   const optionIds = options.map((o) => o.id);
@@ -361,7 +377,12 @@ async function GroupMarketView({
         <div className="min-w-0 flex-1">
           <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight leading-tight flex items-start gap-2">
             <span className="flex-1">{market.question}</span>
-            {user && <WatchButton marketId={market.id} watching={watching} lang={lang} className="mt-1.5 shrink-0" />}
+            {user && (
+              <span className="mt-1.5 inline-flex items-center gap-1 shrink-0">
+                <LikeButton marketId={market.id} liked={liked} count={likes} lang={lang} />
+                <WatchButton marketId={market.id} watching={watching} lang={lang} />
+              </span>
+            )}
           </h1>
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[12.5px] text-mute font-medium">
             <span className="num">{fmtMarks(volume, { lang })} {t.volume}</span>
