@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
 import { yesPrice, tradeCost, sharesForSpend, qForProb } from "@/lib/lmsr";
+import { loanFor, liquidationValueCents, shouldLiquidate } from "@/lib/liq";
 import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
 import {
   DAILY_AMOUNT,
@@ -163,10 +164,8 @@ async function checkLiquidations(tx: Tx, marketId: string) {
   for (const p of rows) {
     const y = toNum(p.yesShares);
     const n = toNum(p.noShares);
-    const valueCents = Math.round(
-      (tradeCost(qy, qn, m.b, "yes", -y) + tradeCost(qy - y, qn, m.b, "no", -n)) * 100
-    );
-    if (valueCents > p.debtCents * 1.05) continue;
+    const valueCents = liquidationValueCents(qy, qn, m.b, y, n);
+    if (!shouldLiquidate(valueCents, p.debtCents)) continue;
     qy -= y;
     qn -= n;
     const equity = Math.max(0, valueCents - p.debtCents);
@@ -226,7 +225,7 @@ export async function placeTrade(input: {
         shares = sharesForSpend(qYes, qNo, b, outcome, notional / 100);
         if (shares <= 0) throw new Error("Trade too small");
         cashDelta = -spend; // collateral only — the loan makes up the rest
-        debtDelta = notional - spend;
+        debtDelta = loanFor(spend, leverage);
       } else {
         shares = -Math.abs(input.shares ?? 0); // negative = removing shares from market
         if (!Number.isFinite(shares) || shares >= 0) throw new Error("Enter shares to sell");
@@ -237,8 +236,8 @@ export async function placeTrade(input: {
           .limit(1);
         const held = toNum(outcome === "yes" ? pos?.yesShares ?? "0" : pos?.noShares ?? "0");
         if (held + 1e-6 < -shares) throw new Error("Not enough shares");
-        const refund = tradeCost(qYes, qNo, b, outcome, shares);
-        cashDelta = Math.round(refund * 100); // nearest cent
+        const payout = -tradeCost(qYes, qNo, b, outcome, shares); // sell delta is negative — negate for proceeds
+        cashDelta = Math.round(payout * 100); // nearest cent
         if (cashDelta <= 0) throw new Error("Nothing to refund");
         // Proceeds service the loan first; the seller keeps the remainder.
         debtRepay = Math.min(cashDelta, pos?.debtCents ?? 0);
