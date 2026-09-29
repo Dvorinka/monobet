@@ -106,18 +106,25 @@ async function lockUser(tx: Tx, userId: string) {
   return rows[0];
 }
 
-function slugify(q: string): string {
-  // NFD strip turns "nepodmíněný" into "nepodmineny" instead of dropping letters.
-  const base = q
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .replace(/['’]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48)
-    .replace(/-[^-]*$/, ""); // don't cut mid-word
-  return `${base || "market"}-${Math.random().toString(36).slice(2, 7)}`;
+// Short random market slug — "/market/7kx9q2mp". Unambiguous alphabet.
+const SLUG_ABC = "abcdefghjkmnpqrstuvwxyz23456789";
+function newSlug(len = 8): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(len));
+  return Array.from(bytes, (b) => SLUG_ABC[b % SLUG_ABC.length]).join("");
+}
+
+// Generate until free — collisions are ~1e-12 but cheap to rule out.
+async function uniqueSlug(tx: Tx): Promise<string> {
+  for (let i = 0; i < 8; i++) {
+    const s = newSlug();
+    const [hit] = await tx
+      .select({ id: schema.market.id })
+      .from(schema.market)
+      .where(eq(schema.market.slug, s))
+      .limit(1);
+    if (!hit) return s;
+  }
+  throw new Error("Could not allocate a slug");
 }
 
 function toNum(s: string | number): number {
@@ -668,7 +675,7 @@ export async function proposeMarket(input: {
         const [parent] = await tx
           .insert(schema.market)
           .values({
-            slug: slugify(question),
+            slug: await uniqueSlug(tx),
             question,
             description,
             context,
@@ -691,7 +698,7 @@ export async function proposeMarket(input: {
           const [child] = await tx
             .insert(schema.market)
             .values({
-              slug: slugify(`${base} ${label}`),
+              slug: await uniqueSlug(tx),
               question: `${base} — ${label}?`,
               description,
               category,
@@ -717,7 +724,7 @@ export async function proposeMarket(input: {
       const [m] = await tx
         .insert(schema.market)
         .values({
-          slug: slugify(question),
+          slug: await uniqueSlug(tx),
           question,
           description,
           context,
@@ -902,7 +909,7 @@ async function settleMarketTx(
     const [clone] = await tx
       .insert(schema.market)
       .values({
-        slug: `${m.slug.slice(0, 80)}-${nextClose.toISOString().slice(0, 10)}`,
+        slug: await uniqueSlug(tx),
         question: m.question,
         description: m.description,
         category: m.category,
