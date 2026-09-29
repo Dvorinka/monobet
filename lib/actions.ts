@@ -107,13 +107,17 @@ async function lockUser(tx: Tx, userId: string) {
 }
 
 function slugify(q: string): string {
+  // NFD strip turns "nepodmíněný" into "nepodmineny" instead of dropping letters.
   const base = q
     .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
     .replace(/['’]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-  return `${base}-${Math.random().toString(36).slice(2, 7)}`;
+    .slice(0, 48)
+    .replace(/-[^-]*$/, ""); // don't cut mid-word
+  return `${base || "market"}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function toNum(s: string | number): number {
