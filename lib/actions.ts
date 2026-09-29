@@ -596,6 +596,7 @@ export async function proposeMarket(input: {
   liquidity?: number;
   outcomes?: string[];
   optionProbs?: number[]; // per-option opening odds in %, parallel to outcomes
+  recurDays?: number; // auto-clone the market this many days after close
 }): Promise<{ ok: boolean; error?: string; slug?: string; live?: boolean }> {
   try {
     const u = await requireUser();
@@ -607,6 +608,7 @@ export async function proposeMarket(input: {
     const p = Math.min(0.97, Math.max(0.03, input.initialProb ?? 0.5));
     const description = input.description.trim();
     const closesAt = input.closesAt ? new Date(input.closesAt) : null;
+    const recurDays = [7, 14, 30].includes(input.recurDays ?? 0) ? input.recurDays! : null;
 
     // Options may carry an image: "Democratic Party | https://…/logo.png"
     const parsed = (input.outcomes ?? [])
@@ -684,6 +686,7 @@ export async function proposeMarket(input: {
           qYes: qForProb(p, b).toFixed(6),
           qNo: "0",
           closesAt,
+          recurDays,
         })
         .returning({ id: schema.market.id, slug: schema.market.slug });
       await tx.insert(schema.pricePoint).values({ marketId: m.id, yesPrice: p.toFixed(5) });
@@ -776,9 +779,105 @@ export async function updateMarket(input: {
   }
 }
 
+// Shared settle path — pays positions, closes the market, notifies watchers,
+// and clones recurring markets. Called by direct resolves and by the
+// community vote threshold.
+async function settleMarketTx(
+  tx: Tx,
+  m: typeof schema.market.$inferSelect,
+  outcome: "yes" | "no",
+  reason: string
+): Promise<number> {
+  let paidOut = 0;
+  const positions = await tx
+    .select()
+    .from(schema.position)
+    .where(eq(schema.position.marketId, m.id))
+    .for("update");
+  for (const p of positions) {
+    const winShares = outcome === "yes" ? toNum(p.yesShares) : toNum(p.noShares);
+    // Leveraged positions settle the loan first; winners keep the rest.
+    const payout = Math.max(0, Math.floor(winShares * 100) - p.debtCents);
+    if (payout > 0) {
+      await lockUser(tx, p.userId);
+      await credit(tx, p.userId, payout, "payout", m.id, `Payout: ${m.question.slice(0, 60)}`);
+      paidOut += payout;
+    }
+  }
+  await tx.delete(schema.position).where(eq(schema.position.marketId, m.id));
+  await tx
+    .update(schema.market)
+    .set({
+      status: "resolved",
+      outcome,
+      resolvedAt: new Date(),
+      resolutionReason: reason,
+      proposedOutcome: null,
+      proposedById: null,
+      proposedAt: null,
+    })
+    .where(eq(schema.market.id, m.id));
+  await tx.delete(schema.resolutionVote).where(eq(schema.resolutionVote.marketId, m.id));
+  await tx.insert(schema.pricePoint).values({
+    marketId: m.id,
+    yesPrice: outcome === "yes" ? "1" : "0",
+  });
+  // Fan out to watchers + the creator — position holders already got
+  // payout rows, so only notify users who didn't receive money.
+  const paidUsers = new Set(positions.map((p) => p.userId));
+  const watchers = await tx
+    .select({ userId: schema.watchlist.userId })
+    .from(schema.watchlist)
+    .where(eq(schema.watchlist.marketId, m.id));
+  const notifyIds = new Set([m.creatorId, ...watchers.map((w) => w.userId)].filter((x): x is string => !!x));
+  for (const uid of notifyIds) {
+    if (paidUsers.has(uid)) continue;
+    const [w] = await tx
+      .select({ balanceCents: schema.user.balanceCents })
+      .from(schema.user)
+      .where(eq(schema.user.id, uid))
+      .limit(1);
+    if (!w) continue;
+    await tx.insert(schema.ledger).values({
+      userId: uid,
+      amountCents: 0,
+      balanceAfterCents: w.balanceCents,
+      kind: "notify",
+      marketId: m.id,
+      memo: `Resolved ${outcome.toUpperCase()}: ${m.question.slice(0, 80)}`,
+    });
+  }
+  await syncGroupStatus(tx, m);
+
+  // Recurring markets: open a fresh copy closing recurDays after this close.
+  // Options stay out — a group's recurrence is driven by its own pattern.
+  if (m.recurDays && !m.parentId && m.kind !== "group") {
+    const nextClose = new Date((m.closesAt?.getTime() ?? Date.now()) + m.recurDays * 24 * 3600 * 1000);
+    const [clone] = await tx
+      .insert(schema.market)
+      .values({
+        slug: `${m.slug.slice(0, 80)}-${nextClose.toISOString().slice(0, 10)}`,
+        question: m.question,
+        description: m.description,
+        category: m.category,
+        status: "live",
+        kind: "binary",
+        creatorId: m.creatorId,
+        b: m.b,
+        recurDays: m.recurDays,
+        imageUrl: m.imageUrl,
+        closesAt: nextClose,
+      })
+      .returning({ id: schema.market.id });
+    await tx.insert(schema.pricePoint).values({ marketId: clone.id, yesPrice: "0.5" });
+  }
+  return paidOut;
+}
+
 export async function resolveMarket(input: {
   marketId: string;
   outcome: "yes" | "no";
+  reason?: string;
 }): Promise<{ ok: boolean; error?: string; paidOut?: number }> {
   try {
     const u = await requireUser();
@@ -788,56 +887,13 @@ export async function resolveMarket(input: {
       if (!isAdmin(u) && m.creatorId !== u.id) throw new Error("Only the creator or an admin can resolve");
       if (m.kind === "group") throw new Error("Resolve the group's options instead");
       if (m.status !== "live") throw new Error("Market is not live");
-      const positions = await tx
-        .select()
-        .from(schema.position)
-        .where(eq(schema.position.marketId, input.marketId))
-        .for("update");
-      for (const p of positions) {
-        const winShares = input.outcome === "yes" ? toNum(p.yesShares) : toNum(p.noShares);
-        // Leveraged positions settle the loan first; winners keep the rest.
-        const payout = Math.max(0, Math.floor(winShares * 100) - p.debtCents);
-        if (payout > 0) {
-          await lockUser(tx, p.userId);
-          await credit(tx, p.userId, payout, "payout", m.id, `Payout: ${m.question.slice(0, 60)}`);
-          paidOut += payout;
-        }
-      }
-      await tx.delete(schema.position).where(eq(schema.position.marketId, input.marketId));
-      await tx
-        .update(schema.market)
-        .set({ status: "resolved", outcome: input.outcome, resolvedAt: new Date() })
-        .where(eq(schema.market.id, input.marketId));
-      await tx.insert(schema.pricePoint).values({
-        marketId: input.marketId,
-        yesPrice: input.outcome === "yes" ? "1" : "0",
-      });
-      // Fan out to watchers + the creator — position holders already got
-      // payout rows, so only notify users who didn't receive money.
-      const paidUsers = new Set(positions.map((p) => p.userId));
-      const watchers = await tx
-        .select({ userId: schema.watchlist.userId })
-        .from(schema.watchlist)
-        .where(eq(schema.watchlist.marketId, m.id));
-      const notifyIds = new Set([m.creatorId, ...watchers.map((w) => w.userId)].filter((x): x is string => !!x));
-      for (const uid of notifyIds) {
-        if (paidUsers.has(uid)) continue;
-        const [w] = await tx
-          .select({ balanceCents: schema.user.balanceCents })
-          .from(schema.user)
-          .where(eq(schema.user.id, uid))
-          .limit(1);
-        if (!w) continue;
-        await tx.insert(schema.ledger).values({
-          userId: uid,
-          amountCents: 0,
-          balanceAfterCents: w.balanceCents,
-          kind: "notify",
-          marketId: m.id,
-          memo: `Resolved ${input.outcome.toUpperCase()}: ${m.question.slice(0, 80)}`,
-        });
-      }
-      await syncGroupStatus(tx, m);
+      // A disputed market is out of the creator's hands — only admins settle it.
+      const [d] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.resolutionVote)
+        .where(and(eq(schema.resolutionVote.marketId, m.id), eq(schema.resolutionVote.vote, "dispute")));
+      if ((d?.n ?? 0) > 0 && !isAdmin(u)) throw new Error("Resolution is disputed — an admin must resolve");
+      paidOut = await settleMarketTx(tx, m, input.outcome, (input.reason ?? "").trim().slice(0, 500));
     });
     revalidatePath("/");
     revalidatePath("/admin");
@@ -847,6 +903,92 @@ export async function resolveMarket(input: {
     return { ok: true, paidOut };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Resolve failed" };
+  }
+}
+
+// Community resolution — once a market is expired anyone signed in may propose
+// the outcome; two confirm votes settle it, disputes send it to admins.
+export async function proposeResolution(input: {
+  marketId: string;
+  outcome: "yes" | "no";
+  reason?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    await db.transaction(async (tx) => {
+      const m = await lockMarket(tx, input.marketId);
+      if (m.kind === "group" || m.status !== "live") throw new Error("Not resolvable");
+      if (!m.closesAt || m.closesAt > new Date()) throw new Error("Market hasn't closed yet");
+      // A new proposal resets the vote tally.
+      await tx.delete(schema.resolutionVote).where(eq(schema.resolutionVote.marketId, m.id));
+      await tx
+        .update(schema.market)
+        .set({
+          proposedOutcome: input.outcome,
+          proposedById: u.id,
+          proposedAt: new Date(),
+          resolutionReason: (input.reason ?? "").trim().slice(0, 500),
+        })
+        .where(eq(schema.market.id, m.id));
+    });
+    revalidatePath("/");
+    const [self] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, input.marketId)).limit(1);
+    if (self) revalidatePath(`/market/${self.slug}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Proposal failed" };
+  }
+}
+
+export async function voteResolution(input: {
+  marketId: string;
+  vote: "confirm" | "dispute";
+}): Promise<{ ok: boolean; error?: string; resolved?: boolean }> {
+  try {
+    const u = await requireUser();
+    let resolved = false;
+    await db.transaction(async (tx) => {
+      const m = await lockMarket(tx, input.marketId);
+      if (m.status !== "live" || !m.proposedOutcome) throw new Error("No active proposal");
+      if (m.proposedById === u.id) throw new Error("You proposed this outcome");
+      await tx
+        .insert(schema.resolutionVote)
+        .values({ marketId: m.id, userId: u.id, vote: input.vote })
+        .onConflictDoUpdate({
+          target: [schema.resolutionVote.marketId, schema.resolutionVote.userId],
+          set: { vote: input.vote },
+        });
+      const [c] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.resolutionVote)
+        .where(
+          and(
+            eq(schema.resolutionVote.marketId, m.id),
+            eq(schema.resolutionVote.vote, "confirm")
+          )
+        );
+      const [d] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.resolutionVote)
+        .where(
+          and(
+            eq(schema.resolutionVote.marketId, m.id),
+            eq(schema.resolutionVote.vote, "dispute")
+          )
+        );
+      // Two confirms with no disputes settles the market at the proposal.
+      if ((c?.n ?? 0) >= 2 && (d?.n ?? 0) === 0) {
+        await settleMarketTx(tx, m, m.proposedOutcome === "no" ? "no" : "yes", m.resolutionReason);
+        resolved = true;
+      }
+    });
+    revalidatePath("/");
+    revalidatePath("/admin");
+    const [self] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, input.marketId)).limit(1);
+    if (self) revalidatePath(`/market/${self.slug}`);
+    return { ok: true, resolved };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Vote failed" };
   }
 }
 

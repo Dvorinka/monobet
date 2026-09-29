@@ -18,6 +18,7 @@ import {
   listCategories,
   isWatching,
   marketYesPrice,
+  getResolutionState,
 } from "@/lib/queries";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
@@ -36,6 +37,7 @@ import { MarketCard, MarketIcon, OptionChip } from "@/components/market-card";
 import { MultiPriceChart } from "@/components/multi-chart";
 import { DeleteMarketButton } from "@/components/delete-market-button";
 import { MarketManagePanel } from "@/components/market-manage";
+import { ResolutionPanel } from "@/components/resolution-panel";
 import { optionColor } from "@/lib/option-style";
 import { Sparkline } from "@/components/sparkline";
 import { cn } from "@/lib/utils";
@@ -83,7 +85,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
 
   const parent = market.parentId ? await getMarketById(market.parentId) : null;
 
-  const [history, trades, comments, position, related, betCount, categories, watching] = await Promise.all([
+  const [history, trades, comments, position, related, betCount, categories, watching, res] = await Promise.all([
     getPriceHistory(market.id),
     getRecentTrades(market.id),
     getComments(market.id, user?.id),
@@ -92,6 +94,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
     getMarketBetCount(market.id),
     listCategories(),
     user ? isWatching(user.id, market.id) : false,
+    getResolutionState(market.id, user?.id),
   ]);
   const relatedSparks = await getSparklines(related.map((m) => m.id));
   const canDelete = !!user && (isAdmin(user) || (market.creatorId === user.id && betCount === 0));
@@ -165,7 +168,26 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
               )}
               <p className="text-sm">
                 {t.resolvedBanner((market.outcome === "yes" ? t.yes : t.no).toUpperCase(), fmtDate(market.resolvedAt, lang))}
+                {market.resolutionReason && (
+                  <span className="block text-[12px] text-mute mt-0.5">{market.resolutionReason}</span>
+                )}
               </p>
+            </div>
+          )}
+          {market.status === "live" && market.closesAt && market.closesAt < new Date() && (
+            <div className="mt-5">
+              <ResolutionPanel
+                marketId={market.id}
+                proposedOutcome={market.proposedOutcome}
+                reason={market.resolutionReason}
+                proposer={res.proposer}
+                proposedById={market.proposedById}
+                viewerId={user?.id}
+                confirms={res.confirms}
+                disputes={res.disputes}
+                myVote={res.myVote}
+                lang={lang}
+              />
             </div>
           )}
           {market.status === "pending" && (

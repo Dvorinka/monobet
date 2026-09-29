@@ -33,6 +33,7 @@ export function MarketForm({
   const [category, setCategory] = useState<string>(categories[0] ?? NEW_CATEGORY);
   const [newCategory, setNewCategory] = useState("");
   const [closesAt, setClosesAt] = useState("");
+  const [recurDays, setRecurDays] = useState("0");
   const [odds, setOdds] = useState(50);
   const [optionOdds, setOptionOdds] = useState<Record<number, number>>({});
   const [liquidity, setLiquidity] = useState<number>(300);
@@ -64,6 +65,7 @@ export function MarketForm({
               liquidity,
               outcomes: multi ? optionLines : undefined,
               optionProbs: multi ? optionLines.map((_, i) => probFor(i)) : undefined,
+              recurDays: multi ? undefined : Number(recurDays),
             });
             if (r.ok) {
               toast.success(t.live);
@@ -176,6 +178,21 @@ export function MarketForm({
             />
           </div>
         </div>
+
+        {!multi && closesAt && (
+          <div>
+            <label className="text-[13px] font-medium text-mute" htmlFor="recur">
+              {t.repeats}
+            </label>
+            <Select id="recur" value={recurDays} onChange={(e) => setRecurDays(e.target.value)} className="mt-1">
+              <option value="0">{t.recurNever}</option>
+              <option value="7">{t.recurWeekly}</option>
+              <option value="14">{t.recurBiweekly}</option>
+              <option value="30">{t.recurMonthly}</option>
+            </Select>
+            <p className="mt-1 text-[11.5px] text-faint">{t.repeatsHint}</p>
+          </div>
+        )}
 
         {multi ? (
           <div>
