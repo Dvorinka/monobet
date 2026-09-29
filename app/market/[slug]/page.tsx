@@ -15,6 +15,7 @@ import {
   getSparklines,
   getGroupHistories,
   getMarketBetCount,
+  listCategories,
   marketYesPrice,
 } from "@/lib/queries";
 import { getCurrentUser, isAdmin } from "@/lib/session";
@@ -31,6 +32,7 @@ import { Badge, Card } from "@/components/ui/primitives";
 import { MarketCard, MarketIcon, OptionChip } from "@/components/market-card";
 import { MultiPriceChart } from "@/components/multi-chart";
 import { DeleteMarketButton } from "@/components/delete-market-button";
+import { MarketManagePanel } from "@/components/market-manage";
 import { optionColor } from "@/lib/option-style";
 import { Sparkline } from "@/components/sparkline";
 import { cn } from "@/lib/utils";
@@ -72,16 +74,18 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
 
   const parent = market.parentId ? await getMarketById(market.parentId) : null;
 
-  const [history, trades, comments, position, related, betCount] = await Promise.all([
+  const [history, trades, comments, position, related, betCount, categories] = await Promise.all([
     getPriceHistory(market.id),
     getRecentTrades(market.id),
     getComments(market.id),
     user ? getUserPosition(market.id, user.id) : null,
     getRelatedMarkets(market.id, market.category),
     getMarketBetCount(market.id),
+    listCategories(),
   ]);
   const relatedSparks = await getSparklines(related.map((m) => m.id));
   const canDelete = !!user && (isAdmin(user) || (market.creatorId === user.id && betCount === 0));
+  const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
 
   const py = marketYesPrice(market);
   const heldYes = Number(position?.yesShares ?? 0);
@@ -212,6 +216,10 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             lang={lang}
           />
 
+          {canManage && market.status !== "resolved" && (
+            <MarketManagePanel market={market} categories={categories} betCount={betCount} lang={lang} />
+          )}
+
           {(heldYes > 0.001 || heldNo > 0.001) && (
             <Card className="p-4 anim-rise">
               <h3 className="text-[13px] font-semibold text-mute uppercase tracking-wide">{t.yourPosition}</h3>
@@ -273,11 +281,12 @@ async function GroupMarketView({
 }) {
   const t: Dict = getT(lang);
   const optionIds = options.map((o) => o.id);
-  const [relatedSparks, optionSparks, histories, betCount] = await Promise.all([
+  const [relatedSparks, optionSparks, histories, betCount, categories] = await Promise.all([
     getSparklines(related.map((m) => m.id)),
     getSparklines(optionIds),
     getGroupHistories(optionIds),
     getMarketBetCount(market.id),
+    listCategories(),
   ]);
   const live = options.filter((o) => o.status === "live");
   const closed = options.filter((o) => o.status !== "live");
@@ -285,6 +294,7 @@ async function GroupMarketView({
   const traders = options.reduce((s, o) => s + o.traderCount, 0);
   const anyLive = live.length > 0;
   const canDelete = !!user && (isAdmin(user) || (market.creatorId === user.id && betCount === 0));
+  const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
   // Multi-line chart: every option with a price history, colored by sort order
   // — resolved options stay as flat lines pinned at 0%/100%.
   const series = options
@@ -422,6 +432,12 @@ async function GroupMarketView({
             <Scale className="size-4" /> {t.rules}
           </h2>
           <p className="text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">{market.description}</p>
+        </div>
+      )}
+
+      {canManage && market.status !== "resolved" && (
+        <div className="mt-6 max-w-md">
+          <MarketManagePanel market={market} categories={categories} betCount={betCount} lang={lang} />
         </div>
       )}
 

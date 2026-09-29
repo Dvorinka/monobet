@@ -5,7 +5,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { yesPrice, tradeCost, sharesForSpend, qForProb } from "@/lib/lmsr";
-import { marketYesPrice } from "@/lib/queries";
+import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -502,27 +502,41 @@ export async function rejectMarket(marketId: string): Promise<{ ok: boolean; err
   }
 }
 
+// Creator or admin can edit a market. Once bets exist, the question itself is
+// locked — changing what traders bet on mid-flight is what breaks a live
+// prediction. Rules text, category, image, and the close date stay editable.
 export async function updateMarket(input: {
   marketId: string;
   question: string;
   description: string;
   category: string;
+  imageUrl?: string;
   closesAt?: string;
   b?: number;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
-    await requireAdmin();
+    const u = await requireUser();
     const m = await db.select().from(schema.market).where(eq(schema.market.id, input.marketId)).limit(1);
     if (!m[0]) throw new Error("Market not found");
+    const admin = isAdmin(u);
+    if (!admin && m[0].creatorId !== u.id) throw new Error("Only the creator or an admin can edit");
     if (m[0].status === "resolved") throw new Error("Cannot edit resolved market");
+    if (input.imageUrl && !/^(https?:\/\/|\/)\S+$/.test(input.imageUrl.trim())) throw new Error("Bad image URL");
+
+    const question = input.question.trim();
+    if (question !== m[0].question) {
+      const bets = await getMarketBetCount(m[0].id);
+      if (bets > 0) throw new Error("Question is locked once bets are placed");
+    }
     await db
       .update(schema.market)
       .set({
-        question: input.question.trim(),
+        question,
         description: input.description.trim(),
         category: input.category,
+        imageUrl: input.imageUrl !== undefined ? input.imageUrl.trim() || null : m[0].imageUrl,
         closesAt: input.closesAt ? new Date(input.closesAt) : null,
-        b: input.b && input.b > 0 ? input.b : m[0].b,
+        b: admin && input.b && input.b > 0 ? input.b : m[0].b,
       })
       .where(eq(schema.market.id, input.marketId));
     revalidatePath(`/market/${m[0].slug}`);
@@ -539,10 +553,11 @@ export async function resolveMarket(input: {
   outcome: "yes" | "no";
 }): Promise<{ ok: boolean; error?: string; paidOut?: number }> {
   try {
-    await requireAdmin();
+    const u = await requireUser();
     let paidOut = 0;
     await db.transaction(async (tx) => {
       const m = await lockMarket(tx, input.marketId);
+      if (!isAdmin(u) && m.creatorId !== u.id) throw new Error("Only the creator or an admin can resolve");
       if (m.kind === "group") throw new Error("Resolve the group's options instead");
       if (m.status !== "live") throw new Error("Market is not live");
       const positions = await tx
@@ -694,9 +709,10 @@ export async function adminCreateUser(input: {
 
 export async function cancelMarket(marketId: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    await requireAdmin();
+    const u = await requireUser();
     await db.transaction(async (tx) => {
       const m = await lockMarket(tx, marketId);
+      if (!isAdmin(u) && m.creatorId !== u.id) throw new Error("Only the creator or an admin can cancel");
       if (m.kind === "group") throw new Error("Cancel the group's options instead");
       if (m.status === "resolved" || m.status === "cancelled") throw new Error("Already closed");
       const py = marketYesPrice(m);
