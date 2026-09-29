@@ -68,7 +68,7 @@ export function ClaimButton({ lang, nextAt }: { lang?: Lang; nextAt: number | nu
       title={cooling ? t.availableIn(Math.max(1, Math.ceil(remaining / 3600000))) : t.claimTitle}
     >
       {cooling ? <Timer className="size-4" /> : <Coins className="size-4" />}
-      <span className="hidden sm:inline num">
+      <span className="hidden sm:inline num" suppressHydrationWarning>
         {pending ? t.claiming : cooling ? fmtCountdown(next - now) : t.claim}
       </span>
     </button>
