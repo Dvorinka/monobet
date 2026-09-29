@@ -58,3 +58,24 @@ export function limboWinChance(target: number) {
 // Σ 11.4 / 12 ≈ 0.95 expected return — the zero wedges do the work.
 export const WHEEL_SEGMENTS = [0, 1.5, 0.5, 0, 2.5, 0, 0.8, 0, 5, 0, 1.2, 0.6] as const;
 export const WHEEL_STEP = 360 / WHEEL_SEGMENTS.length;
+
+// Slots: three reels drawn from a weighted 5-symbol strip (18 slots).
+// Triples pay the table below; a lone pair refunds 80% of the stake.
+// RTP ≈ 0.42 (triples) + 0.44 (pairs) ≈ 0.86.
+export const SLOT_SYMBOLS = ["Ɱ", "7", "★", "◆", "♣"] as const;
+export const SLOT_WEIGHTS = [1, 2, 4, 5, 6] as const;
+export const SLOT_TRIPLE = [40, 20, 10, 6, 4] as const;
+export const SLOT_PAIR = 0.8;
+export const SLOT_TOTAL_WEIGHT = SLOT_WEIGHTS.reduce((a, b) => a + b, 0);
+export function slotDraw(r: number) {
+  let acc = 0;
+  for (let i = 0; i < SLOT_WEIGHTS.length; i++) {
+    acc += SLOT_WEIGHTS[i];
+    if (r < acc) return i;
+  }
+  return SLOT_WEIGHTS.length - 1;
+}
+export function slotPayout(a: number, b: number, c: number) {
+  if (a === b && b === c) return SLOT_TRIPLE[a];
+  return a === b || b === c || a === c ? SLOT_PAIR : 0;
+}

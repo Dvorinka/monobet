@@ -11,6 +11,7 @@ import {
   stopTimerRound,
   playLimbo,
   playWheel,
+  playSlots,
 } from "@/lib/actions";
 import {
   GAME_LEVERAGES,
@@ -24,24 +25,37 @@ import {
   limboWinChance,
   WHEEL_SEGMENTS,
   WHEEL_STEP,
+  SLOT_SYMBOLS,
 } from "@/lib/games";
 import { fmtMarks } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Coins, Dices, Timer, Rocket, Disc3 } from "lucide-react";
+import { Coins, Dices, Timer, Rocket, Disc3, Cherry, X } from "lucide-react";
 
 type Net = { netCents: number; won: boolean; stamp: number } | null;
 
-function useGame() {
+function useGame(lang?: Lang) {
+  const t = getT(lang ?? "en");
   const [pending, start] = useTransition();
   const router = useRouter();
+  // Known server error strings -> localized text; anything else passes through.
+  const errText = (msg?: string) =>
+    msg === "Insufficient balance"
+      ? t.errInsufficient
+      : msg === "Minimum bet is Ɱ1"
+        ? t.errMinBet
+        : msg === "Bet too large"
+          ? t.errBetTooLarge
+          : msg?.startsWith("Too fast")
+            ? t.errTooFast
+            : msg ?? "Error";
   const run = <T extends { ok: boolean; error?: string }>(fn: () => Promise<T>): Promise<T | null> =>
     new Promise((resolve) =>
       start(async () => {
         const r = await fn();
         if (!r.ok) {
-          toast.error(r.error);
+          toast.error(errText(r.error));
           resolve(null);
           return;
         }
@@ -105,8 +119,18 @@ function BetControls({
           disabled={disabled}
           onChange={(e) => setBet(e.target.value)}
           placeholder="0"
-          className="num h-10 w-full rounded-lg border border-line bg-surface pl-8 pr-3 text-[14px] font-semibold text-ink placeholder:text-faint focus:outline-2 focus:outline-brand disabled:opacity-50"
+          className="num h-10 w-full rounded-lg border border-line bg-surface pl-8 pr-9 text-[14px] font-semibold text-ink placeholder:text-faint focus:outline-2 focus:outline-brand disabled:opacity-50"
         />
+        {bet !== "" && !disabled && (
+          <button
+            type="button"
+            onClick={() => setBet("")}
+            title={t.clearInput}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 size-5 grid place-items-center rounded-full bg-surface-3 text-mute hover:text-ink hover:bg-line cursor-pointer"
+          >
+            <X className="size-3" />
+          </button>
+        )}
       </div>
       <div className="flex gap-1.5">
         {[10, 50, 100].map((v) => (
@@ -178,7 +202,7 @@ function GameCard({
 
 function CoinFlipCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
-  const { pending, run } = useGame();
+  const { pending, run } = useGame(lang);
   const [pick, setPick] = useState<"heads" | "tails">("heads");
   const [bet, setBet] = useState("10");
   const [lev, setLev] = useState("1");
@@ -276,7 +300,7 @@ function DiceFace({ value, rolling }: { value: number; rolling: boolean }) {
 
 function DiceCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
-  const { pending, run } = useGame();
+  const { pending, run } = useGame(lang);
   const [over, setOver] = useState(3);
   const [bet, setBet] = useState("10");
   const [lev, setLev] = useState("1");
@@ -345,7 +369,7 @@ function DiceCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang })
 
 function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
-  const { pending, run } = useGame();
+  const { pending, run } = useGame(lang);
   const [target, setTarget] = useState("10");
   const [bet, setBet] = useState("10");
   const [lev, setLev] = useState("1");
@@ -454,7 +478,7 @@ function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
 
 function LimboCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
-  const { pending, run } = useGame();
+  const { pending, run } = useGame(lang);
   const [target, setTarget] = useState(2);
   const [bet, setBet] = useState("10");
   const [lev, setLev] = useState("1");
@@ -568,7 +592,7 @@ function wheelColor(m: number, i: number) {
 
 function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
-  const { pending, run } = useGame();
+  const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
   const [lev, setLev] = useState("1");
   const [rot, setRot] = useState(0);
@@ -660,12 +684,125 @@ function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   );
 }
 
+// ---------- slots ----------
+
+function SlotsCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
+  const t = getT(lang ?? "en");
+  const { pending, run } = useGame(lang);
+  const [bet, setBet] = useState("10");
+  const [lev, setLev] = useState("1");
+  const [reels, setReels] = useState([0, 1, 2]);
+  const [settled, setSettled] = useState([true, true, true]);
+  const [spinning, setSpinning] = useState(false);
+  const [net, setNet] = useState<Net>(null);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(
+    () =>
+      () =>
+        timers.current.forEach((id) => {
+          clearTimeout(id);
+          clearInterval(id);
+        }),
+    []
+  );
+
+  const spin = () =>
+    run(() => playSlots({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then(
+      (r) => {
+        if (!r?.reels) return;
+        playSfx("roll", 0.45);
+        setNet(null);
+        setSpinning(true);
+        setSettled([false, false, false]);
+        // Reels settle left to right; each cycles symbols until its turn.
+        r.reels.forEach((sym, i) => {
+          const cyc = setInterval(
+            () =>
+              setReels((prev) => {
+                const n = [...prev];
+                n[i] = Math.floor(Math.random() * SLOT_SYMBOLS.length);
+                return n;
+              }),
+            80
+          );
+          timers.current.push(cyc);
+          timers.current.push(
+            setTimeout(
+              () => {
+                clearInterval(cyc);
+                setReels((prev) => {
+                  const n = [...prev];
+                  n[i] = sym;
+                  return n;
+                });
+                setSettled((prev) => {
+                  const n = [...prev];
+                  n[i] = true;
+                  return n;
+                });
+                playSfx("trade", 0.2);
+              },
+              700 + i * 350
+            )
+          );
+        });
+        timers.current.push(
+          setTimeout(() => {
+            setSpinning(false);
+            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0 });
+          }, 700 + r.reels.length * 350 + 150)
+        );
+      }
+    );
+
+  const won = net?.won === true;
+  return (
+    <GameCard
+      icon={<Cherry className="size-4.5" />}
+      title={t.gSlots}
+      sub={t.gSlotsSub}
+      stage={
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex gap-2.5">
+            {reels.map((s, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "size-16 rounded-xl grid place-items-center text-[26px] font-black border",
+                  settled[i]
+                    ? won
+                      ? "bg-brand-soft border-brand/40 text-brand-strong"
+                      : "bg-surface border-line text-ink"
+                    : "bg-surface-2 border-line-2 text-mute animate-pulse"
+                )}
+              >
+                {SLOT_SYMBOLS[s]}
+              </div>
+            ))}
+          </div>
+          <ResultTag net={spinning ? null : net} lang={lang} />
+        </div>
+      }
+      controls={
+        <>
+          <BetControls bet={bet} setBet={setBet} lev={lev} setLev={setLev} balanceCents={balanceCents} disabled={pending || spinning} lang={lang} />
+          <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={spin}>
+            {spinning ? t.spinning : t.spin}
+          </Button>
+        </>
+      }
+    />
+  );
+}
+
 export const GAME_COMPONENTS = {
   coinflip: CoinFlipCard,
   dice: DiceCard,
   timer: TimerCard,
   limbo: LimboCard,
   wheel: WheelCard,
+  slots: SlotsCard,
 } as const;
 
 export type GameSlug = keyof typeof GAME_COMPONENTS;

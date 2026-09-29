@@ -9,7 +9,7 @@ import { ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-const SLUGS = ["coinflip", "dice", "timer", "limbo", "wheel"] as const;
+const SLUGS = ["coinflip", "dice", "timer", "limbo", "wheel", "slots"] as const;
 
 export async function generateMetadata({ params }: { params: Promise<{ game: string }> }): Promise<Metadata> {
   const { game } = await params;
