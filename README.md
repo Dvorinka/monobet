@@ -52,6 +52,7 @@ exists for fun, bragging rights, and settling arguments.
 - **Dark & light themes** — system-aware, persisted, no flash on load
 - **Portfolio & leaderboard** — positions, trade history, auditable cash-flow ledger, net-worth ranking
 - **Admin panel** — resolve/cancel/delete any market, create users, grant balances, manage categories; `SUPER_ADMIN_EMAIL` pins the owner account
+- **Terms of Use** — `/terms` states plainly: fun-only demo, virtual Marks, no real market; linked in the footer and on signup
 
 ## Architecture
 
