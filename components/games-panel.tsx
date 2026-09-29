@@ -27,7 +27,7 @@ import {
   WHEEL_STEP,
   SLOT_SYMBOLS,
 } from "@/lib/games";
-import { fmtMarks } from "@/lib/money";
+import { fmtMonos } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -81,7 +81,7 @@ function ResultTag({ net, lang }: { net: Net; lang?: Lang }) {
         net.won ? "text-yes-strong" : "text-no-strong"
       )}
     >
-      {net.won ? `+${fmtMarks(net.netCents, { lang })}` : `−${fmtMarks(-net.netCents, { lang })}`}
+      {net.won ? `+${fmtMonos(net.netCents, { lang })}` : `−${fmtMonos(-net.netCents, { lang })}`}
       <span className="ml-1.5 text-[11px] font-semibold text-mute">{net.won ? t.win : t.lose}</span>
     </div>
   );
@@ -154,7 +154,7 @@ function BetControls({
       <div>
         <div className="flex items-center justify-between text-[12px] font-medium text-mute mb-1">
           <span>{t.leverage}</span>
-          <span className="num">{t.atRisk} {fmtMarks(wager, { lang })}</span>
+          <span className="num">{t.atRisk} {fmtMonos(wager, { lang })}</span>
         </div>
         <Segmented
           options={GAME_LEVERAGES.map((v) => ({ value: String(v), label: `${v}×` }))}

@@ -44,6 +44,11 @@ export const user = pgTable("user", {
   // Temporary comment ban — a "timeout" that expires on its own.
   commentBanUntil: timestamp("comment_ban_until", { withTimezone: true }),
   squadId: uuid("squad_id"),
+  // House debt — levered game losses and loans land here. Rate is APR in
+  // basis points rolled at borrow time; interest accrues lazily off debtSince.
+  debtCents: integer("debt_cents").notNull().default(0),
+  debtRateBps: integer("debt_rate_bps").notNull().default(0),
+  debtSince: timestamp("debt_since", { withTimezone: true }),
   // Notification prefs — resolve fan-out and closing-soon reminders.
   notifResolve: boolean("notif_resolve").notNull().default(true),
   notifClosing: boolean("notif_closing").notNull().default(true),

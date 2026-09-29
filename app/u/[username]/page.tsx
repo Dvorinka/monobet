@@ -7,7 +7,7 @@ import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Avatar, Badge, Card } from "@/components/ui/primitives";
 import { ProfileSettings } from "@/components/profile-settings";
-import { fmtMarks, fmtDate, fmtShares, timeAgo } from "@/lib/money";
+import { fmtMonos, fmtDate, fmtShares, timeAgo } from "@/lib/money";
 import { marketYesPrice } from "@/lib/queries";
 import { CheckCircle2, Lock, ShieldCheck, Trophy } from "lucide-react";
 
@@ -73,18 +73,18 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
           </div>
         </div>
         <div className="text-right">
-          <div className="num text-[24px] font-bold leading-none">{fmtMarks(netWorthCents, { lang })}</div>
+          <div className="num text-[24px] font-bold leading-none">{fmtMonos(netWorthCents, { lang })}</div>
           <div className="text-[11px] text-mute mt-1">{t.lbNetWorth}</div>
         </div>
       </Card>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
-        <Stat label={t.lbBalance} value={fmtMarks(u.balanceCents, { lang })} />
-        <Stat label={t.lbPositions} value={fmtMarks(positions.reduce((s, p) => s + p.valueCents, 0), { lang })} />
+        <Stat label={t.lbBalance} value={fmtMonos(u.balanceCents, { lang })} />
+        <Stat label={t.lbPositions} value={fmtMonos(positions.reduce((s, p) => s + p.valueCents, 0), { lang })} />
         <Stat
           label={t.playPnl}
-          value={`${playPnlCents >= 0 ? "+" : ""}${fmtMarks(playPnlCents, { lang })}`}
+          value={`${playPnlCents >= 0 ? "+" : ""}${fmtMonos(playPnlCents, { lang })}`}
           tone={playPnlCents >= 0 ? "up" : "down"}
         />
         <Stat label={t.winRate} value={winRate === null ? "—" : `${winRate}%`} />
@@ -153,7 +153,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
                     {p.noShares > 0.001 && (
                       <Badge tone="no" className="text-[10px] px-1.5 py-0">NO ×{fmtShares(p.noShares, lang)}</Badge>
                     )}
-                    <span className="num ml-auto font-semibold text-ink">{fmtMarks(p.valueCents, { lang })}</span>
+                    <span className="num ml-auto font-semibold text-ink">{fmtMonos(p.valueCents, { lang })}</span>
                   </div>
                 </Link>
               );
@@ -175,7 +175,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-medium line-clamp-1">{m.question}</div>
                   <div className="text-[11.5px] text-mute mt-0.5">
-                    {fmtMarks(m.volumeCents, { lang })} {t.vol.toLowerCase()}
+                    {fmtMonos(m.volumeCents, { lang })} {t.vol.toLowerCase()}
                   </div>
                 </div>
                 <Badge
@@ -202,7 +202,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
                 <span className="truncate text-mute flex-1">{g.memo || "game"}</span>
                 <span className={`num font-semibold ${g.amountCents > 0 ? "text-yes-strong" : "text-ink"}`}>
                   {g.amountCents > 0 ? "+" : ""}
-                  {fmtMarks(g.amountCents, { lang })}
+                  {fmtMonos(g.amountCents, { lang })}
                 </span>
                 <span className="text-faint text-[11px] w-14 text-right">{timeAgo(g.createdAt, lang)}</span>
               </div>

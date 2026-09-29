@@ -31,7 +31,7 @@ const en = {
   yourBalance: "Your balance",
   claim: "Claim",
   claiming: "Claiming…",
-  claimTitle: "Claim your daily Marks",
+  claimTitle: "Claim your daily Monos",
   claimedToast: "Claimed Ɱ 250",
   trader: "Trader",
   themeLight: "Light mode",
@@ -298,6 +298,9 @@ const en = {
   umUnmute: "Allow comments",
   umBan: "Ban",
   umUnban: "Unban",
+  umDelete: "Delete",
+  umDeleteConfirm: (u: string) => `Permanently delete @${u} and everything tied to the account? This cannot be undone.`,
+  umDeleted: "User deleted",
   umBanReasonFor: (u: string) => `Ban @${u} — reason (optional)`,
 
   // games & leverage
@@ -306,7 +309,7 @@ const en = {
   recentGames: "Recent games",
   noGames: "No rounds yet — pick a game above.",
   leverage: "Leverage",
-  liqNote: "Borrowed Marks are repaid first on sell — position auto-liquidates if its value drops to the loan.",
+  liqNote: "Borrowed Monos are repaid first on sell — position auto-liquidates if its value drops to the loan.",
   loanLabel: "Loan",
   atRisk: "At risk",
   win: "win",
@@ -353,7 +356,7 @@ const en = {
   // auth
   welcomeBack: "Welcome back",
   createAccount: "Create your account",
-  loginSub: "Bet virtual Marks on custom events.",
+  loginSub: "Bet virtual Monos on custom events.",
   signupSub: "Ɱ 1,000 play money on signup. No real money involved.",
   username: "Username",
   displayName: "Display name",
@@ -375,10 +378,10 @@ const en = {
   authPlayMoney: "Play money only. No deposits, no withdrawals, no regrets.",
 
   // footer
-  tagline: "Play-money prediction markets for friends. Bet virtual Marks on anything — no deposits, no withdrawals, no regrets.",
+  tagline: "Play-money prediction markets for friends. Bet virtual Monos on anything — no deposits, no withdrawals, no regrets.",
   playMoneyDisclaimer: "Play money only. Not financial advice — not even real money.",
   legalNotice:
-    "MonoBet is a demo project made for fun. Marks (Ɱ) are virtual play money with no monetary value — they cannot be bought, sold, deposited, or withdrawn. This is not a real prediction market, betting service, or financial product.",
+    "MonoBet is a demo project made for fun. Monos (Ɱ) are virtual play money with no monetary value — they cannot be bought, sold, deposited, or withdrawn. This is not a real prediction market, betting service, or financial product.",
   openSource: "Open source",
 
   // terms of use
@@ -390,15 +393,15 @@ const en = {
   termsS1T: "Made for fun, not for real",
   termsS1B:
     "MonoBet is a personal demo project built for entertainment. Nothing here is a real prediction market, betting service, exchange, or financial product. Market outcomes, prices, and payouts are simulated by software.",
-  termsS2T: "Virtual Marks only",
+  termsS2T: "Virtual Monos only",
   termsS2B:
-    "Marks (Ɱ) are virtual play money. They have no monetary value and cannot be bought, sold, deposited, withdrawn, exchanged, or redeemed for anything. Winning or losing Marks means nothing outside this site.",
+    "Monos (Ɱ) are virtual play money. They have no monetary value and cannot be bought, sold, deposited, withdrawn, exchanged, or redeemed for anything. Winning or losing Monos means nothing outside this site.",
   termsS3T: "Accounts",
   termsS3B:
     "Accounts are identified by username and password; an email is optional. Passwords are stored hashed. Accounts may be suspended or deleted at any time, for any reason — including wiping the whole database on a whim.",
   termsS4T: "Fair play",
   termsS4B:
-    "Do not create markets or post content that is illegal, hateful, or harassing. Do not exploit bugs to print Marks — it is play money anyway. Admins can edit, resolve, or delete any market or comment.",
+    "Do not create markets or post content that is illegal, hateful, or harassing. Do not exploit bugs to print Monos — it is play money anyway. Admins can edit, resolve, or delete any market or comment.",
   termsS5T: "No promises",
   termsS5B:
     "The site is provided as-is, with no warranty of any kind. Balances, markets, comments, and accounts can be wiped or reset at any time without notice. The project may change or disappear entirely.",
@@ -413,7 +416,7 @@ const en = {
 
   // time
   rewards: "Rewards",
-  rewardsTitle: "Earn Marks",
+  rewardsTitle: "Earn Monos",
   rewardsSub: "Free play money. Come back daily, watch an ad, do stuff.",
   dailyReward: "Daily claim",
   dailyDesc: "Ɱ 250 every 20 hours.",
@@ -426,6 +429,14 @@ const en = {
   adEndsIn: (s: number) => `Reward unlocks in ${s}s`,
   skipAd: "Skip ad",
   claimNow: "Claim now",
+  loanTitle: "House loan",
+  loanDesc: "Borrow Monos instantly. The APR is rolled when you take it — 5–80%, pure luck. Levered game losses land here too.",
+  loanBorrow: (amt: string) => `Borrow ${amt}`,
+  loanOwed: (amt: string) => `You owe ${amt}`,
+  loanNoDebt: "No debt — the house trusts you. For now.",
+  loanRepayAll: "Repay in full",
+  loanTaken: (amt: string, rate: string) => `Borrowed ${amt} @ ${rate}% APR`,
+  loanRepaid: "Debt repaid — the house is satisfied",
   availableIn: (h: number) => (h >= 1 ? `Available in ~${h}h` : "Available soon"),
   availableInMin: (m: number) => (m >= 1 ? `Available in ~${m}m` : "Available soon"),
   claimedBadge: "Claimed",
@@ -510,7 +521,7 @@ const en = {
   winRate: "Win rate",
   priceMoved: (before: number, after: number) => `YES ${before}% → ${after}%`,
   fairNote:
-    "Fairness: every game is settled server-side from a uniform random roll at the moment you click — the timer round is stamped and verified with a server signature, so results can't be predicted or replayed from the client. All payouts are virtual Marks.",
+    "Fairness: every game is settled server-side from a uniform random roll at the moment you click — the timer round is stamped and verified with a server signature, so results can't be predicted or replayed from the client. All payouts are virtual Monos.",
   reasonPh: "Resolution reason (optional) — source, evidence…",
   proposalHeading: (outcome: string) => `Proposed: ${outcome}`,
   proposedBy: (name: string) => `Proposed by @${name}`,
@@ -623,7 +634,7 @@ const cs: Dict = {
   yourBalance: "Váš zůstatek",
   claim: "Vybrat",
   claiming: "Vybírám…",
-  claimTitle: "Vyzvedněte si denní Marky",
+  claimTitle: "Vyzvedněte si denní Mony",
   claimedToast: "Vyzvednuto Ɱ 250",
   trader: "Obchodník",
   themeLight: "Světlý režim",
@@ -879,15 +890,18 @@ const cs: Dict = {
   umUnmute: "Povolit komentáře",
   umBan: "Zabanovat",
   umUnban: "Zrušit ban",
+  umDelete: "Smazat",
+  umDeleteConfirm: (u: string) => `Trvale smazat @${u} a všechno k účtu navázané? Nelze vrátit.`,
+  umDeleted: "Uživatel smazán",
   umBanReasonFor: (u: string) => `Zabanovat @${u} — důvod (nepovinný)`,
 
   // games & leverage
   games: "Hry",
-  gamesSub: "Arkáda za virtuální Marky — variabilní sázky, páka až 10×.",
+  gamesSub: "Arkáda za virtuální Mony — variabilní sázky, páka až 10×.",
   recentGames: "Poslední hry",
   noGames: "Zatím žádná kola — vyber si hru výše.",
   leverage: "Páka",
-  liqNote: "Půjčené Marky se splácejí jako první z prodeje — pozice se automaticky zlikviduje, když její hodnota klesne na úroveň úvěru.",
+  liqNote: "Půjčené Mony se splácejí jako první z prodeje — pozice se automaticky zlikviduje, když její hodnota klesne na úroveň úvěru.",
   loanLabel: "Úvěr",
   atRisk: "V sázce",
   win: "výhra",
@@ -924,7 +938,7 @@ const cs: Dict = {
   gSlots: "Automat",
   gSlotsSub: "Tři stejné platí až 40× — samostatná dvojice vrací 80 %.",
   clearInput: "Vymazat",
-  errInsufficient: "Nedostatek Marků",
+  errInsufficient: "Nedostatek Monů",
   errMinBet: "Minimální sázka je Ɱ 1",
   errBetTooLarge: "Příliš vysoká sázka",
   errTooFast: "Příliš rychlé — počkej pár minut",
@@ -933,7 +947,7 @@ const cs: Dict = {
 
   welcomeBack: "Vítejte zpět",
   createAccount: "Vytvořte si účet",
-  loginSub: "Sázejte virtuální Marky na vlastní události.",
+  loginSub: "Sázejte virtuální Mony na vlastní události.",
   signupSub: "Ɱ 1 000 hracích peněz při registraci. Žádné skutečné peníze.",
   username: "Uživatelské jméno",
   displayName: "Zobrazované jméno",
@@ -954,10 +968,10 @@ const cs: Dict = {
   createAccountBtn: "Vytvořit účet — získat Ɱ 1 000",
   authPlayMoney: "Pouze hrací peníze. Bez vkladů, bez výběrů, bez lítosti.",
 
-  tagline: "Predikční trhy pro přátele za hrací peníze. Sázejte virtuální Marky na cokoli — bez vkladů, bez výběrů, bez lítosti.",
+  tagline: "Predikční trhy pro přátele za hrací peníze. Sázejte virtuální Mony na cokoli — bez vkladů, bez výběrů, bez lítosti.",
   playMoneyDisclaimer: "Pouze hrací peníze. Není to finanční rada — ani skutečné peníze to nejsou.",
   legalNotice:
-    "MonoBet je demo projekt pro zábavu. Marky (Ɱ) jsou virtuální herní peníze bez jakékoli hodnoty — nelze je koupit, prodat, vložit ani vybrat. Nejedná se o skutečný predikční trh, sázkovou službu ani finanční produkt.",
+    "MonoBet je demo projekt pro zábavu. Mony (Ɱ) jsou virtuální herní peníze bez jakékoli hodnoty — nelze je koupit, prodat, vložit ani vybrat. Nejedná se o skutečný predikční trh, sázkovou službu ani finanční produkt.",
   openSource: "Open source",
 
   terms: "Podmínky",
@@ -968,15 +982,15 @@ const cs: Dict = {
   termsS1T: "Pro zábavu, ne doopravdy",
   termsS1B:
     "MonoBet je osobní demo projekt vytvořený pro zábavu. Nic zde není skutečný predikční trh, sázková služba, burza ani finanční produkt. Výsledky trhů, ceny a výplaty simuluje software.",
-  termsS2T: "Pouze virtuální Marky",
+  termsS2T: "Pouze virtuální Mony",
   termsS2B:
-    "Marky (Ɱ) jsou virtuální herní peníze. Nemají žádnou peněžní hodnotu a nelze je koupit, prodat, vložit, vybrat, směnit ani uplatnit za cokoli. Výhra nebo prohra Marek nic neznamená mimo tyto stránky.",
+    "Mony (Ɱ) jsou virtuální herní peníze. Nemají žádnou peněžní hodnotu a nelze je koupit, prodat, vložit, vybrat, směnit ani uplatnit za cokoli. Výhra nebo prohra Monů nic neznamená mimo tyto stránky.",
   termsS3T: "Účty",
   termsS3B:
     "Účty jsou identifikovány uživatelským jménem a heslem; e-mail je nepovinný. Hesla se ukládají hashovaná. Účty mohou být kdykoli pozastaveny nebo smazány, z jakéhokoli důvodu — včetně rozmaru vymazat celou databázi.",
   termsS4T: "Fér hra",
   termsS4B:
-    "Nevytvářejte trhy ani nezveřejňujte obsah, který je nezákonný, nenávistný nebo obtěžující. Nesnažte se zneužívat chyby k tisku Marek — stejně jsou to jen hrací peníze. Administrátoři mohou upravovat, uzavírat nebo mazat jakýkoli trh či komentář.",
+    "Nevytvářejte trhy ani nezveřejňujte obsah, který je nezákonný, nenávistný nebo obtěžující. Nesnažte se zneužívat chyby k tisku Monů — stejně jsou to jen hrací peníze. Administrátoři mohou upravovat, uzavírat nebo mazat jakýkoli trh či komentář.",
   termsS5T: "Žádné sliby",
   termsS5B:
     "Web je poskytován tak, jak je, bez jakékoli záruky. Zůstatky, trhy, komentáře a účty mohou být kdykoli vymazány nebo resetovány bez upozornění. Projekt se může změnit nebo zcela zmizet.",
@@ -989,7 +1003,7 @@ const cs: Dict = {
   backToMarkets: "Zpět na trhy",
 
   rewards: "Odměny",
-  rewardsTitle: "Získejte Marky",
+  rewardsTitle: "Získejte Mony",
   rewardsSub: "Hrací peníze zdarma. Vrací se denně, podívejte se na reklamu, splňte úkoly.",
   dailyReward: "Denní odměna",
   dailyDesc: "Ɱ 250 každých 20 hodin.",
@@ -1002,6 +1016,14 @@ const cs: Dict = {
   adEndsIn: (s: number) => `Odměna za ${s} s`,
   skipAd: "Přeskočit reklamu",
   claimNow: "Vyzvednout",
+  loanTitle: "Půjčka od domu",
+  loanDesc: "Půjčte si Mony okamžitě. Úrok se losuje při půjčení — 5–80 %, čistá náhoda. Prohry z pákových her padají sem také.",
+  loanBorrow: (amt: string) => `Půjčit ${amt}`,
+  loanOwed: (amt: string) => `Dlužíte ${amt}`,
+  loanNoDebt: "Žádný dluh — dům vám věří. Zatím.",
+  loanRepayAll: "Splátit vše",
+  loanTaken: (amt: string, rate: string) => `Půjčeno ${amt} @ ${rate} % p.a.`,
+  loanRepaid: "Dluh splacen — dům je spokojen",
   availableIn: (h: number) => (h >= 1 ? `Dostupné za ~${h} h` : "Brzy dostupné"),
   availableInMin: (m: number) => (m >= 1 ? `Dostupné za ~${m} min` : "Brzy dostupné"),
   claimedBadge: "Vyzvednuto",
@@ -1086,7 +1108,7 @@ const cs: Dict = {
   winRate: "Úspěšnost",
   priceMoved: (before, after) => `YES ${before}% → ${after}%`,
   fairNote:
-    "Férovost: každá hra se vyhodnocuje na serveru z rovnoměrného náhodného hodu v okamžiku kliknutí — kolo stopkování je razítkované a ověřované serverovým podpisem, takže výsledek nejde z klienta předpovědět ani zopakovat. Všechny výhry jsou virtuální Marky.",
+    "Férovost: každá hra se vyhodnocuje na serveru z rovnoměrného náhodného hodu v okamžiku kliknutí — kolo stopkování je razítkované a ověřované serverovým podpisem, takže výsledek nejde z klienta předpovědět ani zopakovat. Všechny výhry jsou virtuální Mony.",
   reasonPh: "Důvod vyhodnocení (nepovinné) — zdroj, důkaz…",
   proposalHeading: (outcome) => `Návrh: ${outcome}`,
   proposedBy: (name) => `Navrhl @${name}`,

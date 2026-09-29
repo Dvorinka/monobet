@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, Input, Select, Badge } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminResetUserPassword, adminSettleDuel } from "@/lib/actions";
-import { fmtMarks, fmtDate } from "@/lib/money";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminResetUserPassword, adminSettleDuel, adminDeleteUser } from "@/lib/actions";
+import { fmtMonos, fmtDate } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { Check, X, CircleCheck, Ban, Pencil, Trash2, KeyRound, MessageSquareOff, MessageSquare, ShieldPlus, ShieldMinus, GripVertical } from "lucide-react";
 
@@ -17,7 +17,7 @@ function useAction(lang?: Lang) {
     start(async () => {
       const r = await fn();
       if (r.ok) {
-        toast.success(r.paidOut ? `${ok} — ${fmtMarks(r.paidOut, { lang })}` : ok);
+        toast.success(r.paidOut ? `${ok} — ${fmtMonos(r.paidOut, { lang })}` : ok);
         router.refresh();
       } else toast.error(r.error);
     });
@@ -136,7 +136,7 @@ export function LiveMarketList({
                   {m.question}
                 </Link>
                 <div className="text-[11.5px] text-faint mt-0.5">
-                  {fmtMarks(m.volumeCents, { lang })} {t.vol.toLowerCase()} · {m.traderCount} {t.tradersW} · {t.closes.toLowerCase()} {fmtDate(m.closesAt, lang)}
+                  {fmtMonos(m.volumeCents, { lang })} {t.vol.toLowerCase()} · {m.traderCount} {t.tradersW} · {t.closes.toLowerCase()} {fmtDate(m.closesAt, lang)}
                   {kids.length > 0 && ` · ${kids.length} ${t.options}`}
                 </div>
               </div>
@@ -152,7 +152,7 @@ export function LiveMarketList({
                     <div key={o.id}>
                       <div className="text-[13px] font-medium">{o.label ?? o.question}</div>
                       <div className="text-[11.5px] text-faint">
-                        {fmtMarks(o.volumeCents, { lang })} {t.vol.toLowerCase()} · {o.traderCount} {t.tradersW}
+                        {fmtMonos(o.volumeCents, { lang })} {t.vol.toLowerCase()} · {o.traderCount} {t.tradersW}
                       </div>
                       {btns(o)}
                     </div>
@@ -182,7 +182,7 @@ export function GrantPanel({ users, lang }: { users: { id: string; username: str
         const cents = Math.round(parseFloat(amount || "0") * 100);
         run(
           () => grantBalance({ userId, amountCents: cents, memo }),
-          t.grantedToast(fmtMarks(cents, { lang }))
+          t.grantedToast(fmtMonos(cents, { lang }))
         );
         setAmount("");
         setMemo("");
@@ -192,7 +192,7 @@ export function GrantPanel({ users, lang }: { users: { id: string; username: str
         <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
           {users.map((u) => (
             <option key={u.id} value={u.id}>
-              @{u.username ?? u.id.slice(0, 8)} ({fmtMarks(u.balanceCents, { lang })})
+              @{u.username ?? u.id.slice(0, 8)} ({fmtMonos(u.balanceCents, { lang })})
             </option>
           ))}
         </Select>
@@ -288,7 +288,7 @@ export function UserManager({
               {u.bannedAt ? <Badge tone="no">{t.umBanned}</Badge> : u.commentsBanned && <Badge tone="warn">{t.umMuted}</Badge>}
             </div>
             <div className="text-[11.5px] text-faint mt-0.5 truncate">
-              {u.email} · {fmtMarks(u.balanceCents, { lang })} · {fmtDate(u.createdAt, lang)}
+              {u.email} · {fmtMonos(u.balanceCents, { lang })} · {fmtDate(u.createdAt, lang)}
             </div>
           </div>
           {u.id !== selfId && (
@@ -340,6 +340,16 @@ export function UserManager({
                 }}
               >
                 <Ban className="size-3" /> {u.bannedAt ? t.umUnban : t.umBan}
+              </Button>
+              <Button
+                size="xs"
+                variant="no"
+                disabled={pending}
+                onClick={() => {
+                  if (confirm(t.umDeleteConfirm(u.username ?? "?"))) run(() => adminDeleteUser({ userId: u.id }), t.umDeleted);
+                }}
+              >
+                <Trash2 className="size-3" /> {t.umDelete}
               </Button>
             </div>
           )}
@@ -530,7 +540,7 @@ export function DuelAdminPanel({
           <div className="flex-1 min-w-0">
             <div className="text-[13px] font-medium leading-snug">{d.claim}</div>
             <div className="text-[11.5px] text-faint mt-0.5">
-              @{d.creatorName} vs @{d.opponentName} · {fmtMarks(d.stakeCents * 2, { lang })}
+              @{d.creatorName} vs @{d.opponentName} · {fmtMonos(d.stakeCents * 2, { lang })}
             </div>
           </div>
           <div className="flex gap-1.5 shrink-0">

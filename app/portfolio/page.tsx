@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { getCurrentUser } from "@/lib/session";
 import { getUserPositions, getUserTrades, getUserLedger, marketYesPrice } from "@/lib/queries";
-import { fmtMarks, fmtCents, fmtShares, timeAgo } from "@/lib/money";
+import { fmtMonos, fmtCents, fmtShares, timeAgo } from "@/lib/money";
 import { Badge, Card } from "@/components/ui/primitives";
 import { AnimatedMoney } from "@/components/animated-number";
 import { getLang } from "@/lib/lang-server";
@@ -122,7 +122,7 @@ export default async function PortfolioPage() {
                 </span>
                 <span className="num text-mute">{fmtShares(Number(tr.shares), lang)}</span>
                 <span className="truncate text-mute flex-1">{question}</span>
-                <span className="num font-semibold">{fmtMarks(tr.amountCents, { lang })}</span>
+                <span className="num font-semibold">{fmtMonos(tr.amountCents, { lang })}</span>
                 <span className="text-faint text-[11px] w-14 text-right">{timeAgo(tr.createdAt, lang)}</span>
               </Link>
             ))}
@@ -138,10 +138,10 @@ export default async function PortfolioPage() {
                 <span className="truncate text-mute flex-1">{l.memo || l.kind}</span>
                 <span className={cn("num font-semibold", l.amountCents > 0 ? "text-yes-strong" : "text-ink")}>
                   {l.amountCents > 0 ? "+" : ""}
-                  {fmtMarks(l.amountCents, { lang })}
+                  {fmtMonos(l.amountCents, { lang })}
                 </span>
                 <span className="num text-faint text-[11.5px] w-20 text-right">
-                  → {fmtMarks(l.balanceAfterCents, { lang })}
+                  → {fmtMonos(l.balanceAfterCents, { lang })}
                 </span>
               </div>
             ))}
@@ -197,7 +197,7 @@ function PositionRow({
       </td>
       <td className="num px-4 py-3 text-right">{fmtShares(shares, lang)}</td>
       <td className="num px-4 py-3 text-right">{fmtCents(price)}</td>
-      <td className="num px-4 py-3 text-right font-semibold">{fmtMarks(Math.round(shares * price * 100), { lang })}</td>
+      <td className="num px-4 py-3 text-right font-semibold">{fmtMonos(Math.round(shares * price * 100), { lang })}</td>
     </tr>
   );
 }

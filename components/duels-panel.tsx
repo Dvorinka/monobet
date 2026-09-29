@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Swords, Check, X, Trophy, AlertTriangle } from "lucide-react";
 import { Button, Card, Input, Badge } from "@/components/ui/primitives";
 import { createDuel, respondDuel, cancelDuel, proposeDuelWinner } from "@/lib/actions";
-import { fmtMarks } from "@/lib/money";
+import { fmtMonos } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -102,7 +102,7 @@ export function DuelsPanel({ duels, me, lang }: { duels: DuelRow[]; me: string; 
           <h2 className="text-[15px] font-semibold mb-2.5">{t.duelIncoming}</h2>
           <Card className="p-1.5 space-y-1">
             {incoming.map(({ duel: d, creatorName }) => (
-              <Row key={d.id} claim={d.claim} sub={`@${creatorName} · ${fmtMarks(d.stakeCents, { lang })} ${t.duelStakeEach}`}>
+              <Row key={d.id} claim={d.claim} sub={`@${creatorName} · ${fmtMonos(d.stakeCents, { lang })} ${t.duelStakeEach}`}>
                 <Button size="xs" variant="yes" disabled={pending} onClick={() => run(() => respondDuel({ id: d.id, accept: true }), t.duelAcceptedToast)}>
                   <Check className="size-3" /> {t.duelAccept}
                 </Button>
@@ -128,7 +128,7 @@ export function DuelsPanel({ duels, me, lang }: { duels: DuelRow[]; me: string; 
                 <Row
                   key={d.id}
                   claim={d.claim}
-                  sub={`vs @${other} · ${fmtMarks(d.stakeCents * 2, { lang })} ${t.duelPot}`}
+                  sub={`vs @${other} · ${fmtMonos(d.stakeCents * 2, { lang })} ${t.duelPot}`}
                   badge={
                     d.status === "disputed" ? (
                       <Badge tone="no"><AlertTriangle className="size-3" /> {t.duelDisputed}</Badge>
@@ -160,7 +160,7 @@ export function DuelsPanel({ duels, me, lang }: { duels: DuelRow[]; me: string; 
           <h2 className="text-[15px] font-semibold mb-2.5">{t.duelOutgoing}</h2>
           <Card className="p-1.5 space-y-1">
             {outgoing.map(({ duel: d, opponentName }) => (
-              <Row key={d.id} claim={d.claim} sub={`→ @${opponentName} · ${fmtMarks(d.stakeCents, { lang })}`}>
+              <Row key={d.id} claim={d.claim} sub={`→ @${opponentName} · ${fmtMonos(d.stakeCents, { lang })}`}>
                 <Button size="xs" variant="outline" disabled={pending} onClick={() => run(() => cancelDuel({ id: d.id }), t.duelCancelledToast)}>
                   {t.duelCancel}
                 </Button>
@@ -185,8 +185,8 @@ export function DuelsPanel({ duels, me, lang }: { duels: DuelRow[]; me: string; 
                   sub={`@${creatorName} vs @${opponentName}`}
                   badge={
                     d.status === "settled" ? (
-                      won ? <Badge tone="yes">+{fmtMarks(d.stakeCents, { lang })}</Badge>
-                        : lost ? <Badge tone="no">-{fmtMarks(d.stakeCents, { lang })}</Badge>
+                      won ? <Badge tone="yes">+{fmtMonos(d.stakeCents, { lang })}</Badge>
+                        : lost ? <Badge tone="no">-{fmtMonos(d.stakeCents, { lang })}</Badge>
                         : <Badge tone="mute">{t.duelRefunded}</Badge>
                     ) : (
                       <Badge tone="mute">{d.status}</Badge>

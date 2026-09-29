@@ -5,7 +5,7 @@ import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicker } from "@/components/trade-ticker";
 import { MarketCard } from "@/components/market-card";
 import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor, listCategories, getWatchlistIds, getLikedIds, getLikeCounts, getExpiredLive, maybeNotifyClosing } from "@/lib/queries";
-import { fmtMarks } from "@/lib/money";
+import { fmtMonos } from "@/lib/money";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT, LOCALES } from "@/lib/i18n";
@@ -96,7 +96,7 @@ export default async function Home({
           {q ? t.resultsFor(q) : cat === "all" ? t.allMarkets : cat === "closing" ? t.tabClosing : cat === "watching" ? t.tabWatching : t.headingCat(cat)}
         </h1>
         <span className="num text-[12.5px] text-mute font-medium">
-          {fmtMarks(stats.volumeCents, { lang })} {t.traded} · {stats.trades.toLocaleString(LOCALES[lang])} {stats.trades === 1 ? t.bet : t.bets} · {stats.users} {stats.users === 1 ? t.traderSingular : t.traders} · {markets.length} {t.marketsN}
+          {fmtMonos(stats.volumeCents, { lang })} {t.traded} · {stats.trades.toLocaleString(LOCALES[lang])} {stats.trades === 1 ? t.bet : t.bets} · {stats.users} {stats.users === 1 ? t.traderSingular : t.traders} · {markets.length} {t.marketsN}
         </span>
       </div>
 

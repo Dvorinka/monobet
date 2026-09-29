@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fmtMarks, fmtMarksShort } from "@/lib/money";
+import { fmtMonos, fmtMonosShort } from "@/lib/money";
 import type { Lang } from "@/lib/i18n";
 
 // Tweens a number toward its target with easeOutCubic. Used so live-refresh
@@ -44,8 +44,8 @@ export function AnimatedMoney({ cents, className, lang, short }: { cents: number
   const v = useTweenedNumber(cents);
   const rounded = Math.round(v);
   return (
-    <span className={className} title={short ? fmtMarks(rounded, { lang }) : undefined}>
-      {short ? fmtMarksShort(rounded) : fmtMarks(rounded, { lang })}
+    <span className={className} title={short ? fmtMonos(rounded, { lang }) : undefined}>
+      {short ? fmtMonosShort(rounded) : fmtMonos(rounded, { lang })}
     </span>
   );
 }

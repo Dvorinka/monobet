@@ -3,10 +3,11 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { claimAdReward, claimBonus, claimDaily, claimWeekly } from "@/lib/actions";
+import { claimAdReward, claimBonus, claimDaily, claimWeekly, takeLoan, repayLoan } from "@/lib/actions";
+import { LOAN_PRESETS_CENTS } from "@/lib/loans";
 import { getT, type Lang } from "@/lib/i18n";
 import { AD_WATCH_MS } from "@/lib/rewards";
-import { fmtMarks } from "@/lib/money";
+import { fmtMonos } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import {
   CalendarCheck,
@@ -16,6 +17,7 @@ import {
   ExternalLink,
   Flame,
   Gift,
+  HandCoins,
   Lock,
   Play,
 } from "lucide-react";
@@ -223,7 +225,7 @@ function InviteCard({ username, lang }: { username: string; lang: Lang }) {
       <div className="flex-1 min-w-0">
         <div className="text-[14px] font-semibold flex items-center gap-2">
           {t.inviteTitle}
-          <span className="num text-[12px] font-bold text-yes">+{fmtMarks(20_000, { lang, decimals: false })}</span>
+          <span className="num text-[12px] font-bold text-yes">+{fmtMonos(20_000, { lang, decimals: false })}</span>
         </div>
         <div className="text-[12px] text-mute">{t.inviteDesc}</div>
       </div>
@@ -243,6 +245,77 @@ function InviteCard({ username, lang }: { username: string; lang: Lang }) {
   );
 }
 
+// House loan card — borrow Monos at an APR rolled on take (the rate itself is
+// the gamble), repay out of balance later. Levered game losses land here too.
+function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps: number; t: ReturnType<typeof getT>; lang: Lang }) {
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return (
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="size-9 rounded-lg bg-warn-soft text-warn-strong flex items-center justify-center">
+            <HandCoins className="size-4.5" />
+          </div>
+          <div>
+            <div className="text-[15px] font-semibold">{t.loanTitle}</div>
+            <div className="text-[12.5px] text-mute mt-0.5">{t.loanDesc}</div>
+          </div>
+        </div>
+        <div className="text-right">
+          {debtCents > 0 ? (
+            <>
+              <div className="num text-sm font-bold text-no-strong">{t.loanOwed(fmtMonos(debtCents, { lang }))}</div>
+              <div className="num text-[11.5px] text-faint">{(rateBps / 100).toFixed(1)}% APR</div>
+            </>
+          ) : (
+            <div className="text-[12.5px] font-medium text-mute">{t.loanNoDebt}</div>
+          )}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {LOAN_PRESETS_CENTS.map((cents) => (
+          <button
+            key={cents}
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                const r = await takeLoan({ amountCents: cents });
+                if (r.ok) {
+                  playSfx("claim", 0.5);
+                  toast.success(t.loanTaken(fmtMonos(cents, { lang }), ((r.rateBps ?? 0) / 100).toFixed(1)));
+                  router.refresh();
+                } else toast.error(r.error);
+              })
+            }
+            className="h-8 px-3.5 rounded-lg bg-surface-2 text-[12.5px] font-semibold text-ink hover:bg-surface-3 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {t.loanBorrow(fmtMonos(cents, { lang, decimals: false }))}
+          </button>
+        ))}
+        {debtCents > 0 && (
+          <button
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                const r = await repayLoan({});
+                if (r.ok) {
+                  playSfx("claim", 0.5);
+                  toast.success(t.loanRepaid);
+                  router.refresh();
+                } else toast.error(r.error);
+              })
+            }
+            className="h-8 px-3.5 rounded-lg bg-brand text-brand-on text-[12.5px] font-semibold hover:bg-brand-strong transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {t.loanRepayAll}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function RewardsPanels({
   lang,
   daily,
@@ -250,6 +323,7 @@ export function RewardsPanels({
   ad,
   bonuses,
   username,
+  debt,
 }: {
   lang: Lang;
   daily: Recurring;
@@ -257,6 +331,7 @@ export function RewardsPanels({
   ad: Recurring;
   bonuses: BonusState[];
   username: string;
+  debt: { cents: number; rateBps: number };
 }) {
   const t = getT(lang);
   const [pending, start] = useTransition();
@@ -297,6 +372,9 @@ export function RewardsPanels({
           />
           <AdCard nextAt={ad.nextAt} amount={ad.amount} t={t} />
         </div>
+        <div className="mt-3">
+          <LoanCard debtCents={debt.cents} rateBps={debt.rateBps} t={t} lang={lang} />
+        </div>
       </section>
 
       <section>
@@ -322,7 +400,7 @@ export function RewardsPanels({
                   <div className="text-[14px] font-semibold flex items-center gap-2">
                     {txt.title}
                     <span className="num text-[12px] font-bold text-yes">
-                      +{fmtMarks(b.amountCents, { lang, decimals: false })}
+                      +{fmtMonos(b.amountCents, { lang, decimals: false })}
                     </span>
                   </div>
                   <div className="text-[12px] text-mute truncate">{txt.desc}</div>
@@ -349,7 +427,7 @@ export function RewardsPanels({
                           const r = await claimBonus(b.key);
                           if (r.ok) {
                             playSfx("claim", 0.5);
-                            toast.success(`+${fmtMarks(b.amountCents, { lang, decimals: false })}`);
+                            toast.success(`+${fmtMonos(b.amountCents, { lang, decimals: false })}`);
                             router.refresh();
                           } else toast.error(r.error);
                         })

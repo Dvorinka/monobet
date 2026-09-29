@@ -2,7 +2,7 @@
 
 import { getT, LOCALES, type Lang } from "@/lib/i18n";
 
-export function fmtMarks(cents: number, opts?: { decimals?: boolean; lang?: Lang }): string {
+export function fmtMonos(cents: number, opts?: { decimals?: boolean; lang?: Lang }): string {
   const marks = cents / 100;
   const sign = marks < 0 ? "-" : "";
   const abs = Math.abs(marks);
@@ -18,7 +18,7 @@ export function fmtMarks(cents: number, opts?: { decimals?: boolean; lang?: Lang
 }
 
 // Ɱ 12.3k / Ɱ 4.2m — compact form for tight UI (header pill). Full value via title.
-export function fmtMarksShort(cents: number): string {
+export function fmtMonosShort(cents: number): string {
   const marks = cents / 100;
   const sign = marks < 0 ? "-" : "";
   const abs = Math.abs(marks);

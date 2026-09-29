@@ -8,7 +8,7 @@ import { Sparkline } from "@/components/sparkline";
 import { TradeTicket } from "@/components/trade-ticket";
 import { ResolutionPanel } from "@/components/resolution-panel";
 import { yesPrice } from "@/lib/lmsr";
-import { fmtMarks } from "@/lib/money";
+import { fmtMonos } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn, slugifyLabel } from "@/lib/utils";
 
@@ -157,7 +157,7 @@ export function GroupTrade({
                     <Sparkline points={sparks[o.id] ?? []} className="hidden md:block shrink-0 opacity-80" />
                   </span>
                   <span className="num hidden sm:block text-right text-[12.5px] text-mute">
-                    {fmtMarks(o.volumeCents, { lang })}
+                    {fmtMonos(o.volumeCents, { lang })}
                   </span>
                   <span className="num hidden sm:block text-right text-[12.5px] text-mute">{o.traderCount}</span>
                   <span className={cn("num text-right text-[15px] font-bold", py >= 0.5 ? "text-yes" : "text-ink")}>
@@ -172,7 +172,7 @@ export function GroupTrade({
                       }}
                       className="num grid place-items-center h-8 px-1.5 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold whitespace-nowrap hover:brightness-95 transition cursor-pointer"
                     >
-                      {t.yes} {fmtMarks(Math.round(py * 100), { lang })}
+                      {t.yes} {fmtMonos(Math.round(py * 100), { lang })}
                     </button>
                     <button
                       type="button"
@@ -182,7 +182,7 @@ export function GroupTrade({
                       }}
                       className="num grid place-items-center h-8 px-1.5 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold whitespace-nowrap hover:brightness-95 transition cursor-pointer"
                     >
-                      {t.no} {fmtMarks(Math.round((1 - py) * 100), { lang })}
+                      {t.no} {fmtMonos(Math.round((1 - py) * 100), { lang })}
                     </button>
                   </span>
                 </div>
@@ -205,7 +205,7 @@ export function GroupTrade({
                     <OptionChip label={o.label} index={o.index} imageUrl={o.imageUrl} />
                     <span className="text-[14px] font-medium text-mute truncate flex-1">{o.label}</span>
                     <span className="num text-[12px] text-faint">
-                      {fmtMarks(o.volumeCents, { lang })} {t.vol}
+                      {fmtMonos(o.volumeCents, { lang })} {t.vol}
                     </span>
                     <Badge tone={o.status === "resolved" ? (o.outcome === "yes" ? "yes" : "no") : "mute"}>
                       {o.status === "resolved"

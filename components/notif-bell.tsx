@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Bell, Check, CheckCheck, Circle, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
-import { fmtMarks, timeAgo } from "@/lib/money";
+import { fmtMonos, timeAgo } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 
@@ -190,7 +190,7 @@ export function NotifBell({ items, userId, lang }: { items: NotifItem[]; userId:
               >
                 <span className={cn("size-1.5 rounded-full shrink-0", isUnread ? "bg-brand" : "bg-transparent")} />
                 <Badge tone={n.kind === "liq" ? "no" : n.amountCents > 0 ? "yes" : "ink"} className="shrink-0">
-                  {n.kind === "liq" ? t.kindLiq : n.amountCents > 0 ? `+${fmtMarks(n.amountCents, { lang, decimals: false })}` : t.kindNotify}
+                  {n.kind === "liq" ? t.kindLiq : n.amountCents > 0 ? `+${fmtMonos(n.amountCents, { lang, decimals: false })}` : t.kindNotify}
                 </Badge>
                 <span className={cn("text-[12.5px] flex-1 line-clamp-2", isUnread ? "text-ink" : "text-mute")}>
                   {n.memo || n.kind}

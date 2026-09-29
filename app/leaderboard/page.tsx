@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ensureSeason, getLeaderboard, getSeasonHistory, getSquads } from "@/lib/queries";
 import { getCurrentUser } from "@/lib/session";
-import { fmtMarks, fmtDate, fmtCountdown } from "@/lib/money";
+import { fmtMonos, fmtDate, fmtCountdown } from "@/lib/money";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Avatar, Badge, Card } from "@/components/ui/primitives";
@@ -73,9 +73,9 @@ export default async function LeaderboardPage() {
                     </span>
                   </Link>
                 </td>
-                <td className="num px-4 py-3 text-right text-mute">{fmtMarks(r.portfolioCents, { lang })}</td>
-                <td className="num px-4 py-3 text-right text-mute">{fmtMarks(r.balanceCents, { lang })}</td>
-                <td className="num px-4 py-3 text-right font-bold">{fmtMarks(r.netWorthCents, { lang })}</td>
+                <td className="num px-4 py-3 text-right text-mute">{fmtMonos(r.portfolioCents, { lang })}</td>
+                <td className="num px-4 py-3 text-right text-mute">{fmtMonos(r.balanceCents, { lang })}</td>
+                <td className="num px-4 py-3 text-right font-bold">{fmtMonos(r.netWorthCents, { lang })}</td>
               </tr>
             ))}
             {rows.length === 0 && (
@@ -105,7 +105,7 @@ export default async function LeaderboardPage() {
                     {s.memberCount > 6 ? "…" : ""}
                   </div>
                 </div>
-                <span className="num text-[13px] font-bold">{fmtMarks(s.netWorthCents, { lang })}</span>
+                <span className="num text-[13px] font-bold">{fmtMonos(s.netWorthCents, { lang })}</span>
               </div>
             ))}
           </Card>
@@ -131,7 +131,7 @@ export default async function LeaderboardPage() {
                       <Medal className={cn("size-4", MEDALS[r.rank - 1] ?? "text-mute")} />
                       <Avatar name={r.username ?? r.name} image={r.image} className="size-5" />
                       <span className="text-[12.5px] font-medium">@{r.username ?? r.name}</span>
-                      <span className="num text-[12px] font-bold text-yes">+{fmtMarks(r.rewardCents, { lang, decimals: false })}</span>
+                      <span className="num text-[12px] font-bold text-yes">+{fmtMonos(r.rewardCents, { lang, decimals: false })}</span>
                     </Link>
                   ))}
                   {podium.length === 0 && <span className="text-[12px] text-faint">{t.lbEmpty}</span>}

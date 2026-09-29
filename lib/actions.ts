@@ -9,6 +9,7 @@ import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
 import { yesPrice, tradeCost, sharesForSpend, qForProb } from "@/lib/lmsr";
 import { loanFor, liquidationValueCents, shouldLiquidate } from "@/lib/liq";
+import { accruedDebtCents, LOAN_PRESETS_CENTS, rollRateBps, DEBT_CAP_CENTS } from "@/lib/loans";
 import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
 import {
   DAILY_AMOUNT,
@@ -29,8 +30,8 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // Crude spam brakes for a friends group — recent-row counts on the live
 // tables, generous thresholds, no new infra.
-async function assertNotSpam(userId: string, kind: "trade" | "game" | "comment") {
-  const limits = { trade: 60, game: 60, comment: 5 };
+async function assertNotSpam(userId: string, kind: "trade" | "game" | "comment" | "loan") {
+  const limits = { trade: 60, game: 60, comment: 5, loan: 3 };
   const max = limits[kind];
   let n = 0;
   if (kind === "comment") {
@@ -38,6 +39,12 @@ async function assertNotSpam(userId: string, kind: "trade" | "game" | "comment")
       .select({ n: sql<number>`count(*)::int` })
       .from(schema.comment)
       .where(and(eq(schema.comment.userId, userId), sql`${schema.comment.createdAt} > now() - interval '5 minutes'`));
+    n = r?.n ?? 0;
+  } else if (kind === "loan") {
+    const [r] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.ledger)
+      .where(and(eq(schema.ledger.userId, userId), eq(schema.ledger.kind, "loan"), sql`${schema.ledger.createdAt} > now() - interval '1 hour'`));
     n = r?.n ?? 0;
   } else if (kind === "game") {
     const [r] = await db
@@ -104,6 +111,28 @@ async function lockUser(tx: Tx, userId: string) {
     .limit(1);
   if (!rows[0]) throw new Error("User not found");
   return rows[0];
+}
+
+// Adds `addCents` of principal at `rateBps` — existing debt is accrued first
+// and the rate is blended by principal so one field covers everything.
+async function addDebt(tx: Tx, userId: string, addCents: number, rateBps: number, memo: string) {
+  const u = await lockUser(tx, userId);
+  const now = new Date();
+  const cur = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince, now);
+  const total = Math.min(DEBT_CAP_CENTS, cur + Math.round(addCents));
+  const blended = total <= 0 ? 0 : Math.round((cur * u.debtRateBps + Math.round(addCents) * rateBps) / total);
+  await tx
+    .update(schema.user)
+    .set({ debtCents: total, debtRateBps: blended, debtSince: total > 0 ? now : null })
+    .where(eq(schema.user.id, userId));
+  await tx.insert(schema.ledger).values({
+    userId,
+    amountCents: 0,
+    balanceAfterCents: u.balanceCents,
+    kind: "debt",
+    marketId: null,
+    memo,
+  });
 }
 
 // Short random market slug — "/market/7kx9q2mp". Unambiguous alphabet.
@@ -1268,6 +1297,79 @@ export async function adminResetUserPassword(input: {
   }
 }
 
+// Permanently delete a user — FK cascades wipe sessions, positions, trades,
+// comments, votes, invites, duels and rewards; their markets stay (creatorId
+// goes null). Same protections as banning: not self, not the owner account.
+export async function adminDeleteUser(input: { userId: string }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const admin = await requireAdmin();
+    await assertManageableUser(input.userId, admin.id);
+    const [target] = await db
+      .select({ role: schema.user.role })
+      .from(schema.user)
+      .where(eq(schema.user.id, input.userId))
+      .limit(1);
+    if (target?.role === "admin") throw new Error("Remove the admin role first");
+    await db.delete(schema.user).where(eq(schema.user.id, input.userId));
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Delete failed" };
+  }
+}
+
+// ---------- loans ----------
+// Take a house loan: cash lands immediately, debt accrues at an APR rolled
+// at borrow time — you gamble on the rate you get. Repay pays debt down
+// out of balance; every touch accrues first so the figure is honest.
+
+export async function takeLoan(input: { amountCents: number }): Promise<{ ok: boolean; error?: string; rateBps?: number }> {
+  try {
+    const u = await requireUser();
+    await assertNotSpam(u.id, "loan");
+    const amount = Math.round(input.amountCents);
+    if (!LOAN_PRESETS_CENTS.includes(amount)) throw new Error("Bad loan size");
+    const rate = rollRateBps();
+    await db.transaction(async (tx) => {
+      await credit(tx, u.id, amount, "loan", null, `Loan @ ${(rate / 100).toFixed(1)}% APR`);
+      await addDebt(tx, u.id, amount, rate, `Loan taken — ${(rate / 100).toFixed(1)}% APR`);
+    });
+    revalidatePath("/rewards");
+    revalidatePath("/portfolio");
+    return { ok: true, rateBps: rate };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Loan failed" };
+  }
+}
+
+export async function repayLoan(input: { amountCents?: number }): Promise<{ ok: boolean; error?: string; paidCents?: number }> {
+  try {
+    const u = await requireUser();
+    await db.transaction(async (tx) => {
+      const cur = await lockUser(tx, u.id);
+      const now = new Date();
+      const debt = accruedDebtCents(cur.debtCents, cur.debtRateBps, cur.debtSince, now);
+      if (debt <= 0) throw new Error("No debt");
+      const want = input.amountCents ? Math.round(input.amountCents) : debt;
+      if (!Number.isFinite(want) || want <= 0) throw new Error("Bad amount");
+      const pay = Math.min(want, debt, cur.balanceCents);
+      if (pay <= 0) throw new Error("Insufficient balance");
+      await credit(tx, u.id, -pay, "repay", null, "Loan repayment");
+      const left = Math.max(0, debt - pay);
+      await tx
+        .update(schema.user)
+        .set({ debtCents: left, debtRateBps: left > 0 ? cur.debtRateBps : 0, debtSince: left > 0 ? now : null })
+        .where(eq(schema.user.id, u.id));
+      return { paid: pay };
+    });
+    revalidatePath("/rewards");
+    revalidatePath("/portfolio");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Repay failed" };
+  }
+}
+
 export async function cancelMarket(marketId: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
@@ -1484,8 +1586,10 @@ export async function voteComment(input: {
 const MIN_BET_CENTS = 100; // Ɱ1
 const MAX_WAGER_CENTS = 100_000_00; // Ɱ100k sanity cap
 
-// Debit the wager, pay out on a win. Two ledger rows keep the audit trail
-// readable: "… — wager ×N" then "… — won".
+// Debit the collateral, pay out on a win. With leverage the house covers the
+// wager — only `betCents` must be in the balance. A loss borrows the levered
+// remainder onto the user's debt at a freshly rolled APR; a win pays the full
+// multiple (the loan only existed to cover the stake).
 async function settleGame(
   tx: Tx,
   userId: string,
@@ -1498,12 +1602,16 @@ async function settleGame(
   const wager = Math.round(betCents * leverage);
   if (!Number.isFinite(wager) || wager < MIN_BET_CENTS) throw new Error("Minimum bet is Ɱ 1");
   if (wager > MAX_WAGER_CENTS) throw new Error("Bet too large");
+  const borrowed = Math.round(betCents * (leverage - 1));
   await lockUser(tx, userId);
-  await credit(tx, userId, -wager, "game", null, `${label} — wager ×${leverage}`);
+  await credit(tx, userId, -betCents, "game", null, `${label} — wager ×${leverage}`);
   let win = 0;
   if (won) {
     win = Math.round(wager * mult);
     await credit(tx, userId, win, "game", null, `${label} — won ×${mult}`);
+  } else if (borrowed > 0) {
+    const r = rollRateBps();
+    await addDebt(tx, userId, borrowed, r, `${label} — house loan ${(borrowed / 100).toFixed(0)}Ɱ @ ${(r / 100).toFixed(1)}% APR`);
   }
   return win - wager;
 }

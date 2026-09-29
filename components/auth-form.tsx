@@ -9,7 +9,7 @@ import { claimReferral } from "@/lib/actions";
 import { Button, Card, Input, Segmented, Avatar } from "@/components/ui/primitives";
 import { LogoMark } from "@/components/logo";
 import { Gift } from "lucide-react";
-import { fmtMarks } from "@/lib/money";
+import { fmtMonos } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { REFEREE_BONUS, REFERRER_BONUS } from "@/lib/rewards";
 import { getT, type Lang } from "@/lib/i18n";
@@ -52,7 +52,7 @@ export function AuthForm({ lang, inviter }: { lang?: Lang; inviter?: Inviter }) 
           const rr = await claimReferral({ ref });
           if (rr.ok) {
             playSfx("claim", 0.5);
-            toast.success(`+${fmtMarks(REFEREE_BONUS, { lang, decimals: false })} — ${t.referralApplied}`);
+            toast.success(`+${fmtMonos(REFEREE_BONUS, { lang, decimals: false })} — ${t.referralApplied}`);
           }
         }
         toast.success(t.authWelcome);
@@ -103,11 +103,11 @@ export function AuthForm({ lang, inviter }: { lang?: Lang; inviter?: Inviter }) 
           </div>
           <div className="mt-2.5 flex items-center gap-2 text-[12px] font-semibold">
             <span className="rounded-md bg-yes-soft px-2 py-1 text-yes-strong">
-              {t.refYouGet(fmtMarks(REFEREE_BONUS, { lang, decimals: false }))}
+              {t.refYouGet(fmtMonos(REFEREE_BONUS, { lang, decimals: false }))}
             </span>
             <span className="text-faint">+</span>
             <span className="rounded-md bg-surface-2 px-2 py-1 text-mute">
-              {t.refTheyGet(fmtMarks(REFERRER_BONUS, { lang, decimals: false }), `@${inviter?.username ?? params.get("ref")!}`)}
+              {t.refTheyGet(fmtMonos(REFERRER_BONUS, { lang, decimals: false }), `@${inviter?.username ?? params.get("ref")!}`)}
             </span>
           </div>
         </div>

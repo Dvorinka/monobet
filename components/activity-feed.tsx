@@ -1,4 +1,4 @@
-import { fmtMarks, fmtShares, timeAgo } from "@/lib/money";
+import { fmtMonos, fmtShares, timeAgo } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -38,7 +38,7 @@ export function ActivityFeed({ trades, lang }: { trades: TradeRow[]; lang?: Lang
             </span>
             {t.label && <span className="text-[11.5px] font-medium text-mute bg-surface-2 border border-line-2 rounded px-1.5 py-px truncate max-w-40">{t.label}</span>}
             <span className="num text-mute">{fmtShares(Number(t.shares), lang)} {tt.shares}</span>
-            <span className="num ml-auto font-semibold">{fmtMarks(t.amountCents, { lang })}</span>
+            <span className="num ml-auto font-semibold">{fmtMonos(t.amountCents, { lang })}</span>
             <span className="text-faint text-[11.5px] w-16 text-right">{timeAgo(t.createdAt, lang)}</span>
           </div>
         );

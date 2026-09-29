@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 import { getMarketBySlug, getGroupOptions, marketYesPrice } from "@/lib/queries";
-import { fmtMarks } from "@/lib/money";
+import { fmtMonos } from "@/lib/money";
 
 export const alt = "MonoBet market";
 export const size = { width: 1200, height: 630 };
@@ -138,7 +138,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ fontSize: 24, color: MUTE }}>
-              {`${fmtMarks(market.volumeCents)} traded · ${market.traderCount} traders`}
+              {`${fmtMonos(market.volumeCents)} traded · ${market.traderCount} traders`}
             </div>
             <div style={{ fontSize: 24, color: MUTE }}>play money only · monobet.tdvorak.dev</div>
           </div>

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { fmtMarks } from "@/lib/money";
+import { fmtMonos } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { getT, type Lang } from "@/lib/i18n";
 import type { getGlobalTrades } from "@/lib/queries";
@@ -33,7 +33,7 @@ export function TradeTicker({ trades, lang }: { trades: T[]; lang?: Lang }) {
             >
               {(t.outcome === "yes" ? tt.yes : tt.no).toUpperCase()}
             </span>
-            <span className="num font-semibold text-ink">{fmtMarks(t.amountCents, { lang })}</span>
+            <span className="num font-semibold text-ink">{fmtMonos(t.amountCents, { lang })}</span>
             <span className="text-faint max-w-52 truncate group-hover:text-mute transition-colors">
               {t.question}
             </span>
