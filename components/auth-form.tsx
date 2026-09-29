@@ -6,15 +6,21 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { signIn, signUp } from "@/lib/auth-client";
 import { claimReferral } from "@/lib/actions";
-import { Button, Card, Input, Segmented } from "@/components/ui/primitives";
+import { Button, Card, Input, Segmented, Avatar } from "@/components/ui/primitives";
 import { LogoMark } from "@/components/logo";
+import { Gift } from "lucide-react";
+import { fmtMarks } from "@/lib/money";
+import { playSfx } from "@/lib/sfx";
+import { REFEREE_BONUS, REFERRER_BONUS } from "@/lib/rewards";
 import { getT, type Lang } from "@/lib/i18n";
 
-export function AuthForm({ lang }: { lang?: Lang }) {
+type Inviter = { username: string; name: string; image: string | null } | null;
+
+export function AuthForm({ lang, inviter }: { lang?: Lang; inviter?: Inviter }) {
   const params = useSearchParams();
   const t = getT(lang ?? "en");
   const [mode, setMode] = useState<"login" | "signup">(
-    params.get("mode") === "signup" ? "signup" : "login"
+    params.get("mode") === "signup" || params.get("ref") ? "signup" : "login"
   );
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -44,7 +50,10 @@ export function AuthForm({ lang }: { lang?: Lang }) {
         const ref = params.get("ref");
         if (ref) {
           const rr = await claimReferral({ ref });
-          if (rr.ok) toast.success(`+Ɱ100 — ${t.referralApplied}`);
+          if (rr.ok) {
+            playSfx("claim", 0.5);
+            toast.success(`+${fmtMarks(REFEREE_BONUS, { lang, decimals: false })} — ${t.referralApplied}`);
+          }
         }
         toast.success(t.authWelcome);
       } else {
@@ -76,8 +85,31 @@ export function AuthForm({ lang }: { lang?: Lang }) {
       />
 
       {mode === "signup" && params.get("ref") && (
-        <div className="mt-3 rounded-lg bg-yes-soft px-3 py-2 text-[12.5px] font-medium text-yes-strong">
-          {t.invitedBy(params.get("ref")!)}
+        <div className="mt-4 rounded-xl border border-brand/30 bg-brand-soft/60 px-4 py-3.5">
+          <div className="flex items-center gap-2.5">
+            {inviter ? (
+              <Avatar name={inviter.username} image={inviter.image} className="size-9" />
+            ) : (
+              <div className="size-9 rounded-full bg-brand/15 grid place-items-center text-brand-strong">
+                <Gift className="size-4" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <div className="text-[14px] font-bold leading-tight">
+                {t.invitedBy(`@${inviter?.username ?? params.get("ref")!}`)}
+              </div>
+              <div className="text-[11.5px] text-mute">{t.inviteSub}</div>
+            </div>
+          </div>
+          <div className="mt-2.5 flex items-center gap-2 text-[12px] font-semibold">
+            <span className="rounded-md bg-yes-soft px-2 py-1 text-yes-strong">
+              {t.refYouGet(fmtMarks(REFEREE_BONUS, { lang, decimals: false }))}
+            </span>
+            <span className="text-faint">+</span>
+            <span className="rounded-md bg-surface-2 px-2 py-1 text-mute">
+              {t.refTheyGet(fmtMarks(REFERRER_BONUS, { lang, decimals: false }), `@${inviter?.username ?? params.get("ref")!}`)}
+            </span>
+          </div>
         </div>
       )}
 

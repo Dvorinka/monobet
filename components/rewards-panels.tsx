@@ -7,6 +7,7 @@ import { claimAdReward, claimBonus, claimDaily, claimWeekly } from "@/lib/action
 import { getT, type Lang } from "@/lib/i18n";
 import { AD_WATCH_MS } from "@/lib/rewards";
 import { fmtMarks } from "@/lib/money";
+import { playSfx } from "@/lib/sfx";
 import {
   CalendarCheck,
   CalendarDays,
@@ -86,6 +87,7 @@ function RecurringCard({
           start(async () => {
             const r = await run();
             if (r.ok) {
+              playSfx("claim", 0.5);
               toast.success(`+${amount}`);
               router.refresh();
             } else {
@@ -169,6 +171,7 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
                     setOpen(false);
                     setLeft(null);
                     if (r.ok) {
+                      playSfx("claim", 0.5);
                       toast.success(`+${amount}`);
                       router.refresh();
                     } else {
@@ -325,6 +328,7 @@ export function RewardsPanels({
                         start(async () => {
                           const r = await claimBonus(b.key);
                           if (r.ok) {
+                            playSfx("claim", 0.5);
                             toast.success(`+${fmtMarks(b.amountCents, { lang, decimals: false })}`);
                             router.refresh();
                           } else toast.error(r.error);

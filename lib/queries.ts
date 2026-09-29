@@ -848,6 +848,16 @@ export async function getSquads() {
     .sort((a, b) => b.netWorthCents - a.netWorthCents);
 }
 
+// Inviter details for the ?ref= login card — name + avatar only.
+export async function getInviter(username: string) {
+  const rows = await db
+    .select({ username: schema.user.username, name: schema.user.name, image: schema.user.image })
+    .from(schema.user)
+    .where(sql`lower(${schema.user.username}) = lower(${username})`)
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 // Pending squad invites addressed to a user — shown on their own profile.
 export async function getSquadInvites(userId: string) {
   return db

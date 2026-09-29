@@ -6,6 +6,7 @@ import { Bell, Check, CheckCheck, Circle, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 import { fmtMarks, timeAgo } from "@/lib/money";
+import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 
 export type NotifItem = {
@@ -105,6 +106,23 @@ export function NotifBell({ items, userId, lang }: { items: NotifItem[]; userId:
   const clearedSet = new Set(state.cleared);
   const visible = items.filter((i) => !clearedSet.has(i.id));
   const unread = visible.filter((i) => !readSet.has(i.id)).length;
+
+  // Ping when a fresh notification id arrives — skip the initial hydration set.
+  const knownRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const ids = new Set(visible.map((i) => i.id));
+    if (knownRef.current === null) {
+      knownRef.current = ids;
+      return;
+    }
+    for (const id of ids) {
+      if (!knownRef.current.has(id)) {
+        playSfx("notify", 0.45);
+        break;
+      }
+    }
+    knownRef.current = ids;
+  }, [items, state]);
 
   const markRead = (id: string) => {
     if (readSet.has(id)) return;

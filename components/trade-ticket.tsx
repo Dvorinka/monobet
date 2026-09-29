@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Segmented, Button } from "@/components/ui/primitives";
 import { sharesForSpend, tradeCost, yesPrice } from "@/lib/lmsr";
 import { fmtMarks, fmtCents, fmtShares } from "@/lib/money";
+import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { placeTrade } from "@/lib/actions";
@@ -185,6 +186,7 @@ export function TradeTicket({
               leverage: side === "buy" ? lev : undefined,
             });
             if (r.ok) {
+              playSfx("trade", 0.4);
               const oc = (outcome === "yes" ? t.yes : t.no).toUpperCase();
               toast.success(
                 side === "buy"
