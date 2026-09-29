@@ -140,7 +140,7 @@ export function TradeTicket({
               }}
               className="flex-1 h-7 rounded-md bg-surface-2 text-[12px] font-semibold text-mute hover:bg-surface-3 hover:text-ink cursor-pointer"
             >
-              {side === "buy" ? `+Ɱ${v}` : `${v}%`}
+              {side === "buy" ? `+Ɱ ${v}` : `${v}%`}
             </button>
           ))}
           <button

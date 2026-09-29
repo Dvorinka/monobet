@@ -9,7 +9,7 @@ export function fmtMarks(cents: number, opts?: { decimals?: boolean; lang?: Lang
   const showDecimals = opts?.decimals ?? !Number.isInteger(abs);
   return (
     sign +
-    "Ɱ" +
+    "Ɱ " +
     abs.toLocaleString(LOCALES[opts?.lang ?? "en"], {
       minimumFractionDigits: showDecimals ? 2 : 0,
       maximumFractionDigits: showDecimals ? 2 : 0,
@@ -17,18 +17,18 @@ export function fmtMarks(cents: number, opts?: { decimals?: boolean; lang?: Lang
   );
 }
 
-// Ɱ12.3k / Ɱ4.2m — compact form for tight UI (header pill). Full value via title.
+// Ɱ 12.3k / Ɱ 4.2m — compact form for tight UI (header pill). Full value via title.
 export function fmtMarksShort(cents: number): string {
   const marks = cents / 100;
   const sign = marks < 0 ? "-" : "";
   const abs = Math.abs(marks);
   const fmt = (v: number, suffix: string) => {
     const s = v >= 100 ? Math.round(v).toString() : v.toFixed(1).replace(/\.0$/, "");
-    return `${sign}Ɱ${s}${suffix}`;
+    return `${sign}Ɱ ${s}${suffix}`;
   };
   if (abs >= 1_000_000) return fmt(abs / 1_000_000, "m");
   if (abs >= 10_000) return fmt(abs / 1_000, "k");
-  return `${sign}Ɱ${Number.isInteger(abs) ? abs : abs.toFixed(2)}`;
+  return `${sign}Ɱ ${Number.isInteger(abs) ? abs : abs.toFixed(2)}`;
 }
 
 // 0.632 -> "63¢"

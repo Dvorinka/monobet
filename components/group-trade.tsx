@@ -9,7 +9,7 @@ import { TradeTicket } from "@/components/trade-ticket";
 import { yesPrice } from "@/lib/lmsr";
 import { fmtMarks } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
+import { cn, slugifyLabel } from "@/lib/utils";
 
 export type GroupOption = {
   id: string;
@@ -61,7 +61,9 @@ export function GroupTrade({
   const t = getT(lang ?? "en");
   const live = options.filter((o) => o.status === "live");
   const closed = options.filter((o) => o.status !== "live");
-  const [selId, setSelId] = useState(() => live.find((o) => o.id === initialOpt)?.id ?? live[0]?.id ?? "");
+  // ?opt= accepts the option slug (readable) or the id (legacy links).
+  const byOpt = (o: GroupOption) => o.id === initialOpt || slugifyLabel(o.label) === initialOpt;
+  const [selId, setSelId] = useState(() => live.find(byOpt)?.id ?? live[0]?.id ?? "");
   const [side, setSide] = useState<"yes" | "no">(initialSide === "no" ? "no" : "yes");
 
   const sel = live.find((o) => o.id === selId) ?? live[0];
@@ -70,8 +72,8 @@ export function GroupTrade({
   const select = (o: GroupOption, s?: "yes" | "no") => {
     setSelId(o.id);
     if (s) setSide(s);
-    // Shareable URL without a server fetch.
-    window.history.replaceState(null, "", `/market/${slug}?opt=${o.id}${s ? `&side=${s}` : ""}`);
+    // Shareable URL without a server fetch — slugged option label.
+    window.history.replaceState(null, "", `/market/${slug}?opt=${slugifyLabel(o.label)}${s ? `&side=${s}` : ""}`);
   };
 
   const ticket = sel && (

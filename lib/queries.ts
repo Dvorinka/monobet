@@ -347,20 +347,22 @@ export async function getGroupHistories(marketIds: string[]) {
   return map;
 }
 
-// Last ~40 price points per market, for card sparklines. One query, grouped in JS.
+// Latest ~40 price points per market, bounded in SQL — not in JS.
 export async function getSparklines(marketIds: string[]) {
   const map = new Map<string, number[]>();
   if (marketIds.length === 0) return map;
-  const rows = await db
-    .select({ marketId: schema.pricePoint.marketId, p: schema.pricePoint.yesPrice, t: schema.pricePoint.createdAt })
-    .from(schema.pricePoint)
-    .where(inArray(schema.pricePoint.marketId, marketIds))
-    .orderBy(asc(schema.pricePoint.createdAt));
-  for (const r of rows) {
-    const arr = map.get(r.marketId) ?? [];
+  const rows = await db.execute<{ market_id: string; p: number }>(sql`
+    SELECT market_id, yes_price AS p FROM (
+      SELECT market_id, yes_price,
+        ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY created_at DESC) AS rn
+      FROM price_point
+      WHERE market_id = ANY(${marketIds})
+    ) s WHERE rn <= 40
+    ORDER BY market_id, rn DESC`);
+  for (const r of rows.rows) {
+    const arr = map.get(r.market_id) ?? [];
     arr.push(Number(r.p));
-    if (arr.length > 40) arr.shift();
-    map.set(r.marketId, arr);
+    map.set(r.market_id, arr);
   }
   return map;
 }

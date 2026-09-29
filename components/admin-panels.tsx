@@ -73,74 +73,96 @@ export function LiveMarketList({
   items,
   lang,
 }: {
-  items: { id: string; slug: string; question: string; category: string; volumeCents: number; traderCount: number; closesAt: Date | null; kind?: string }[];
+  items: { id: string; slug: string; question: string; label?: string | null; parentId?: string | null; category: string; volumeCents: number; traderCount: number; closesAt: Date | null; kind?: string }[];
   lang?: Lang;
 }) {
   const { pending, run } = useAction(lang);
   const t = getT(lang ?? "en");
-  if (items.length === 0) return <p className="p-4 text-sm text-mute">{t.noLive}</p>;
+  // Group options nest under their parent — one row per market, children
+  // resolve individually inside an expandable block.
+  const tops = items.filter((m) => !m.parentId);
+  const children = new Map<string, typeof items>();
+  for (const m of items) {
+    if (!m.parentId) continue;
+    const arr = children.get(m.parentId) ?? [];
+    arr.push(m);
+    children.set(m.parentId, arr);
+  }
+  const btns = (m: (typeof items)[number]) => (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {m.kind !== "group" && (
+        <>
+          <Button size="xs" variant="yes" disabled={pending} onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "yes" }), t.resolvedYesToast)}>
+            <CircleCheck className="size-3" /> {t.resolveYes}
+          </Button>
+          <Button size="xs" variant="no" disabled={pending} onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "no" }), t.resolvedNoToast)}>
+            <CircleCheck className="size-3" /> {t.resolveNo}
+          </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={pending}
+            onClick={() => {
+              if (confirm(t.cancelConfirm)) run(() => cancelMarket(m.id), t.cancelledToast);
+            }}
+          >
+            <Ban className="size-3" /> {t.cancelRefund}
+          </Button>
+        </>
+      )}
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={pending}
+        className="text-no-strong hover:bg-no-soft border-no/30"
+        onClick={() => {
+          if (confirm(t.deleteMarketConfirm(m.question))) run(() => deleteMarket(m.id), t.marketDeleted);
+        }}
+      >
+        <Trash2 className="size-3" /> {t.delete}
+      </Button>
+    </div>
+  );
+  if (tops.length === 0) return <p className="p-4 text-sm text-mute">{t.noLive}</p>;
   return (
     <div className="divide-y divide-line-2">
-      {items.map((m) => (
-        <div key={m.id} className="px-4 py-3.5">
-          <div className="flex items-center gap-3">
-            <div className="flex-1 min-w-0">
-              <Link href={`/market/${m.slug}`} className="text-sm font-medium hover:underline underline-offset-2 line-clamp-1">
-                {m.question}
-              </Link>
-              <div className="text-[11.5px] text-faint mt-0.5">
-                {fmtMarks(m.volumeCents, { lang })} {t.vol.toLowerCase()} · {m.traderCount} {t.tradersW} · {t.closes.toLowerCase()} {fmtDate(m.closesAt, lang)}
+      {tops.map((m) => {
+        const kids = children.get(m.id) ?? [];
+        return (
+          <div key={m.id} className="px-4 py-3.5">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <Link href={`/market/${m.slug}`} className="text-sm font-medium hover:underline underline-offset-2 line-clamp-1">
+                  {m.question}
+                </Link>
+                <div className="text-[11.5px] text-faint mt-0.5">
+                  {fmtMarks(m.volumeCents, { lang })} {t.vol.toLowerCase()} · {m.traderCount} {t.tradersW} · {t.closes.toLowerCase()} {fmtDate(m.closesAt, lang)}
+                  {kids.length > 0 && ` · ${kids.length} ${t.options}`}
+                </div>
               </div>
             </div>
-          </div>
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {m.kind !== "group" && (
-              <>
-                <Button
-                  size="xs"
-                  variant="yes"
-                  disabled={pending}
-                  onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "yes" }), t.resolvedYesToast)}
-                >
-                  <CircleCheck className="size-3" /> {t.resolveYes}
-                </Button>
-                <Button
-                  size="xs"
-                  variant="no"
-                  disabled={pending}
-                  onClick={() => run(() => resolveMarket({ marketId: m.id, outcome: "no" }), t.resolvedNoToast)}
-                >
-                  <CircleCheck className="size-3" /> {t.resolveNo}
-                </Button>
-              </>
+            {btns(m)}
+            {kids.length > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer list-none text-[12px] font-semibold text-mute hover:text-ink select-none">
+                  {t.options} ({kids.length})
+                </summary>
+                <div className="mt-1.5 ml-3 border-l-2 border-line-2 pl-3 space-y-2">
+                  {kids.map((o) => (
+                    <div key={o.id}>
+                      <div className="text-[13px] font-medium">{o.label ?? o.question}</div>
+                      <div className="text-[11.5px] text-faint">
+                        {fmtMarks(o.volumeCents, { lang })} {t.vol.toLowerCase()} · {o.traderCount} {t.tradersW}
+                      </div>
+                      {btns(o)}
+                    </div>
+                  ))}
+                </div>
+              </details>
             )}
-            {m.kind !== "group" && (
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={pending}
-                onClick={() => {
-                  if (confirm(t.cancelConfirm))
-                    run(() => cancelMarket(m.id), t.cancelledToast);
-                }}
-              >
-                <Ban className="size-3" /> {t.cancelRefund}
-              </Button>
-            )}
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={pending}
-              className="text-no-strong hover:bg-no-soft border-no/30"
-              onClick={() => {
-                if (confirm(t.deleteMarketConfirm(m.question))) run(() => deleteMarket(m.id), t.marketDeleted);
-              }}
-            >
-              <Trash2 className="size-3" /> {t.delete}
-            </Button>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

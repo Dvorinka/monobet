@@ -223,7 +223,7 @@ export async function placeTrade(input: {
       if (side === "buy") {
         const spend = Math.round(input.spendCents ?? 0);
         const leverage = Math.round(input.leverage ?? 1);
-        if (!Number.isFinite(spend) || spend < 100) throw new Error("Minimum trade is Ɱ1");
+        if (!Number.isFinite(spend) || spend < 100) throw new Error("Minimum trade is Ɱ 1");
         if (!TRADE_LEVERAGES.includes(leverage)) throw new Error("Bad leverage");
         if (leverage > m.maxLeverage) throw new Error(`Max leverage on this market is ${m.maxLeverage}×`);
         const notional = spend * leverage;
@@ -1487,7 +1487,7 @@ async function settleGame(
   label: string
 ): Promise<number> {
   const wager = Math.round(betCents * leverage);
-  if (!Number.isFinite(wager) || wager < MIN_BET_CENTS) throw new Error("Minimum bet is Ɱ1");
+  if (!Number.isFinite(wager) || wager < MIN_BET_CENTS) throw new Error("Minimum bet is Ɱ 1");
   if (wager > MAX_WAGER_CENTS) throw new Error("Bet too large");
   await lockUser(tx, userId);
   await credit(tx, userId, -wager, "game", null, `${label} — wager ×${leverage}`);
@@ -1502,7 +1502,7 @@ async function settleGame(
 function checkBet(betCents: number, leverage: number) {
   const bet = Math.round(betCents);
   const lev = Math.round(leverage);
-  if (!Number.isFinite(bet) || bet < MIN_BET_CENTS) throw new Error("Minimum bet is Ɱ1");
+  if (!Number.isFinite(bet) || bet < MIN_BET_CENTS) throw new Error("Minimum bet is Ɱ 1");
   if (!GAME_LEVERAGES.includes(lev as (typeof GAME_LEVERAGES)[number])) throw new Error("Bad leverage");
   return { bet, lev };
 }
@@ -1756,8 +1756,8 @@ export async function createDuel(input: {
     if (claim.length < 5) throw new Error("Describe the bet (min 5 chars)");
     if (claim.length > 200) throw new Error("Claim too long (max 200)");
     const stake = Math.round(input.stakeCents);
-    if (!Number.isFinite(stake) || stake < 100) throw new Error("Minimum stake is Ɱ1");
-    if (stake > 10_000_000) throw new Error("Maximum stake is Ɱ100,000");
+    if (!Number.isFinite(stake) || stake < 100) throw new Error("Minimum stake is Ɱ 1");
+    if (stake > 10_000_000) throw new Error("Maximum stake is Ɱ 100,000");
     await db.transaction(async (tx) => {
       const [opp] = await tx
         .select({ id: schema.user.id, username: schema.user.username, balanceCents: schema.user.balanceCents })
