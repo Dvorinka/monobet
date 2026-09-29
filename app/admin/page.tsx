@@ -50,7 +50,14 @@ export default async function AdminPage() {
           </Card>
         </section>
 
-        <section>
+        <section className="lg:col-span-2">
+          <SectionTitle icon={<Users className="size-4" />} title={t.umTitle} />
+          <Card className="overflow-hidden">
+            <UserManager users={users} selfId={user.id} lang={lang} />
+          </Card>
+        </section>
+
+        <section className="lg:col-span-2">
           <SectionTitle icon={<Radio className="size-4" />} title={t.liveMarkets(live.length)} />
           <Card className="overflow-hidden">
             <LiveMarketList
@@ -69,40 +76,33 @@ export default async function AdminPage() {
           </Card>
         </section>
 
-        <section className="lg:col-span-2">
-          <SectionTitle icon={<Users className="size-4" />} title={t.umTitle} />
-          <Card className="overflow-hidden">
-            <UserManager users={users} selfId={user.id} lang={lang} />
+        {/* Tool panels — the tall market form anchors the left column while the
+            three compact panels stack beside it. */}
+        <section className="lg:row-span-3">
+          <SectionTitle icon={<PlusCircle className="size-4" />} title={t.createMarketTitle} />
+          <MarketForm isAdmin categories={categories} lang={lang} />
+        </section>
+
+        <section>
+          <SectionTitle icon={<Tags className="size-4" />} title={t.categoriesTitle} />
+          <Card>
+            <CategoriesPanel categories={categoryRows} lang={lang} />
           </Card>
         </section>
 
-        <div className="space-y-6">
-          <section>
-            <SectionTitle icon={<PlusCircle className="size-4" />} title={t.createMarketTitle} />
-            <MarketForm isAdmin categories={categories} lang={lang} />
-          </section>
+        <section>
+          <SectionTitle icon={<Users className="size-4" />} title={t.grantBalance} />
+          <Card>
+            <GrantPanel users={users.map((u) => ({ id: u.id, username: u.username, balanceCents: u.balanceCents }))} lang={lang} />
+          </Card>
+        </section>
 
-          <section>
-            <SectionTitle icon={<Tags className="size-4" />} title={t.categoriesTitle} />
-            <Card>
-              <CategoriesPanel categories={categoryRows} lang={lang} />
-            </Card>
-          </section>
-
-          <section>
-            <SectionTitle icon={<Users className="size-4" />} title={t.grantBalance} />
-            <Card>
-              <GrantPanel users={users.map((u) => ({ id: u.id, username: u.username, balanceCents: u.balanceCents }))} lang={lang} />
-            </Card>
-          </section>
-
-          <section>
-            <SectionTitle icon={<UserPlus className="size-4" />} title={t.umCreateUser} />
-            <Card>
-              <UsersPanel lang={lang} />
-            </Card>
-          </section>
-        </div>
+        <section>
+          <SectionTitle icon={<UserPlus className="size-4" />} title={t.umCreateUser} />
+          <Card>
+            <UsersPanel lang={lang} />
+          </Card>
+        </section>
       </div>
     </div>
   );

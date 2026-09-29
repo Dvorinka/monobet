@@ -191,6 +191,7 @@ export type PositionRow = {
   yesShares: number;
   noShares: number;
   valueCents: number;
+  debtCents: number;
 };
 
 export async function getUserPositions(userId: string): Promise<PositionRow[]> {
@@ -204,12 +205,13 @@ export async function getUserPositions(userId: string): Promise<PositionRow[]> {
       const y = Number(p.yesShares);
       const n = Number(p.noShares);
       const py = marketYesPrice(m);
-      // Resolved markets price winning shares at 1, losing at 0.
-      const valueCents =
+      // Resolved markets price winning shares at 1, losing at 0. Leveraged
+      // positions report equity (value − outstanding loan), floored at zero.
+      const grossCents =
         m.status === "resolved"
           ? Math.round((m.outcome === "yes" ? y : n) * 100)
           : Math.round((y * py + n * (1 - py)) * 100);
-      return { market: m, yesShares: y, noShares: n, valueCents };
+      return { market: m, yesShares: y, noShares: n, valueCents: Math.max(0, grossCents - p.debtCents), debtCents: p.debtCents };
     })
     .filter((r) => r.yesShares > 0.0001 || r.noShares > 0.0001);
 }
@@ -257,11 +259,12 @@ export async function getLeaderboard() {
   const valueByUser = new Map<string, number>();
   for (const { position: p, market: m } of positions) {
     const py = marketYesPrice(m);
-    const v =
+    const gross =
       m.status === "resolved"
         ? Number(m.outcome === "yes" ? p.yesShares : p.noShares) * 100
         : (Number(p.yesShares) * py + Number(p.noShares) * (1 - py)) * 100;
-    valueByUser.set(p.userId, (valueByUser.get(p.userId) ?? 0) + v);
+    // Leveraged positions count equity only — the loan isn't theirs.
+    valueByUser.set(p.userId, (valueByUser.get(p.userId) ?? 0) + Math.max(0, gross - p.debtCents));
   }
 
   return users

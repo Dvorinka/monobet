@@ -41,6 +41,8 @@ exists for fun, bragging rights, and settling arguments.
 ## Features
 
 - **Binary & multi-outcome markets** priced by LMSR — instant liquidity, prices move with every trade; "X by when?" groups render each option as its own Yes/No line, resolved options collapse under "View resolved"
+- **Leveraged trading** — buy at 1–10×: collateral covers the margin, the loan lives on the position, sells/resolves repay it first, and positions auto-liquidate when their value can't cover the debt
+- **Minigames arcade** (`/games`) — coin flip, dice roll-over, blind stop-the-timer (server-timestamped rounds), limbo multiplier, and a spinner wheel; all take variable bets ×1–10 leverage and settle through the ledger
 - **Anyone can create a market** — it goes live instantly; the creator picks per-option starting odds (1–99%) and liquidity depth (Thin/Standard/Deep)
 - **Creator & admin management** — edit rules/images/dates without breaking live markets (question locks once bets exist), resolve YES/NO, cancel with refunds
 - **User-managed categories** — starts empty; anyone can mint one inline in the market form, admins rename (markets carry over) and delete empty ones

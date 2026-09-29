@@ -2,6 +2,8 @@
 
 import { db, schema } from "@/lib/db";
 import { eq, and, sql, desc } from "drizzle-orm";
+import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
+import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS } from "@/lib/games";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -106,12 +108,57 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
 
 // ---------- trading ----------
 
+// Leverage: the user posts `spend` as collateral and the house lends the rest,
+// so `notional = spend × leverage` worth of shares. The loan lives on the
+// position row as debtCents and is repaid out of sells/resolves/refunds.
+const TRADE_LEVERAGES = [1, 2, 3, 5, 10];
+
+// If a leveraged position's liquidation value drops to the debt (5% cushion),
+// force-sell it into the book, repay the loan, hand back any leftover equity.
+// Runs inside the trade tx after the book moved — sequential sells keep the
+// q's honest as each liquidation moves the price.
+async function checkLiquidations(tx: Tx, marketId: string) {
+  const m = await lockMarket(tx, marketId);
+  let qy = toNum(m.qYes);
+  let qn = toNum(m.qNo);
+  const rows = await tx
+    .select()
+    .from(schema.position)
+    .where(and(eq(schema.position.marketId, marketId), sql`${schema.position.debtCents} > 0`))
+    .for("update");
+  let touched = false;
+  for (const p of rows) {
+    const y = toNum(p.yesShares);
+    const n = toNum(p.noShares);
+    const valueCents = Math.round(
+      (tradeCost(qy, qn, m.b, "yes", -y) + tradeCost(qy - y, qn, m.b, "no", -n)) * 100
+    );
+    if (valueCents > p.debtCents * 1.05) continue;
+    qy -= y;
+    qn -= n;
+    const equity = Math.max(0, valueCents - p.debtCents);
+    if (equity > 0) {
+      await lockUser(tx, p.userId);
+      await credit(tx, p.userId, equity, "liq", marketId, `Liquidated: ${m.question.slice(0, 60)}`);
+    }
+    await tx
+      .delete(schema.position)
+      .where(and(eq(schema.position.marketId, marketId), eq(schema.position.userId, p.userId)));
+    touched = true;
+  }
+  if (touched) {
+    await tx.update(schema.market).set({ qYes: String(qy), qNo: String(qn) }).where(eq(schema.market.id, marketId));
+    await tx.insert(schema.pricePoint).values({ marketId, yesPrice: yesPrice(qy, qn, m.b).toFixed(5) });
+  }
+}
+
 export async function placeTrade(input: {
   marketId: string;
   outcome: "yes" | "no";
   side: "buy" | "sell";
   spendCents?: number;
   shares?: number;
+  leverage?: number;
 }): Promise<{ ok: true; shares: number; costCents: number; price: number } | { ok: false; error: string }> {
   try {
     const u = await requireUser();
@@ -133,13 +180,19 @@ export async function placeTrade(input: {
 
       let shares: number;
       let cashDelta: number; // negative = pay, positive = receive
+      let debtDelta = 0; // new loan principal on leveraged buys
+      let debtRepay = 0; // loan repaid out of sell proceeds
 
       if (side === "buy") {
         const spend = Math.round(input.spendCents ?? 0);
+        const leverage = Math.round(input.leverage ?? 1);
         if (!Number.isFinite(spend) || spend < 100) throw new Error("Minimum trade is Ɱ1");
-        shares = sharesForSpend(qYes, qNo, b, outcome, spend / 100);
+        if (!TRADE_LEVERAGES.includes(leverage)) throw new Error("Bad leverage");
+        const notional = spend * leverage;
+        shares = sharesForSpend(qYes, qNo, b, outcome, notional / 100);
         if (shares <= 0) throw new Error("Trade too small");
-        cashDelta = -spend;
+        cashDelta = -spend; // collateral only — the loan makes up the rest
+        debtDelta = notional - spend;
       } else {
         shares = -Math.abs(input.shares ?? 0); // negative = removing shares from market
         if (!Number.isFinite(shares) || shares >= 0) throw new Error("Enter shares to sell");
@@ -153,6 +206,9 @@ export async function placeTrade(input: {
         const refund = tradeCost(qYes, qNo, b, outcome, shares);
         cashDelta = Math.round(refund * 100); // nearest cent
         if (cashDelta <= 0) throw new Error("Nothing to refund");
+        // Proceeds service the loan first; the seller keeps the remainder.
+        debtRepay = Math.min(cashDelta, pos?.debtCents ?? 0);
+        cashDelta -= debtRepay;
       }
 
       const shareDelta = shares;
@@ -167,10 +223,15 @@ export async function placeTrade(input: {
         cashDelta,
         side === "buy" ? "buy" : "sell",
         marketId,
-        `${side === "buy" ? "Bought" : "Sold"} ${absShares.toFixed(2)} ${outcome.toUpperCase()} @ ${(outcome === "yes" ? newPrice : 1 - newPrice).toFixed(2)}`
+        `${side === "buy" ? "Bought" : "Sold"} ${absShares.toFixed(2)} ${outcome.toUpperCase()} @ ${(outcome === "yes" ? newPrice : 1 - newPrice).toFixed(2)}` +
+          (debtDelta > 0 ? ` · ${input.leverage}x` : debtRepay > 0 ? " · loan repaid" : "")
       );
 
-      // upsert position
+      // upsert position (shares delta + loan delta)
+      const shareSet =
+        outcome === "yes"
+          ? { yesShares: sql`${schema.position.yesShares} + ${shareDelta}` }
+          : { noShares: sql`${schema.position.noShares} + ${shareDelta}` };
       await tx
         .insert(schema.position)
         .values({
@@ -178,13 +239,17 @@ export async function placeTrade(input: {
           userId: u.id,
           yesShares: outcome === "yes" ? String(shareDelta) : "0",
           noShares: outcome === "no" ? String(shareDelta) : "0",
+          debtCents: debtDelta,
         })
         .onConflictDoUpdate({
           target: [schema.position.marketId, schema.position.userId],
           set:
-            outcome === "yes"
-              ? { yesShares: sql`${schema.position.yesShares} + ${shareDelta}` }
-              : { noShares: sql`${schema.position.noShares} + ${shareDelta}` },
+            debtDelta === 0 && debtRepay === 0
+              ? shareSet
+              : {
+                  ...shareSet,
+                  debtCents: sql`${schema.position.debtCents} + ${debtDelta} - ${debtRepay}`,
+                },
         });
 
       // trader count += when this is the user's first trade in this market
@@ -216,6 +281,10 @@ export async function placeTrade(input: {
         yesPriceAfter: newPrice.toFixed(5),
       });
       await tx.insert(schema.pricePoint).values({ marketId, yesPrice: newPrice.toFixed(5) });
+
+      // The book just moved — flush any leveraged position that can't cover
+      // its loan at the new prices.
+      await checkLiquidations(tx, marketId);
 
       result = { shares: absShares, costCents: Math.abs(cashDelta), price: newPrice };
       revalidatePath(`/market/${updated.slug}`);
@@ -685,7 +754,8 @@ export async function resolveMarket(input: {
         .for("update");
       for (const p of positions) {
         const winShares = input.outcome === "yes" ? toNum(p.yesShares) : toNum(p.noShares);
-        const payout = Math.floor(winShares * 100);
+        // Leveraged positions settle the loan first; winners keep the rest.
+        const payout = Math.max(0, Math.floor(winShares * 100) - p.debtCents);
         if (payout > 0) {
           await lockUser(tx, p.userId);
           await credit(tx, p.userId, payout, "payout", m.id, `Payout: ${m.question.slice(0, 60)}`);
@@ -748,7 +818,7 @@ export async function deleteMarket(marketId: string): Promise<{ ok: boolean; err
             .where(eq(schema.position.marketId, t.id))
             .for("update");
           for (const p of positions) {
-            const refund = Math.round((toNum(p.yesShares) * py + toNum(p.noShares) * (1 - py)) * 100);
+            const refund = Math.max(0, Math.round((toNum(p.yesShares) * py + toNum(p.noShares) * (1 - py)) * 100) - p.debtCents);
             if (refund > 0) {
               await lockUser(tx, p.userId);
               await credit(tx, p.userId, refund, "refund", t.id, `Removed: ${t.question.slice(0, 60)}`);
@@ -950,7 +1020,7 @@ export async function cancelMarket(marketId: string): Promise<{ ok: boolean; err
         .where(eq(schema.position.marketId, marketId))
         .for("update");
       for (const p of positions) {
-        const refund = Math.round((toNum(p.yesShares) * py + toNum(p.noShares) * (1 - py)) * 100);
+        const refund = Math.max(0, Math.round((toNum(p.yesShares) * py + toNum(p.noShares) * (1 - py)) * 100) - p.debtCents);
         if (refund > 0) {
           await lockUser(tx, p.userId);
           await credit(tx, p.userId, refund, "refund", m.id, `Refund: ${m.question.slice(0, 60)}`);
@@ -1054,3 +1124,186 @@ export async function voteComment(input: {
 }
 
 
+
+// ---------- minigames ----------
+
+const MIN_BET_CENTS = 100; // Ɱ1
+const MAX_WAGER_CENTS = 100_000_00; // Ɱ100k sanity cap
+
+// Debit the wager, pay out on a win. Two ledger rows keep the audit trail
+// readable: "… — wager ×N" then "… — won".
+async function settleGame(
+  tx: Tx,
+  userId: string,
+  betCents: number,
+  leverage: number,
+  won: boolean,
+  mult: number,
+  label: string
+): Promise<number> {
+  const wager = Math.round(betCents * leverage);
+  if (!Number.isFinite(wager) || wager < MIN_BET_CENTS) throw new Error("Minimum bet is Ɱ1");
+  if (wager > MAX_WAGER_CENTS) throw new Error("Bet too large");
+  await lockUser(tx, userId);
+  await credit(tx, userId, -wager, "game", null, `${label} — wager ×${leverage}`);
+  let win = 0;
+  if (won) {
+    win = Math.round(wager * mult);
+    await credit(tx, userId, win, "game", null, `${label} — won ×${mult}`);
+  }
+  return win - wager;
+}
+
+function checkBet(betCents: number, leverage: number) {
+  const bet = Math.round(betCents);
+  const lev = Math.round(leverage);
+  if (!Number.isFinite(bet) || bet < MIN_BET_CENTS) throw new Error("Minimum bet is Ɱ1");
+  if (!GAME_LEVERAGES.includes(lev as (typeof GAME_LEVERAGES)[number])) throw new Error("Bad leverage");
+  return { bet, lev };
+}
+
+export async function playCoinFlip(input: {
+  betCents: number;
+  leverage: number;
+  pick: "heads" | "tails";
+}): Promise<{ ok: boolean; error?: string; won?: boolean; landed?: string; netCents?: number }> {
+  try {
+    const u = await requireUser();
+    const { bet, lev } = checkBet(input.betCents, input.leverage);
+    if (input.pick !== "heads" && input.pick !== "tails") throw new Error("Pick a side");
+    const landed = randomInt(2) === 0 ? "heads" : "tails";
+    const won = landed === input.pick;
+    const netCents = await db.transaction(async (tx) =>
+      settleGame(tx, u.id, bet, lev, won, COINFLIP_MULT, `Coin flip ${input.pick}→${landed}`)
+    );
+    revalidatePath("/games");
+    return { ok: true, won, landed, netCents };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Flip failed" };
+  }
+}
+
+export async function playDice(input: {
+  betCents: number;
+  leverage: number;
+  over: number;
+}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number }> {
+  try {
+    const u = await requireUser();
+    const { bet, lev } = checkBet(input.betCents, input.leverage);
+    const over = Math.round(input.over);
+    if (over < DICE_MIN_OVER || over > DICE_MAX_OVER) throw new Error("Bad target");
+    const roll = randomInt(1, 7);
+    const won = roll > over;
+    const mult = diceMult(over);
+    const netCents = await db.transaction(async (tx) =>
+      settleGame(tx, u.id, bet, lev, won, mult, `Dice >${over} → ${roll}`)
+    );
+    revalidatePath("/games");
+    return { ok: true, won, roll, netCents };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Roll failed" };
+  }
+}
+
+// Stop-the-timer rounds are stamped server-side with an HMAC so the measured
+// time can't be forged: the token carries (user, target, issued-at); stop
+// computes elapsed from the server clock, not the client's.
+const TIMER_SECRET = process.env.BETTER_AUTH_SECRET ?? "monobet-dev-secret";
+
+function signTimerRound(userId: string, targetMs: number): string {
+  const payload = Buffer.from(JSON.stringify({ u: userId, t: targetMs, i: Date.now() })).toString("base64url");
+  const sig = createHmac("sha256", TIMER_SECRET).update(payload).digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+function openTimerRound(token: string, userId: string): { t: number; i: number } {
+  const [payload, sig] = token.split(".");
+  const good = createHmac("sha256", TIMER_SECRET).update(payload ?? "").digest("base64url");
+  if (!sig || sig.length !== good.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(good)))
+    throw new Error("Bad round token");
+  const data = JSON.parse(Buffer.from(payload, "base64url").toString()) as { u: string; t: number; i: number };
+  if (data.u !== userId) throw new Error("Not your round");
+  return { t: data.t, i: data.i };
+}
+
+export async function startTimerRound(input: {
+  targetMs: number;
+}): Promise<{ ok: boolean; error?: string; token?: string }> {
+  try {
+    const u = await requireUser();
+    const target = Math.round(input.targetMs);
+    if (!TIMER_TARGETS.includes(target as (typeof TIMER_TARGETS)[number])) throw new Error("Bad target");
+    return { ok: true, token: signTimerRound(u.id, target) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Start failed" };
+  }
+}
+
+export async function stopTimerRound(input: {
+  token: string;
+  betCents: number;
+  leverage: number;
+}): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number }> {
+  try {
+    const u = await requireUser();
+    const { bet, lev } = checkBet(input.betCents, input.leverage);
+    const { t: target, i: issued } = openTimerRound(input.token, u.id);
+    const elapsed = Date.now() - issued;
+    if (elapsed < 400) throw new Error("Stopped suspiciously fast");
+    if (elapsed > target + 4000) throw new Error("Round expired — press Stop sooner");
+    const err = Math.abs(elapsed - target);
+    const mult = timerMult(err);
+    const won = mult > 0;
+    const netCents = await db.transaction(async (tx) =>
+      settleGame(tx, u.id, bet, lev, won, mult, `Timer ${target / 1000}s off by ${err}ms`)
+    );
+    revalidatePath("/games");
+    return { ok: true, won, elapsedMs: elapsed, errMs: err, netCents, mult };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Stop failed" };
+  }
+}
+
+export async function playLimbo(input: {
+  betCents: number;
+  leverage: number;
+  target: number;
+}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number }> {
+  try {
+    const u = await requireUser();
+    const { bet, lev } = checkBet(input.betCents, input.leverage);
+    const target = Number(input.target);
+    if (!Number.isFinite(target) || target < LIMBO_MIN || target > LIMBO_MAX) throw new Error("Bad target");
+    // Crash point: 0.99/(1−u), clamped — win when the rocket clears the bar.
+    const u1 = (randomInt(2 ** 32) + randomInt(2 ** 32) / 2 ** 32) / 2 ** 32;
+    const roll = Math.min(1000, Math.max(1, 0.99 / (1 - u1)));
+    const won = roll >= target;
+    const netCents = await db.transaction(async (tx) =>
+      settleGame(tx, u.id, bet, lev, won, target * 0.98, `Limbo ≥${target}x → ${roll.toFixed(2)}x`)
+    );
+    revalidatePath("/games");
+    return { ok: true, won, roll: Math.round(roll * 100) / 100, netCents };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Limbo failed" };
+  }
+}
+
+export async function playWheel(input: {
+  betCents: number;
+  leverage: number;
+}): Promise<{ ok: boolean; error?: string; index?: number; mult?: number; netCents?: number }> {
+  try {
+    const u = await requireUser();
+    const { bet, lev } = checkBet(input.betCents, input.leverage);
+    const index = randomInt(WHEEL_SEGMENTS.length);
+    const mult = WHEEL_SEGMENTS[index];
+    const netCents = await db.transaction(async (tx) =>
+      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Wheel → ${mult}x`)
+    );
+    revalidatePath("/games");
+    return { ok: true, index, mult, netCents };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Spin failed" };
+  }
+}
