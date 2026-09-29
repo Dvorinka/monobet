@@ -79,7 +79,7 @@ export default async function AdminPage() {
         )}
 
         <section className="lg:col-span-2">
-          <SectionTitle icon={<Radio className="size-4" />} title={t.liveMarkets(live.length)} />
+          <SectionTitle icon={<Radio className="size-4" />} title={t.liveMarkets(live.filter((m) => !m.parentId).length)} />
           <Card className="overflow-hidden">
             <LiveMarketList
               lang={lang}
@@ -87,6 +87,8 @@ export default async function AdminPage() {
                 id: m.id,
                 slug: m.slug,
                 question: m.question,
+                label: m.label,
+                parentId: m.parentId,
                 category: m.category,
                 volumeCents: m.volumeCents,
                 traderCount: m.traderCount,

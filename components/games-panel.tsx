@@ -43,7 +43,7 @@ function useGame(lang?: Lang) {
   const errText = (msg?: string) =>
     msg === "Insufficient balance"
       ? t.errInsufficient
-      : msg === "Minimum bet is Ɱ1"
+      : msg === "Minimum bet is Ɱ 1"
         ? t.errMinBet
         : msg === "Bet too large"
           ? t.errBetTooLarge

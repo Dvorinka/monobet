@@ -16,7 +16,7 @@ import { LikeButton } from "@/components/like-button";
 import { AnimatedPct } from "@/components/animated-number";
 import { Badge } from "@/components/ui/primitives";
 import { getT, type Lang } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
+import { cn, slugifyLabel } from "@/lib/utils";
 
 const CARD =
   "group flex flex-col rounded-[14px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(16,16,20,0.04)] hover:shadow-[0_6px_20px_rgba(16,16,20,0.09)] hover:border-faint/60 hover:-translate-y-0.5 transition-all duration-200 anim-rise";
@@ -194,7 +194,7 @@ function OptionRow({ option: o, parentSlug, index, lang }: { option: MarketRow; 
   const resolved = o.status === "resolved";
   return (
     <Link
-      href={`/market/${parentSlug}?opt=${o.id}`}
+      href={`/market/${parentSlug}?opt=${slugifyLabel(o.label ?? o.question)}`}
       className="flex items-center gap-2.5 px-1 py-2 rounded-md hover:bg-surface-2 transition-colors"
     >
       <OptionChip label={o.label ?? o.question} index={index} imageUrl={o.imageUrl} />
