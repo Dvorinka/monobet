@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Users, Bell, LogOut } from "lucide-react";
-import { Button, Card, Input } from "@/components/ui/primitives";
-import { joinSquad, leaveSquad, setNotifPrefs, inviteToSquad, respondSquadInvite } from "@/lib/actions";
+import { Avatar, Button, Card, Input } from "@/components/ui/primitives";
+import { joinSquad, leaveSquad, setNotifPrefs, inviteToSquad, respondSquadInvite, searchUsers } from "@/lib/actions";
 import { getT, type Lang } from "@/lib/i18n";
 
 type Invite = { id: string; squadName: string; inviterName: string | null };
@@ -29,6 +29,21 @@ export function ProfileSettings({
   const [pending, start] = useTransition();
   const [name, setName] = useState("");
   const [inviteName, setInviteName] = useState("");
+  const [suggests, setSuggests] = useState<Awaited<ReturnType<typeof searchUsers>>>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+
+  // Username autocomplete — 200ms debounce, squad-less users only.
+  useEffect(() => {
+    const q = inviteName.trim().replace(/^@/, "");
+    const id = setTimeout(
+      () => {
+        if (!q) setSuggests([]);
+        else searchUsers(q).then(setSuggests).catch(() => setSuggests([]));
+      },
+      q ? 200 : 0
+    );
+    return () => clearTimeout(id);
+  }, [inviteName]);
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) =>
     start(async () => {
@@ -55,12 +70,45 @@ export function ProfileSettings({
               </Button>
             </div>
             <div className="mt-2 flex gap-1.5">
-              <Input
-                value={inviteName}
-                onChange={(e) => setInviteName(e.target.value)}
-                placeholder={t.squadInvitePh}
-                className="text-[13px]"
-              />
+              <div className="relative flex-1">
+                <Input
+                  value={inviteName}
+                  onChange={(e) => {
+                    setInviteName(e.target.value);
+                    setSuggestOpen(true);
+                  }}
+                  onFocus={() => setSuggestOpen(true)}
+                  onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
+                  placeholder={t.squadInvitePh}
+                  className="text-[13px] w-full"
+                />
+                {suggestOpen && suggests.length > 0 && (
+                  <div className="absolute z-20 top-full mt-1 inset-x-0 rounded-lg border border-line bg-surface shadow-lg overflow-hidden">
+                    {suggests.map((s) => (
+                      <button
+                        key={s.username ?? s.name}
+                        type="button"
+                        className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-surface-2 cursor-pointer"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          const uname = s.username ?? s.name;
+                          setSuggestOpen(false);
+                          run(async () => {
+                            const r = await inviteToSquad(uname);
+                            if (r.ok) setInviteName("");
+                            return r;
+                          }, t.squadInvitedToast);
+                        }}
+                      >
+                        <Avatar name={s.username ?? s.name} image={s.image} className="size-6" />
+                        <span className="min-w-0 flex-1 text-[13px] font-medium truncate">
+                          @{s.username ?? s.name}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <Button
                 size="sm"
                 variant="outline"

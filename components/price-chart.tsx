@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatedPct } from "@/components/animated-number";
+import { LOCALES, type Lang } from "@/lib/i18n";
 
 type Pt = { t: string; p: number };
 const RANGES = [
@@ -13,6 +14,27 @@ const RANGES = [
   { key: "1W", ms: 7 * 86400_000 },
   { key: "ALL", ms: Infinity },
 ] as const;
+
+const RANGE_LABEL: Record<Lang, Record<(typeof RANGES)[number]["key"], string>> = {
+  en: { "1H": "1H", "6H": "6H", "1D": "1D", "1W": "1W", ALL: "ALL" },
+  cs: { "1H": "1h", "6H": "6h", "1D": "1d", "1W": "1t", ALL: "Vše" },
+};
+
+// True windowing: carry in the last price before the cutoff so the line starts
+// at window edge, then extend the last price flat out to `now`.
+function windowPoints(points: Pt[], cutoff: number, now: number): Pt[] {
+  let anchor: Pt | null = null;
+  const inside: Pt[] = [];
+  for (const p of points) {
+    if (new Date(p.t).getTime() < cutoff) anchor = p;
+    else inside.push(p);
+  }
+  const pts = anchor ? [{ t: new Date(cutoff).toISOString(), p: anchor.p }, ...inside] : inside;
+  if (pts.length && now - new Date(pts[pts.length - 1].t).getTime() > 1000) {
+    pts.push({ t: new Date(now).toISOString(), p: pts[pts.length - 1].p });
+  }
+  return pts;
+}
 
 const W = 720;
 const H = 300;
@@ -36,36 +58,35 @@ function smoothPath(coords: readonly (readonly [number, number])[]): string {
   return d;
 }
 
-function fmtTick(t: number, span: number): string {
+function fmtTick(t: number, span: number, locale: string): string {
   const d = new Date(t);
-  if (span <= 6 * 3600_000) return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (span <= 6 * 3600_000) return d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
   if (span <= 2 * 86400_000)
-    return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric" });
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return d.toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric" });
+  return d.toLocaleDateString(locale, { month: "short", day: "numeric" });
 }
 
-export function PriceChart({ points, now, live }: { points: Pt[]; now: number; live?: boolean }) {
+export function PriceChart({ points, now, live, lang }: { points: Pt[]; now: number; live?: boolean; lang?: Lang }) {
+  const locale = LOCALES[lang ?? "en"];
   const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("ALL");
   const [hover, setHover] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const data = useMemo(() => {
-    const r = RANGES.find((x) => x.key === range)!;
-    const cutoff = now - r.ms;
-    const filtered = points.filter((p) => new Date(p.t).getTime() >= cutoff);
-    const base = filtered.length >= 2 ? filtered : points;
-    // Extend the last price flat out to "now" so the line reaches the edge,
-    // like Polymarket's resting line between trades.
-    if (base.length > 0 && now - new Date(base[base.length - 1].t).getTime() > 1000) {
-      return [...base, { t: new Date(now).toISOString(), p: base[base.length - 1].p }];
-    }
-    return base;
-  }, [points, range, now]);
+  const r = RANGES.find((x) => x.key === range)!;
+  const t1 = now;
+
+  const data = useMemo(
+    () => windowPoints(points, isFinite(r.ms) ? t1 - r.ms : -Infinity, t1),
+    [points, r, t1]
+  );
+
+  // The x-axis IS the window — a 1H view spans exactly the last hour even when
+  // trades are sparse, so picking a range always changes the picture. ALL
+  // anchors at the first data point.
+  const t0 = isFinite(r.ms) ? t1 - r.ms : data.length ? new Date(data[0].t).getTime() : t1 - 1;
 
   const { linePath, areaPath, last } = useMemo(() => {
     if (data.length === 0) return { linePath: "", areaPath: "", last: null as Pt | null };
-    const t0 = new Date(data[0].t).getTime();
-    const t1 = new Date(data[data.length - 1].t).getTime();
     const span = Math.max(t1 - t0, 1);
     const x = (t: number) => PAD_L + ((t - t0) / span) * (W - PAD_L - PAD_R);
     const y = (p: number) => PAD_T + (1 - Math.min(1, Math.max(0, p))) * (H - PAD_T - PAD_B);
@@ -73,10 +94,8 @@ export function PriceChart({ points, now, live }: { points: Pt[]; now: number; l
     const line = smoothPath(coords);
     const area = `${line} L${coords[coords.length - 1][0].toFixed(1)},${y(0)} L${coords[0][0].toFixed(1)},${y(0)} Z`;
     return { linePath: line, areaPath: area, last: data[data.length - 1] };
-  }, [data]);
+  }, [data, t0, t1]);
 
-  const t0 = data.length ? new Date(data[0].t).getTime() : 0;
-  const t1 = data.length ? new Date(data[data.length - 1].t).getTime() : 0;
   const x = (t: number) => PAD_L + ((t - t0) / Math.max(t1 - t0, 1)) * (W - PAD_L - PAD_R);
   const y = (p: number) => PAD_T + (1 - Math.min(1, Math.max(0, p))) * (H - PAD_T - PAD_B);
 
@@ -141,7 +160,7 @@ export function PriceChart({ points, now, live }: { points: Pt[]; now: number; l
                 range === r.key ? "bg-surface shadow-sm text-ink" : "text-mute hover:text-ink"
               )}
             >
-              {r.key}
+              {RANGE_LABEL[lang ?? "en"][r.key]}
             </button>
           ))}
         </div>
@@ -226,7 +245,7 @@ export function PriceChart({ points, now, live }: { points: Pt[]; now: number; l
         {data.length > 0 &&
           [0, 0.25, 0.5, 0.75, 1].map((k) => {
             const t = t0 + (t1 - t0) * k;
-            return <span key={k}>{fmtTick(t, t1 - t0)}</span>;
+            return <span key={k}>{fmtTick(t, t1 - t0, locale)}</span>;
           })}
       </div>
     </div>

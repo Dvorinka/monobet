@@ -22,7 +22,7 @@ import {
 import type { MarketRow } from "@/lib/queries";
 import { marketYesPrice } from "@/lib/queries";
 import { optionColor, optionSoftBg } from "@/lib/option-style";
-import { fmtCents, fmtMarks, fmtDate } from "@/lib/money";
+import { fmtMarks, fmtDate } from "@/lib/money";
 import { Sparkline } from "@/components/sparkline";
 
 import { LikeButton } from "@/components/like-button";
@@ -164,10 +164,10 @@ export function MarketCard({
       {market.status === "live" && (
         <div className="mt-3 grid grid-cols-2 gap-2">
           <span className="grid place-items-center h-8.5 rounded-md bg-yes-soft text-yes-strong text-[13px] font-semibold">
-            {t.buyYes} {fmtCents(py)}
+            {t.buyYes} {fmtMarks(Math.round(py * 100), { lang })}
           </span>
           <span className="grid place-items-center h-8.5 rounded-md bg-no-soft text-no-strong text-[13px] font-semibold">
-            {t.buyNo} {fmtCents(1 - py)}
+            {t.buyNo} {fmtMarks(Math.round((1 - py) * 100), { lang })}
           </span>
         </div>
       )}
@@ -298,10 +298,10 @@ function OptionRow({ option: o, parentSlug, index, lang }: { option: MarketRow; 
             {Math.round(py * 100)}%
           </span>
           <span className="num grid place-items-center h-7 w-16 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold shrink-0">
-            {t.yes} {fmtCents(py)}
+            {t.yes} {fmtMarks(Math.round(py * 100), { lang })}
           </span>
           <span className="num grid place-items-center h-7 w-16 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold shrink-0">
-            {t.no} {fmtCents(1 - py)}
+            {t.no} {fmtMarks(Math.round((1 - py) * 100), { lang })}
           </span>
         </>
       )}

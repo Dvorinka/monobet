@@ -13,6 +13,7 @@ export type CurrentUser = {
   lastClaimAt: Date | null;
   claimStreak: number;
   commentsBanned: boolean;
+  commentBanUntil: Date | null;
 };
 
 export function isAdmin(u: Pick<CurrentUser, "role" | "email"> | null | undefined): boolean {
@@ -33,6 +34,7 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     image?: string | null;
     bannedAt?: Date | null;
     commentsBanned?: boolean;
+    commentBanUntil?: Date | null;
     claimStreak?: number;
   };
   // Banned accounts keep a session cookie until it expires; treat them as
@@ -49,6 +51,7 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     lastClaimAt: u.lastClaimAt ?? null,
     claimStreak: u.claimStreak ?? 0,
     commentsBanned: u.commentsBanned ?? false,
+    commentBanUntil: u.commentBanUntil ?? null,
   };
 });
 

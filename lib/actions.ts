@@ -1,7 +1,7 @@
 "use server";
 
 import { db, schema } from "@/lib/db";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, isNull } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
 import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout } from "@/lib/games";
 import { revalidatePath } from "next/cache";
@@ -1298,6 +1298,8 @@ export async function addComment(input: {
   try {
     const u = await requireUser();
     if (u.commentsBanned) throw new Error("Comments are disabled for your account");
+    if (u.commentBanUntil && u.commentBanUntil > new Date())
+      throw new Error("You are timed out from commenting");
     await assertNotSpam(u.id, "comment");
     const body = input.body.trim();
     if (!body) throw new Error("Empty comment");
@@ -1326,6 +1328,81 @@ export async function addComment(input: {
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Comment failed" };
   }
+}
+
+export async function editComment(input: {
+  commentId: string;
+  body: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const body = input.body.trim();
+    if (!body) throw new Error("Empty comment");
+    if (body.length > 1000) throw new Error("Comment too long (max 1000)");
+    const [c] = await db.select().from(schema.comment).where(eq(schema.comment.id, input.commentId)).limit(1);
+    if (!c) throw new Error("Not found");
+    if (c.userId !== u.id) throw new Error("Not yours");
+    if (c.hidden) throw new Error("Hidden comments can't be edited");
+    await db.update(schema.comment).set({ body }).where(eq(schema.comment.id, c.id));
+    const [m] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, c.marketId)).limit(1);
+    if (m) revalidatePath(`/market/${m.slug}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Edit failed" };
+  }
+}
+
+// Admin comment tools: censor keeps the row but masks the body; timeout mutes
+// the author for N hours; commentsBanned is the permanent variant.
+export async function adminSetCommentHidden(input: {
+  commentId: string;
+  hidden: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const [c] = await db.select().from(schema.comment).where(eq(schema.comment.id, input.commentId)).limit(1);
+    if (!c) throw new Error("Not found");
+    await db.update(schema.comment).set({ hidden: input.hidden }).where(eq(schema.comment.id, c.id));
+    const [m] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, c.marketId)).limit(1);
+    if (m) revalidatePath(`/market/${m.slug}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Update failed" };
+  }
+}
+
+export async function adminTimeoutComments(input: {
+  userId: string;
+  hours: number;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const admin = await requireAdmin();
+    await assertManageableUser(input.userId, admin.id);
+    const hours = Math.min(Math.max(Math.round(input.hours), 1), 24 * 30);
+    const until = hours > 0 ? new Date(Date.now() + hours * 3600_000) : null;
+    await db.update(schema.user).set({ commentBanUntil: until }).where(eq(schema.user.id, input.userId));
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Update failed" };
+  }
+}
+
+// Autocomplete for squad invites — only squad-less users can be invited.
+export async function searchUsers(q: string): Promise<{ username: string | null; name: string; image: string | null }[]> {
+  const u = await requireUser();
+  const term = q.trim().replace(/^@/, "");
+  if (term.length < 1) return [];
+  return db
+    .select({ username: schema.user.username, name: schema.user.name, image: schema.user.image })
+    .from(schema.user)
+    .where(
+      and(
+        sql`lower(${schema.user.username}) like lower(${"%" + term.replace(/[%_]/g, "") + "%"})`,
+        isNull(schema.user.squadId),
+        sql`${schema.user.id} <> ${u.id}`
+      )
+    )
+    .limit(6);
 }
 
 export async function deleteComment(commentId: string): Promise<{ ok: boolean; error?: string }> {

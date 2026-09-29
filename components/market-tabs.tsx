@@ -18,7 +18,7 @@ export function MarketTabs({
   lang?: Lang;
 }) {
   const t = getT(lang ?? "en");
-  const [tab, setTab] = useState<"activity" | "comments">("activity");
+  const [tab, setTab] = useState<"activity" | "comments">("comments");
   const btn = (key: "activity" | "comments", label: string, n: number) => (
     <button
       key={key}
@@ -34,10 +34,10 @@ export function MarketTabs({
   return (
     <div>
       <div className="flex border-b border-line">
-        {btn("activity", t.activity, tradeCount)}
         {btn("comments", t.comments, commentCount)}
+        {btn("activity", t.activity, tradeCount)}
       </div>
-      <div className="pt-5">{tab === "activity" ? activity : comments}</div>
+      <div className="pt-5">{tab === "comments" ? comments : activity}</div>
     </div>
   );
 }

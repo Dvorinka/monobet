@@ -127,6 +127,13 @@
       "when": 1790694337026,
       "tag": "0017_market-likes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790698379092,
+      "tag": "0018_mod-and-badges",
+      "breakpoints": true
     }
   ]
 }

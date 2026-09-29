@@ -15,6 +15,27 @@ const RANGES = [
   { key: "ALL", ms: Infinity },
 ] as const;
 
+const RANGE_LABEL: Record<Lang, Record<(typeof RANGES)[number]["key"], string>> = {
+  en: { "1H": "1H", "6H": "6H", "1D": "1D", "1W": "1W", ALL: "ALL" },
+  cs: { "1H": "1h", "6H": "6h", "1D": "1d", "1W": "1t", ALL: "Vše" },
+};
+
+// True windowing: carry in the last price before the cutoff so lines start at
+// window edge, then extend the last price flat out to `now`.
+function windowPoints(points: Pt[], cutoff: number, now: number): Pt[] {
+  let anchor: Pt | null = null;
+  const inside: Pt[] = [];
+  for (const p of points) {
+    if (new Date(p.t).getTime() < cutoff) anchor = p;
+    else inside.push(p);
+  }
+  const pts = anchor ? [{ t: new Date(cutoff).toISOString(), p: anchor.p }, ...inside] : inside;
+  if (pts.length && now - new Date(pts[pts.length - 1].t).getTime() > 1000) {
+    pts.push({ t: new Date(now).toISOString(), p: pts[pts.length - 1].p });
+  }
+  return pts;
+}
+
 const W = 720;
 const H = 280;
 const PAD_L = 44;
@@ -77,44 +98,37 @@ export function MultiPriceChart({
   const [hoverT, setHoverT] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const data = useMemo(() => {
-    const r = RANGES.find((x) => x.key === range)!;
-    const cutoff = now - r.ms;
-    return series
-      .map((s) => {
-        const filtered = s.points.filter((p) => new Date(p.t).getTime() >= cutoff);
-        const base = filtered.length >= 2 ? filtered : s.points;
-        // flat extension to now so every line reaches the edge
-        const pts =
-          base.length > 0 && now - new Date(base[base.length - 1].t).getTime() > 1000
-            ? [...base, { t: new Date(now).toISOString(), p: base[base.length - 1].p }]
-            : base;
-        return { ...s, pts };
-      })
-      .filter((s) => s.pts.length > 0);
-  }, [series, range, now]);
+  const r = RANGES.find((x) => x.key === range)!;
 
-  const { t0, t1, paths } = useMemo(() => {
+  const data = useMemo(() => {
+    const cutoff = isFinite(r.ms) ? now - r.ms : -Infinity;
+    return series
+      .map((s) => ({ ...s, pts: windowPoints(s.points, cutoff, now) }))
+      .filter((s) => s.pts.length > 0);
+  }, [series, r, now]);
+
+  // The x-axis IS the window — ranged views span exactly [now-ms, now]; ALL
+  // anchors at the earliest point across series.
+  const t1 = now;
+  const t0 = useMemo(() => {
+    if (isFinite(r.ms)) return t1 - r.ms;
     let lo = Infinity;
-    let hi = -Infinity;
-    for (const s of data) {
-      for (const p of s.pts) {
-        const v = new Date(p.t).getTime();
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
-      }
-    }
-    if (!isFinite(lo)) return { t0: 0, t1: 0, paths: new Map<string, { line: string; last: Pt }>() };
-    const span = Math.max(hi - lo, 1);
-    const x = (v: number) => PAD_L + ((v - lo) / span) * (W - PAD_L - PAD_R);
+    for (const s of data) lo = Math.min(lo, new Date(s.pts[0].t).getTime());
+    return isFinite(lo) ? lo : t1 - 1;
+  }, [data, r, t1]);
+
+  const { paths } = useMemo(() => {
+    if (!data.length) return { paths: new Map<string, { line: string; last: Pt }>() };
+    const span = Math.max(t1 - t0, 1);
+    const x = (v: number) => PAD_L + ((v - t0) / span) * (W - PAD_L - PAD_R);
     const y = (p: number) => PAD_T + (1 - Math.min(1, Math.max(0, p))) * (H - PAD_T - PAD_B);
     const m = new Map<string, { line: string; last: Pt }>();
     for (const s of data) {
       const coords = s.pts.map((p) => [x(new Date(p.t).getTime()), y(p.p)] as const);
       m.set(s.key, { line: smoothPath(coords), last: s.pts[s.pts.length - 1] });
     }
-    return { t0: lo, t1: hi, paths: m };
-  }, [data]);
+    return { paths: m };
+  }, [data, t0, t1]);
 
   const span = Math.max(t1 - t0, 1);
   const x = (v: number) => PAD_L + ((v - t0) / span) * (W - PAD_L - PAD_R);
@@ -163,7 +177,7 @@ export function MultiPriceChart({
                 range === r.key ? "bg-surface shadow-sm text-ink" : "text-mute hover:text-ink"
               )}
             >
-              {r.key}
+              {RANGE_LABEL[lang ?? "en"][r.key]}
             </button>
           ))}
         </div>

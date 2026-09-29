@@ -27,7 +27,7 @@ import {
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT, type Dict } from "@/lib/i18n";
-import { fmtMarks, fmtDate, fmtShares, fmtCents } from "@/lib/money";
+import { fmtMarks, fmtDate, fmtShares } from "@/lib/money";
 import { PriceChart } from "@/components/price-chart";
 import { LikeButton } from "@/components/like-button";
 import { CopyLink } from "@/components/copy-link";
@@ -63,9 +63,9 @@ export async function generateMetadata({
   };
 }
 
-export default async function MarketPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ opt?: string }> }) {
+export default async function MarketPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ opt?: string; side?: string }> }) {
   const { slug } = await params;
-  const { opt: selOpt } = await searchParams;
+  const { opt: selOpt, side: selSide } = await searchParams;
   const market = await getMarketBySlug(slug);
   if (!market) notFound();
 
@@ -86,7 +86,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
       user ? isLiked(user.id, market.id) : false,
       getLikeCounts([market.id]),
     ]);
-    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} liked={liked} likes={likes.get(market.id) ?? 0} selOpt={selOpt} />;
+    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} liked={liked} likes={likes.get(market.id) ?? 0} selOpt={selOpt} selSide={selSide} />;
   }
 
   const parent = market.parentId ? await getMarketById(market.parentId) : null;
@@ -217,6 +217,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               // eslint-disable-next-line react-hooks/purity -- server component renders once per request
               now={Date.now()}
               live={market.status === "live"}
+              lang={lang}
             />
             <div className="mt-3 pt-3 border-t border-line-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-mute font-medium">
               <span className="num font-semibold text-ink-2">{fmtMarks(market.volumeCents, { lang })} {t.volume}</span>
@@ -417,6 +418,7 @@ async function GroupMarketView({
   liked,
   likes = 0,
   selOpt,
+  selSide,
 }: {
   market: Awaited<ReturnType<typeof getMarketBySlug>> & object;
   options: Awaited<ReturnType<typeof getGroupOptions>>;
@@ -428,6 +430,7 @@ async function GroupMarketView({
   liked: boolean;
   likes?: number;
   selOpt?: string;
+  selSide?: string;
 }) {
   const t: Dict = getT(lang);
   const optionIds = options.map((o) => o.id);
@@ -548,34 +551,52 @@ async function GroupMarketView({
             const py = marketYesPrice(o);
             const oi = options.indexOf(o);
             return (
-              <Link
+              <div
                 key={o.id}
-                href={`/market/${market.slug}?opt=${o.id}`}
-                scroll={false}
                 className={cn(
                   "grid grid-cols-[1fr_auto_auto_auto] sm:grid-cols-[1fr_110px_110px_64px_150px] items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors",
                   sel?.id === o.id && "bg-surface-2 shadow-[inset_2px_0_0_var(--brand)]"
                 )}
               >
-                <span className="min-w-0 flex items-center gap-3">
+                <Link
+                  href={`/market/${market.slug}?opt=${o.id}`}
+                  scroll={false}
+                  className="min-w-0 flex items-center gap-3"
+                >
                   <OptionChip label={o.label ?? o.question} index={oi} imageUrl={o.imageUrl} />
                   <span className="text-[14px] font-semibold text-ink truncate">{o.label}</span>
                   <Sparkline points={optionSparks.get(o.id) ?? []} className="hidden md:block shrink-0 opacity-80" />
-                </span>
-                <span className="num hidden sm:block text-right text-[12.5px] text-mute">{fmtMarks(o.volumeCents, { lang })}</span>
-                <span className="num hidden sm:block text-right text-[12.5px] text-mute">{o.traderCount}</span>
-                <span className={cn("num text-right text-[15px] font-bold", py >= 0.5 ? "text-yes" : "text-ink")}>
+                </Link>
+                <Link href={`/market/${market.slug}?opt=${o.id}`} scroll={false} className="num hidden sm:block text-right text-[12.5px] text-mute">
+                  {fmtMarks(o.volumeCents, { lang })}
+                </Link>
+                <Link href={`/market/${market.slug}?opt=${o.id}`} scroll={false} className="num hidden sm:block text-right text-[12.5px] text-mute">
+                  {o.traderCount}
+                </Link>
+                <Link
+                  href={`/market/${market.slug}?opt=${o.id}`}
+                  scroll={false}
+                  className={cn("num text-right text-[15px] font-bold", py >= 0.5 ? "text-yes" : "text-ink")}
+                >
                   {Math.round(py * 100)}%
-                </span>
+                </Link>
                 <span className="hidden sm:grid grid-cols-2 gap-1.5">
-                  <span className="num grid place-items-center h-8 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold">
-                    {t.yes} {fmtCents(py)}
-                  </span>
-                  <span className="num grid place-items-center h-8 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold">
-                    {t.no} {fmtCents(1 - py)}
-                  </span>
+                  <Link
+                    href={`/market/${market.slug}?opt=${o.id}&side=yes`}
+                    scroll={false}
+                    className="num grid place-items-center h-8 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold hover:brightness-95 transition"
+                  >
+                    {t.yes} {fmtMarks(Math.round(py * 100), { lang })}
+                  </Link>
+                  <Link
+                    href={`/market/${market.slug}?opt=${o.id}&side=no`}
+                    scroll={false}
+                    className="num grid place-items-center h-8 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold hover:brightness-95 transition"
+                  >
+                    {t.no} {fmtMarks(Math.round((1 - py) * 100), { lang })}
+                  </Link>
                 </span>
-              </Link>
+              </div>
             );
           })}
           {live.length === 0 && (
@@ -645,7 +666,7 @@ async function GroupMarketView({
         <div className="space-y-4 lg:sticky lg:top-20 self-start">
           {sel && (
             <TradeTicket
-              key={sel.id}
+              key={`${sel.id}:${selSide ?? "yes"}`}
               marketId={sel.id}
               qYes={Number(sel.qYes)}
               qNo={Number(sel.qNo)}
@@ -657,6 +678,7 @@ async function GroupMarketView({
               heldNo={Number(selPos?.noShares ?? 0)}
               maxLeverage={market.maxLeverage}
               lang={lang}
+              defaultOutcome={selSide === "no" ? "no" : "yes"}
               title={
                 <div className="mb-3 flex items-center gap-2.5">
                   <OptionChip label={sel.label ?? sel.question} index={options.indexOf(sel)} imageUrl={sel.imageUrl} />
