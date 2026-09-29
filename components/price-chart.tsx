@@ -1,0 +1,158 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
+
+type Pt = { t: string; p: number };
+const RANGES = [
+  { key: "1H", ms: 3600_000 },
+  { key: "6H", ms: 6 * 3600_000 },
+  { key: "1D", ms: 86400_000 },
+  { key: "1W", ms: 7 * 86400_000 },
+  { key: "ALL", ms: Infinity },
+] as const;
+
+const W = 720;
+const H = 300;
+const PAD_L = 44;
+const PAD_R = 12;
+const PAD_T = 16;
+const PAD_B = 26;
+
+export function PriceChart({ points, now }: { points: Pt[]; now: number }) {
+  const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("ALL");
+  const [hover, setHover] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  const data = useMemo(() => {
+    const r = RANGES.find((x) => x.key === range)!;
+    const cutoff = now - r.ms;
+    const filtered = points.filter((p) => new Date(p.t).getTime() >= cutoff);
+    return filtered.length >= 2 ? filtered : points;
+  }, [points, range, now]);
+
+  const { linePath, areaPath, last } = useMemo(() => {
+    if (data.length === 0) return { linePath: "", areaPath: "", last: null as Pt | null };
+    const t0 = new Date(data[0].t).getTime();
+    const t1 = new Date(data[data.length - 1].t).getTime();
+    const span = Math.max(t1 - t0, 1);
+    const x = (t: number) => PAD_L + ((t - t0) / span) * (W - PAD_L - PAD_R);
+    const y = (p: number) => PAD_T + (1 - Math.min(1, Math.max(0, p))) * (H - PAD_T - PAD_B);
+    const coords = data.map((d) => [x(new Date(d.t).getTime()), y(d.p)] as const);
+    const line = `M${coords.map((c) => `${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(" L")}`;
+    const area = `${line} L${coords[coords.length - 1][0].toFixed(1)},${y(0)} L${coords[0][0].toFixed(1)},${y(0)} Z`;
+    return { linePath: line, areaPath: area, last: data[data.length - 1] };
+  }, [data]);
+
+  const t0 = data.length ? new Date(data[0].t).getTime() : 0;
+  const t1 = data.length ? new Date(data[data.length - 1].t).getTime() : 0;
+  const x = (t: number) => PAD_L + ((t - t0) / Math.max(t1 - t0, 1)) * (W - PAD_L - PAD_R);
+  const y = (p: number) => PAD_T + (1 - Math.min(1, Math.max(0, p))) * (H - PAD_T - PAD_B);
+
+  const onMove = (e: React.PointerEvent) => {
+    if (!svgRef.current || data.length === 0) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const px = ((e.clientX - rect.left) / rect.width) * W;
+    let best = 0;
+    let bestD = Infinity;
+    data.forEach((d, i) => {
+      const dx = Math.abs(x(new Date(d.t).getTime()) - px);
+      if (dx < bestD) {
+        bestD = dx;
+        best = i;
+      }
+    });
+    setHover(best);
+  };
+
+  const hoverPt = hover !== null ? data[hover] : null;
+  const up = data.length > 1 && data[data.length - 1].p >= data[0].p;
+  const stroke = data.length <= 1 ? "var(--color-mute)" : up ? "var(--color-yes)" : "var(--color-no)";
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="num flex items-baseline gap-2">
+          <span className="text-[34px] font-bold tracking-tight leading-none" style={{ color: stroke }}>
+            {last ? `${Math.round(last.p * 100)}%` : "—"}
+          </span>
+          <span className="text-[13px] font-medium text-mute">chance</span>
+        </div>
+        <div className="flex gap-0.5 rounded-lg bg-surface-2 p-0.5">
+          {RANGES.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setRange(r.key)}
+              className={cn(
+                "px-2.5 h-7 rounded-md text-[11.5px] font-semibold cursor-pointer",
+                range === r.key ? "bg-surface shadow-sm text-ink" : "text-mute hover:text-ink"
+              )}
+            >
+              {r.key}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full select-none"
+        onPointerMove={onMove}
+        onPointerLeave={() => setHover(null)}
+      >
+        <defs>
+          <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={stroke} stopOpacity="0.18" />
+            <stop offset="100%" stopColor={stroke} stopOpacity="0.01" />
+          </linearGradient>
+        </defs>
+
+        {[0, 0.25, 0.5, 0.75, 1].map((g) => (
+          <g key={g}>
+            <line x1={PAD_L} x2={W - PAD_R} y1={y(g)} y2={y(g)} stroke="var(--color-line-2)" strokeDasharray={g === 0 ? "" : "3 4"} />
+            <text x={PAD_L - 8} y={y(g) + 4} textAnchor="end" fontSize="11" fill="var(--color-faint)" className="num">
+              {Math.round(g * 100)}%
+            </text>
+          </g>
+        ))}
+
+        {data.length > 1 && (
+          <>
+            <path d={areaPath} fill="url(#chartFill)" />
+            <path d={linePath} fill="none" stroke={stroke} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+          </>
+        )}
+        {data.length === 1 && <circle cx={x(t0)} cy={y(data[0].p)} r="4" fill={stroke} />}
+
+        {hoverPt && (
+          <g>
+            <line x1={x(new Date(hoverPt.t).getTime())} x2={x(new Date(hoverPt.t).getTime())} y1={PAD_T} y2={H - PAD_B} stroke="var(--color-faint)" strokeDasharray="3 3" />
+            <circle cx={x(new Date(hoverPt.t).getTime())} cy={y(hoverPt.p)} r="4.5" fill={stroke} stroke="#fff" strokeWidth="2" />
+          </g>
+        )}
+      </svg>
+
+      <div className="flex justify-between text-[11px] text-faint num -mt-1 pl-11 pr-3">
+        {data.length > 0 && (
+          <>
+            <span>{new Date(t0).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+            {hoverPt ? (
+              <span className="text-ink font-semibold">
+                {Math.round(hoverPt.p * 100)}% ·{" "}
+                {new Date(hoverPt.t).toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </span>
+            ) : (
+              <span>{new Date(t1).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
