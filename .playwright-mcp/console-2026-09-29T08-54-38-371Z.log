@@ -1,2 +1,0 @@
-[    3344ms] [INFO] @scalar/api-reference@1.62.7 @ http://localhost:3000/assets/scalar-client-DdyAKS5D.js:2283
-[    3398ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/api/v1/me:0
