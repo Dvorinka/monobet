@@ -9,7 +9,7 @@ import { compressImage } from "@/components/comments";
 import { getT, type Lang } from "@/lib/i18n";
 import { optionColor } from "@/lib/option-style";
 import { cn } from "@/lib/utils";
-import { ImagePlus, Plus, X, Shapes, TrendingUp, Trophy, Coins, Zap, Globe, Flag, Star, Heart, Users, Gamepad2, Music, Plane, Car, Home, Cpu, Film, Landmark, Rocket, CalendarDays, Target } from "lucide-react";
+import { ImagePlus, Plus, X, Shapes, TrendingUp, Trophy, Coins, Zap, Globe, Flag, Star, Heart, Users, Gamepad2, Music, Plane, Car, Home, Cpu, Film, Landmark, Rocket, CalendarDays, Target, Bitcoin, Banknote, PiggyBank, CircleDollarSign, Percent, Scale, Gavel, Vote, Building2, Factory, Store, Briefcase, Newspaper, ChartLine, Signal, Wifi, Smartphone, Tv, Camera, Mic, Headphones, Radio, Podcast, Clapperboard, Ticket, Volleyball, Medal, Crown, Gem, Award, Gift, Cake, Wine, Coffee, Leaf, Sprout, Flower2, Mountain, Sun, Moon, Snowflake, Umbrella, Timer, Bell, Lightbulb, MapPin, ThumbsUp, Swords, Shield } from "lucide-react";
 
 const NEW_CATEGORY = "__new__";
 
@@ -525,10 +525,17 @@ function OptionRow({
 }
 
 // Curated Lucide glyphs for the market icon. A pick serializes the rendered
-// <svg> to a data URI so it rides the existing imageUrl pipeline.
+// <svg> to a data URI so it rides the existing imageUrl pipeline. currentColor
+// is stamped to brand green — inside an <img> it would otherwise render black.
 const ICON_PICK = [
   TrendingUp, Trophy, Coins, Zap, Globe, Flag, Star, Heart, Users, Gamepad2,
   Music, Plane, Car, Home, Cpu, Film, Landmark, Rocket, CalendarDays, Target,
+  Bitcoin, Banknote, PiggyBank, CircleDollarSign, Percent, Scale, Gavel, Vote,
+  Building2, Factory, Store, Briefcase, Newspaper, ChartLine, Signal, Wifi,
+  Smartphone, Tv, Camera, Mic, Headphones, Radio, Podcast, Clapperboard, Ticket,
+  Volleyball, Medal, Crown, Gem, Award, Gift, Cake, Wine, Coffee, Leaf, Sprout,
+  Flower2, Mountain, Sun, Moon, Snowflake, Umbrella, Timer, Bell, Lightbulb,
+  MapPin, ThumbsUp, Swords, Shield,
 ];
 
 function IconPicker({ onPick, hint }: { onPick: (v: string) => void; hint: string }) {
@@ -544,7 +551,7 @@ function IconPicker({ onPick, hint }: { onPick: (v: string) => void; hint: strin
         <Shapes className="size-4" />
       </button>
       {open && (
-        <div className="absolute left-0 top-11 z-20 grid w-[188px] grid-cols-5 gap-0.5 rounded-xl border border-line bg-surface p-1.5 shadow-[0_8px_24px_rgba(16,16,20,0.12)]">
+        <div className="absolute left-0 top-11 z-20 grid w-[216px] grid-cols-6 gap-0.5 rounded-xl border border-line bg-surface p-1.5 shadow-[0_8px_24px_rgba(16,16,20,0.12)] max-h-56 overflow-y-auto">
           {ICON_PICK.map((Icon, i) => (
             <button
               key={i}
@@ -552,7 +559,7 @@ function IconPicker({ onPick, hint }: { onPick: (v: string) => void; hint: strin
               onClick={(e) => {
                 // SAFETY: lucide buttons always render a single svg child.
                 const svg = e.currentTarget.querySelector("svg")?.outerHTML;
-                if (svg) onPick(`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`);
+                if (svg) onPick(`data:image/svg+xml;utf8,${encodeURIComponent(svg.replaceAll("currentColor", "#0f9d58"))}`);
                 setOpen(false);
               }}
               className="size-8.5 grid place-items-center rounded-md text-mute hover:bg-surface-2 hover:text-ink cursor-pointer"
