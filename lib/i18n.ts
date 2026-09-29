@@ -481,6 +481,14 @@ const en = {
   recurBiweekly: "Every 2 weeks",
   recurMonthly: "Monthly",
   repeatsHint: "After this market resolves, a fresh copy opens automatically.",
+  typeRange: "Range",
+  rangeHint: "Numeric outcome — bets sit on buckets like 10 – 20.",
+  rangeBounds: "Range (min · max · bucket size)",
+  rangeMin: "Min",
+  rangeMax: "Max",
+  rangeStep: "Step",
+  rangePreview: (n: number) => `${n} buckets — resolution picks the bucket containing the value`,
+  rangeInvalid: "Needs 2–12 buckets: min < max and a positive step",
 };
 
 export type Dict = typeof en;
@@ -936,6 +944,14 @@ const cs: Dict = {
   recurBiweekly: "Každé 2 týdny",
   recurMonthly: "Měsíčně",
   repeatsHint: "Po vyhodnocení trhu se automaticky otevře nová kopie.",
+  typeRange: "Rozpětí",
+  rangeHint: "Číselný výsledek — sázky na pásmá jako 10 – 20.",
+  rangeBounds: "Rozpětí (min · max · velikost pásma)",
+  rangeMin: "Min",
+  rangeMax: "Max",
+  rangeStep: "Krok",
+  rangePreview: (n) => `${n} pásem — vyhodnocení vybere pásmo obsahující hodnotu`,
+  rangeInvalid: "Potřeba 2–12 pásem: min < max a kladný krok",
 };
 
 const dict: Record<Lang, Dict> = { en, cs };
