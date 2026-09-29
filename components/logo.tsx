@@ -1,19 +1,19 @@
 import { cn } from "@/lib/utils";
 
-// MonoBet glyph: an "M" drawn as a market price line, ending in the quote dot.
+// MonoBet glyph: a market price line zigzag terminating in the green quote dot.
 export function LogoMark({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 32 32" className={cn("size-7 shrink-0", className)} aria-hidden>
-      <rect width="32" height="32" rx="8" fill="#141a16" />
+    <svg viewBox="0 0 256 256" className={cn("size-7 shrink-0", className)} aria-hidden>
+      <rect width="256" height="256" rx="56" fill="#141a16" />
       <path
-        d="M7.5 21.5 L12 12 L16 18.5 L20 11.5"
+        d="M58 196 L98 92 L134 166 L182 74"
         fill="none"
         stroke="#fff"
-        strokeWidth="2.6"
+        strokeWidth="24"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle cx="24" cy="9.5" r="2.2" fill="var(--color-yes)" />
+      <circle cx="198" cy="60" r="22" fill="var(--color-yes)" />
     </svg>
   );
 }

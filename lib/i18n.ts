@@ -308,6 +308,11 @@ const en = {
   termsS6B:
     "MonoBet is open source under the MIT license. Questions or issues: github.com/Dvorinka/monobet.",
 
+  // 404
+  notFoundTitle: "404 — off the chart",
+  notFoundBody: "This page resolved NO. Or maybe it never existed.",
+  backToMarkets: "Back to markets",
+
   // time
   rewards: "Rewards",
   rewardsTitle: "Earn Marks",
@@ -633,6 +638,10 @@ const cs: Dict = {
   termsS6T: "Open source",
   termsS6B:
     "MonoBet je open source pod licencí MIT. Dotazy nebo problémy: github.com/Dvorinka/monobet.",
+
+  notFoundTitle: "404 — mimo graf",
+  notFoundBody: "Tato stránka se vyhodnotila jako NE. Nebo možná nikdy neexistovala.",
+  backToMarkets: "Zpět na trhy",
 
   rewards: "Odměny",
   rewardsTitle: "Získejte Marky",
