@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
+import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
 import { yesPrice, tradeCost, sharesForSpend, qForProb } from "@/lib/lmsr";
 import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
 import {
@@ -824,6 +825,116 @@ export async function adminCreateUser(input: {
   }
 }
 
+// ---------- admin: user management ----------
+
+// Target must exist and can't be the acting admin or the owner account.
+async function assertManageableUser(userId: string, adminId: string) {
+  if (userId === adminId) throw new Error("Can't modify your own account here");
+  const [target] = await db
+    .select({ email: schema.user.email })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+    .limit(1);
+  if (!target) throw new Error("User not found");
+  if ((target.email ?? "").toLowerCase() === SUPER_ADMIN_EMAIL) throw new Error("The owner account can't be modified");
+}
+
+export async function adminSetUserBanned(input: {
+  userId: string;
+  banned: boolean;
+  reason?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const admin = await requireAdmin();
+    await assertManageableUser(input.userId, admin.id);
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.user)
+        .set({
+          bannedAt: input.banned ? new Date() : null,
+          banReason: input.banned ? (input.reason ?? "").trim().slice(0, 200) || null : null,
+        })
+        .where(eq(schema.user.id, input.userId));
+      // Drop live sessions so the ban bites immediately.
+      if (input.banned) await tx.delete(schema.session).where(eq(schema.session.userId, input.userId));
+    });
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Update failed" };
+  }
+}
+
+export async function adminSetCommentsBanned(input: {
+  userId: string;
+  banned: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const admin = await requireAdmin();
+    await assertManageableUser(input.userId, admin.id);
+    await db.update(schema.user).set({ commentsBanned: input.banned }).where(eq(schema.user.id, input.userId));
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Update failed" };
+  }
+}
+
+export async function adminSetUserRole(input: {
+  userId: string;
+  role: "user" | "admin";
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const admin = await requireAdmin();
+    if (input.role !== "user" && input.role !== "admin") throw new Error("Bad role");
+    await assertManageableUser(input.userId, admin.id);
+    await db.update(schema.user).set({ role: input.role }).where(eq(schema.user.id, input.userId));
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Update failed" };
+  }
+}
+
+// Sets a brand-new password and drops existing sessions, so the user logs in
+// with the new credentials next. Works even if the account somehow has no
+// credential row yet.
+export async function adminResetUserPassword(input: {
+  userId: string;
+  password: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const admin = await requireAdmin();
+    if (input.password.length < 6) throw new Error("Password too short (min 6)");
+    await assertManageableUser(input.userId, admin.id);
+    const { hashPassword } = await import("better-auth/crypto");
+    const hash = await hashPassword(input.password);
+    await db.transaction(async (tx) => {
+      const [acc] = await tx
+        .select({ id: schema.account.id })
+        .from(schema.account)
+        .where(and(eq(schema.account.userId, input.userId), eq(schema.account.providerId, "credential")))
+        .limit(1);
+      if (acc) {
+        await tx.update(schema.account).set({ password: hash, updatedAt: new Date() }).where(eq(schema.account.id, acc.id));
+      } else {
+        await tx.insert(schema.account).values({
+          id: crypto.randomUUID(),
+          accountId: input.userId,
+          providerId: "credential",
+          userId: input.userId,
+          password: hash,
+        });
+      }
+      await tx.delete(schema.session).where(eq(schema.session.userId, input.userId));
+    });
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Reset failed" };
+  }
+}
+
 export async function cancelMarket(marketId: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
@@ -867,6 +978,7 @@ export async function addComment(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
+    if (u.commentsBanned) throw new Error("Comments are disabled for your account");
     const body = input.body.trim();
     if (!body) throw new Error("Empty comment");
     if (body.length > 1000) throw new Error("Comment too long (max 1000)");

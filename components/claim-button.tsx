@@ -8,12 +8,12 @@ import { DAILY_COOLDOWN_MS } from "@/lib/rewards";
 import { Coins, Timer } from "lucide-react";
 import { getT, type Lang } from "@/lib/i18n";
 
-// H:MM:SS — numeric, locale-free.
+// Hours + minutes only — "19h 42m", or "42m" under an hour.
 function fmtCountdown(ms: number) {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return `${h}:${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  const mins = Math.max(0, Math.ceil(ms / 60_000));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
 }
 
 export function ClaimButton({ lang, nextAt }: { lang?: Lang; nextAt: number | null }) {
@@ -23,12 +23,16 @@ export function ClaimButton({ lang, nextAt }: { lang?: Lang; nextAt: number | nu
   const router = useRouter();
   const t = getT(lang ?? "en");
 
-  // Server re-render after a claim pushes a fresh lastClaimAt down as nextAt.
-  useEffect(() => setNext(nextAt), [nextAt]);
+  // Server re-render after a claim pushes a fresh lastClaimAt down as nextAt —
+  // sync it into local state during render instead of an effect.
+  const [prevNextAt, setPrevNextAt] = useState(nextAt);
+  if (prevNextAt !== nextAt) {
+    setPrevNextAt(nextAt);
+    setNext(nextAt);
+  }
 
   useEffect(() => {
     if (!next) return;
-    setNow(Date.now());
     const id = setInterval(() => {
       const n = Date.now();
       setNow(n);

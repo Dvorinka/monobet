@@ -10,6 +10,7 @@ export type CurrentUser = {
   role: string;
   balanceCents: number;
   lastClaimAt: Date | null;
+  commentsBanned: boolean;
 };
 
 export function isAdmin(u: Pick<CurrentUser, "role" | "email"> | null | undefined): boolean {
@@ -26,7 +27,12 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     lastClaimAt?: Date | null;
     username?: string | null;
     image?: string | null;
+    bannedAt?: Date | null;
+    commentsBanned?: boolean;
   };
+  // Banned accounts keep a session cookie until it expires; treat them as
+  // signed out everywhere so requireUser blocks them.
+  if (u.bannedAt) return null;
   return {
     id: u.id,
     name: u.name,
@@ -36,6 +42,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     role: u.email?.toLowerCase() === SUPER_ADMIN_EMAIL ? "admin" : (u.role ?? "user"),
     balanceCents: u.balanceCents ?? 0,
     lastClaimAt: u.lastClaimAt ?? null,
+    commentsBanned: u.commentsBanned ?? false,
   };
 }
 

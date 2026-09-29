@@ -288,8 +288,11 @@ export async function getAllUsers() {
       id: schema.user.id,
       username: schema.user.username,
       name: schema.user.name,
+      email: schema.user.email,
       role: schema.user.role,
       balanceCents: schema.user.balanceCents,
+      bannedAt: schema.user.bannedAt,
+      commentsBanned: schema.user.commentsBanned,
       createdAt: schema.user.createdAt,
     })
     .from(schema.user)

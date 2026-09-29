@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getPendingMarkets, listMarkets, getAllUsers, listCategories, listCategoryRows } from "@/lib/queries";
-import { PendingList, LiveMarketList, GrantPanel, CategoriesPanel, UsersPanel } from "@/components/admin-panels";
+import { PendingList, LiveMarketList, GrantPanel, CategoriesPanel, UsersPanel, UserManager } from "@/components/admin-panels";
 import { MarketForm } from "@/components/market-form";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
@@ -69,6 +69,13 @@ export default async function AdminPage() {
           </Card>
         </section>
 
+        <section className="lg:col-span-2">
+          <SectionTitle icon={<Users className="size-4" />} title={t.umTitle} />
+          <Card className="overflow-hidden">
+            <UserManager users={users} selfId={user.id} lang={lang} />
+          </Card>
+        </section>
+
         <div className="space-y-6">
           <section>
             <SectionTitle icon={<PlusCircle className="size-4" />} title={t.createMarketTitle} />
@@ -90,7 +97,7 @@ export default async function AdminPage() {
           </section>
 
           <section>
-            <SectionTitle icon={<UserPlus className="size-4" />} title={t.usersTitle} />
+            <SectionTitle icon={<UserPlus className="size-4" />} title={t.umCreateUser} />
             <Card>
               <UsersPanel lang={lang} />
             </Card>
