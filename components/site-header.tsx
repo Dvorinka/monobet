@@ -7,6 +7,7 @@ import { AnimatedMoney } from "@/components/animated-number";
 import { UserMenu } from "@/components/user-menu";
 import { ClaimButton } from "@/components/claim-button";
 import { Button } from "@/components/ui/primitives";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export async function SiteHeader() {
   const user = await getCurrentUser();
@@ -44,7 +45,7 @@ export async function SiteHeader() {
 
         <Link
           href="/propose"
-          className="hidden sm:inline-flex items-center gap-1 h-8 px-3 rounded-lg border border-line text-[13px] font-semibold text-ink hover:bg-surface-2 shrink-0"
+          className="hidden sm:inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-brand text-brand-on text-[13px] font-semibold hover:bg-brand-strong transition-all duration-150 active:scale-[0.97] shrink-0"
           title="Create a market"
         >
           <Plus className="size-3.5" />
@@ -75,6 +76,7 @@ export async function SiteHeader() {
             </Link>
           </div>
         )}
+        <ThemeToggle />
       </div>
     </header>
   );

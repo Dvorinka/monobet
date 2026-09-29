@@ -14,16 +14,16 @@ export function Button({ className, variant = "primary", size = "md", ...props }
       className={cn(
         "inline-flex items-center justify-center gap-1.5 font-semibold rounded-lg transition-all duration-150 cursor-pointer select-none",
         "active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none disabled:active:scale-100",
-        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
         size === "xs" && "h-7 px-2.5 text-xs",
         size === "sm" && "h-8 px-3 text-[13px]",
         size === "md" && "h-9.5 px-4 text-sm",
         size === "lg" && "h-11 px-5 text-[15px]",
-        variant === "primary" && "bg-ink text-white hover:bg-ink-2",
+        variant === "primary" && "bg-brand text-brand-on hover:bg-brand-strong",
         variant === "outline" && "border border-line bg-surface text-ink hover:bg-surface-2",
         variant === "ghost" && "text-mute hover:bg-surface-2 hover:text-ink",
-        variant === "yes" && "bg-yes text-white hover:bg-yes-strong",
-        variant === "no" && "bg-no text-white hover:bg-no-strong",
+        variant === "yes" && "bg-yes text-yes-on hover:bg-yes-strong",
+        variant === "no" && "bg-no text-no-on hover:bg-no-strong",
         variant === "soft" && "bg-surface-2 text-ink hover:bg-surface-3",
         className
       )}
@@ -48,7 +48,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
         ref={ref}
         className={cn(
           "h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink",
-          "placeholder:text-faint focus:outline-2 focus:outline-ink focus:outline-offset-0 focus:border-ink",
+          "placeholder:text-faint focus:outline-2 focus:outline-brand focus:outline-offset-0 focus:border-brand",
           className
         )}
         {...props}
@@ -64,7 +64,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
         ref={ref}
         className={cn(
           "w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink min-h-24",
-          "placeholder:text-faint focus:outline-2 focus:outline-ink focus:border-ink",
+          "placeholder:text-faint focus:outline-2 focus:outline-brand focus:border-brand",
           className
         )}
         {...props}
@@ -78,7 +78,7 @@ export function Select({ className, children, ...props }: React.SelectHTMLAttrib
     <select
       className={cn(
         "h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink cursor-pointer",
-        "focus:outline-2 focus:outline-ink",
+        "focus:outline-2 focus:outline-brand",
         className
       )}
       {...props}
@@ -100,8 +100,8 @@ export function Badge({
         tone === "mute" && "bg-surface-3 text-mute",
         tone === "yes" && "bg-yes-soft text-yes-strong",
         tone === "no" && "bg-no-soft text-no-strong",
-        tone === "ink" && "bg-ink text-white",
-        tone === "warn" && "bg-amber-100 text-amber-800",
+        tone === "ink" && "bg-ink text-surface",
+        tone === "warn" && "bg-warn-soft text-warn-strong",
         className
       )}
       {...props}
@@ -119,7 +119,7 @@ export function Avatar({ name, className }: { name: string; className?: string }
   return (
     <div
       className={cn(
-        "grid place-items-center size-8 rounded-full bg-ink text-white text-[11px] font-bold shrink-0",
+        "grid place-items-center size-8 rounded-full bg-ink text-surface text-[11px] font-bold shrink-0",
         className
       )}
     >
@@ -153,10 +153,10 @@ export function Segmented<T extends string>({
               "h-8 rounded-md text-[13px] font-semibold transition-colors cursor-pointer",
               active
                 ? o.tone === "yes"
-                  ? "bg-yes text-white"
+                  ? "bg-yes text-yes-on"
                   : o.tone === "no"
-                    ? "bg-no text-white"
-                    : "bg-ink text-white"
+                    ? "bg-no text-no-on"
+                    : "bg-brand text-brand-on"
                 : "text-mute hover:text-ink"
             )}
           >

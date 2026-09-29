@@ -3,25 +3,65 @@
 @theme {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
-  /* MonoMark: monochrome brand on Polymarket's layout language */
-  --color-ink: #111114;
-  --color-ink-2: #3d3d42;
-  --color-mute: #6e6e73;
-  --color-faint: #9d9da3;
-  --color-line: #e6e6ea;
-  --color-line-2: #efeff2;
+  /* MonoMark brand: the logo's green — Yes energy, never Vercel black */
+  --color-brand: #0f9d58;
+  --color-brand-strong: #0b7a44;
+  --color-brand-soft: #e5f5ec;
+  --color-brand-on: #ffffff;
+
+  --color-ink: #131a15;
+  --color-ink-2: #3c453e;
+  --color-mute: #6d746e;
+  --color-faint: #9aa29c;
+  --color-line: #e5e9e6;
+  --color-line-2: #eef1ef;
   --color-surface: #ffffff;
-  --color-surface-2: #f6f6f8;
-  --color-surface-3: #efeff3;
+  --color-surface-2: #f5f7f5;
+  --color-surface-3: #ebeef0;
 
   --color-yes: #0f9d58;
   --color-yes-soft: #e5f5ec;
   --color-yes-strong: #0b7a44;
+  --color-yes-on: #ffffff;
   --color-no: #e03c31;
   --color-no-soft: #fdecea;
   --color-no-strong: #b8281f;
+  --color-no-on: #ffffff;
+
+  --color-warn-soft: #fef3d7;
+  --color-warn-strong: #92600a;
 
   --radius-card: 14px;
+}
+
+/* Dark theme — same tokens, inverted values. Every component adapts. */
+.dark {
+  --color-brand: #34c47a;
+  --color-brand-strong: #4fe096;
+  --color-brand-soft: #12291d;
+  --color-brand-on: #0c140f;
+
+  --color-ink: #eef3ee;
+  --color-ink-2: #c2cbc3;
+  --color-mute: #899289;
+  --color-faint: #59625b;
+  --color-line: #252c27;
+  --color-line-2: #1c221d;
+  --color-surface: #10140f;
+  --color-surface-2: #171d18;
+  --color-surface-3: #212820;
+
+  --color-yes: #34c47a;
+  --color-yes-soft: #12291d;
+  --color-yes-strong: #4fe096;
+  --color-yes-on: #0c140f;
+  --color-no: #f0604f;
+  --color-no-soft: #341d1b;
+  --color-no-strong: #ff9387;
+  --color-no-on: #ffffff;
+
+  --color-warn-soft: #2e2410;
+  --color-warn-strong: #e0a93f;
 }
 
 html {
@@ -33,6 +73,7 @@ body {
   background: var(--color-surface);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  transition: background-color 200ms ease, color 200ms ease;
 }
 
 /* Polymarket-style ticker tabs scroll */

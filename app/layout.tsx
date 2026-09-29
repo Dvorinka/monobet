@@ -15,7 +15,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var t=localStorage.getItem('mm-theme');var d=t?t==='dark':matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light'}catch(e){}",
+          }}
+        />
+      </head>
       <body className="min-h-dvh flex flex-col">
         <SiteHeader />
         <main className="flex-1">{children}</main>
@@ -54,7 +62,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
         </footer>
-        <Toaster position="bottom-center" toastOptions={{ style: { fontFamily: "var(--font-sans)" } }} />
+        <Toaster
+          position="bottom-center"
+          toastOptions={{
+            style: {
+              fontFamily: "var(--font-sans)",
+              background: "var(--color-surface)",
+              color: "var(--color-ink)",
+              border: "1px solid var(--color-line)",
+            },
+          }}
+        />
       </body>
     </html>
   );

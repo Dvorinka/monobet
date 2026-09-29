@@ -128,7 +128,7 @@ export function MarketForm({ isAdmin }: { isAdmin: boolean }) {
             max={97}
             value={odds}
             onChange={(e) => setOdds(Number(e.target.value))}
-            className="mt-2 w-full accent-ink cursor-pointer"
+            className="mt-2 w-full accent-brand cursor-pointer"
           />
           <p className="text-[11.5px] text-faint">Where the price opens. Traders move it from here.</p>
         </div>
@@ -144,7 +144,7 @@ export function MarketForm({ isAdmin }: { isAdmin: boolean }) {
                 className={cn(
                   "rounded-lg border px-3 py-2.5 text-left cursor-pointer transition-colors",
                   liquidity === l.b
-                    ? "border-ink bg-surface-2"
+                    ? "border-brand bg-brand-soft"
                     : "border-line hover:border-faint/60"
                 )}
               >

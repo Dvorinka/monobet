@@ -197,20 +197,20 @@ export function PriceChart({ points, now, live }: { points: Pt[]; now: number; l
           {hoverPt && (
             <g>
               <line x1={hoverX} x2={hoverX} y1={PAD_T} y2={H - PAD_B} stroke="var(--color-faint)" strokeDasharray="3 3" />
-              <circle cx={hoverX} cy={hoverY} r="4.5" fill={stroke} stroke="#fff" strokeWidth="2" />
+              <circle cx={hoverX} cy={hoverY} r="4.5" fill={stroke} stroke="var(--color-surface)" strokeWidth="2" />
             </g>
           )}
         </svg>
 
         {hoverPt && (
           <div
-            className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-lg bg-ink px-2.5 py-1.5 text-white shadow-lg"
+            className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-ink shadow-lg"
             style={{ left: `${(hoverX / W) * 100}%`, top: `${(hoverY / H) * 100 - 3}%` }}
           >
             <div className="num text-[12.5px] font-bold leading-none">
               {Math.round(hoverPt.p * 100)}%
             </div>
-            <div className="num mt-0.5 text-[10px] font-medium text-white/70 whitespace-nowrap">
+            <div className="num mt-0.5 text-[10px] font-medium text-mute whitespace-nowrap">
               {new Date(hoverPt.t).toLocaleString("en-US", {
                 month: "short",
                 day: "numeric",

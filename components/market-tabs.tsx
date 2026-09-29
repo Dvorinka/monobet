@@ -21,7 +21,7 @@ export function MarketTabs({
       onClick={() => setTab(key)}
       className={cn(
         "px-3.5 py-2.5 text-[13.5px] font-medium border-b-2 -mb-px transition-colors cursor-pointer",
-        tab === key ? "border-ink text-ink" : "border-transparent text-mute hover:text-ink"
+        tab === key ? "border-brand text-brand-strong" : "border-transparent text-mute hover:text-ink"
       )}
     >
       {label} <span className="num text-faint">{n}</span>

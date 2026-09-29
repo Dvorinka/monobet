@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 export function LogoMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" className={cn("size-7 shrink-0", className)} aria-hidden>
-      <rect width="32" height="32" rx="8" fill="var(--color-ink)" />
+      <rect width="32" height="32" rx="8" fill="#141a16" />
       <path
         d="M7.5 21.5 L12 12 L16 18.5 L20 11.5"
         fill="none"

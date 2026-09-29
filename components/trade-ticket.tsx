@@ -111,7 +111,7 @@ export function TradeTicket({
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="0"
-            className="num h-11 w-full rounded-lg border border-line bg-surface pl-8 pr-3 text-[15px] font-semibold text-ink placeholder:text-faint focus:outline-2 focus:outline-ink"
+            className="num h-11 w-full rounded-lg border border-line bg-surface pl-8 pr-3 text-[15px] font-semibold text-ink placeholder:text-faint focus:outline-2 focus:outline-brand"
           />
         </div>
         <div className="mt-2 flex gap-1.5">

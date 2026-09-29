@@ -26,7 +26,7 @@ export function CategoryTabs() {
               href={`/?${sp.toString()}`}
               className={cn(
                 "px-3.5 py-2.5 text-[13.5px] font-medium capitalize whitespace-nowrap border-b-2 -mb-px transition-colors",
-                isActive ? "border-ink text-ink" : "border-transparent text-mute hover:text-ink"
+                isActive ? "border-brand text-brand-strong" : "border-transparent text-mute hover:text-ink"
               )}
             >
               {t}

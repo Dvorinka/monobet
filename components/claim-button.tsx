@@ -27,7 +27,7 @@ export function ClaimButton() {
         })
       }
       className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-semibold cursor-pointer transition-all duration-150
-        bg-ink text-white hover:bg-ink-2 active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
+        bg-brand-soft text-brand-strong hover:bg-brand active:scale-[0.97] hover:text-brand-on disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
       title="Claim your daily Marks"
     >
       <Coins className="size-4" />
