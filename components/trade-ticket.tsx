@@ -24,6 +24,7 @@ export function TradeTicket({
   heldNo,
   maxLeverage = 10,
   lang,
+  title,
 }: {
   marketId: string;
   qYes: number;
@@ -36,6 +37,8 @@ export function TradeTicket({
   heldNo: number;
   maxLeverage?: number;
   lang?: Lang;
+  // Optional header (e.g. the selected option label on group markets).
+  title?: React.ReactNode;
 }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [outcome, setOutcome] = useState<"yes" | "no">("yes");
@@ -78,6 +81,7 @@ export function TradeTicket({
 
   return (
     <div className="rounded-[14px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(16,16,20,0.04)]">
+      {title}
       <Segmented
         options={[
           { value: "buy", label: t.buy },

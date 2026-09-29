@@ -725,15 +725,6 @@ export async function getExpiredLive(limit = 5) {
     .limit(limit);
 }
 
-export async function isWatching(userId: string, marketId: string): Promise<boolean> {
-  const rows = await db
-    .select({ userId: schema.watchlist.userId })
-    .from(schema.watchlist)
-    .where(and(eq(schema.watchlist.userId, userId), eq(schema.watchlist.marketId, marketId)))
-    .limit(1);
-  return rows.length > 0;
-}
-
 export async function isLiked(userId: string, marketId: string): Promise<boolean> {
   const rows = await db
     .select({ userId: schema.marketLike.userId })
@@ -937,4 +928,19 @@ export async function getUserPublic(id: string | null | undefined) {
     .where(eq(schema.user.id, id))
     .limit(1);
   return u ?? null;
+}
+
+// Positions of all holders across the given markets — powers comment badges
+// (binary: one market id; group: the option child ids).
+export async function getPositionBadges(marketIds: string[]) {
+  if (!marketIds.length) return [];
+  return db
+    .select({
+      userId: schema.position.userId,
+      marketId: schema.position.marketId,
+      yesShares: schema.position.yesShares,
+      noShares: schema.position.noShares,
+    })
+    .from(schema.position)
+    .where(inArray(schema.position.marketId, marketIds));
 }
