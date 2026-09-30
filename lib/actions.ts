@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, and, sql, desc, asc, isNull } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT } from "@/lib/games";
+import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, type Persona } from "@/lib/games";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -1851,7 +1851,7 @@ export async function playCoinFlip(input: {
   betCents: number;
   leverage: number;
   pick: "heads" | "tails";
-}): Promise<{ ok: boolean; error?: string; won?: boolean; landed?: string; netCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; landed?: string; netCents?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -1859,11 +1859,12 @@ export async function playCoinFlip(input: {
     if (input.pick !== "heads" && input.pick !== "tails") throw new Error("Pick a side");
     const landed = randomInt(2) === 0 ? "heads" : "tails";
     const won = landed === input.pick;
+    const dealer = await pickDealer();
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, COINFLIP_MULT, `Coin flip ${input.pick}→${landed}`)
     );
     revalidatePath("/games");
-    return { ok: true, won, landed, netCents };
+    return { ok: true, won, landed, netCents, dealer };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Flip failed" };
   }
@@ -1873,7 +1874,7 @@ export async function playDice(input: {
   betCents: number;
   leverage: number;
   over: number;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -1883,11 +1884,12 @@ export async function playDice(input: {
     const roll = randomInt(1, 7);
     const won = roll > over;
     const mult = diceMult(over);
+    const dealer = await pickDealer();
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, mult, `Dice >${over} → ${roll}`)
     );
     revalidatePath("/games");
-    return { ok: true, won, roll, netCents };
+    return { ok: true, won, roll, netCents, dealer };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Roll failed" };
   }
@@ -1931,7 +1933,7 @@ export async function stopTimerRound(input: {
   token: string;
   betCents: number;
   leverage: number;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -1943,11 +1945,12 @@ export async function stopTimerRound(input: {
     const err = Math.abs(elapsed - target);
     const mult = timerMult(err, target);
     const won = mult > 0;
+    const dealer = await pickDealer();
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, mult, `Timer ${target / 1000}s off by ${err}ms`)
     );
     revalidatePath("/games");
-    return { ok: true, won, elapsedMs: elapsed, errMs: err, netCents, mult };
+    return { ok: true, won, elapsedMs: elapsed, errMs: err, netCents, mult, dealer };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Stop failed" };
   }
@@ -1957,7 +1960,7 @@ export async function playLimbo(input: {
   betCents: number;
   leverage: number;
   target: number;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -1968,11 +1971,12 @@ export async function playLimbo(input: {
     const u1 = (randomInt(2 ** 32) + randomInt(2 ** 32) / 2 ** 32) / 2 ** 32;
     const roll = Math.min(1000, Math.max(1, 0.99 / (1 - u1)));
     const won = roll >= target;
+    const dealer = await pickDealer();
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, target * 0.98, `Limbo ≥${target}x → ${roll.toFixed(2)}x`)
     );
     revalidatePath("/games");
-    return { ok: true, won, roll: Math.round(roll * 100) / 100, netCents };
+    return { ok: true, won, roll: Math.round(roll * 100) / 100, netCents, dealer };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Limbo failed" };
   }
@@ -1981,18 +1985,19 @@ export async function playLimbo(input: {
 export async function playWheel(input: {
   betCents: number;
   leverage: number;
-}): Promise<{ ok: boolean; error?: string; index?: number; mult?: number; netCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; index?: number; mult?: number; netCents?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     const index = randomInt(WHEEL_SEGMENTS.length);
     const mult = WHEEL_SEGMENTS[index];
+    const dealer = await pickDealer();
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, mult > 0, mult, `Wheel → ${mult}x`)
     );
     revalidatePath("/games");
-    return { ok: true, index, mult, netCents };
+    return { ok: true, index, mult, netCents, dealer };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Spin failed" };
   }
@@ -2002,7 +2007,7 @@ export async function playWheel(input: {
 export async function playSlots(input: {
   betCents: number;
   leverage: number;
-}): Promise<{ ok: boolean; error?: string; reels?: number[]; mult?: number; netCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; reels?: number[]; mult?: number; netCents?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -2010,11 +2015,12 @@ export async function playSlots(input: {
     const reels = [slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT))];
     const mult = slotPayout(reels[0], reels[1], reels[2]);
     const label = `Slots ${reels.map((i) => SLOT_SYMBOLS[i]).join(" ")}`;
+    const dealer = await pickDealer();
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, mult > 0, mult, label)
     );
     revalidatePath("/games");
-    return { ok: true, reels, mult, netCents };
+    return { ok: true, reels, mult, netCents, dealer };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Spin failed" };
   }
@@ -2371,9 +2377,16 @@ export async function setNotifPrefs(input: {
 // client only ever asks "hit"/"stand". Collateral is charged at deal; a loss
 // parks the levered remainder on house debt like every other game.
 
-type BjPersona = { name: string; avatar: string; quipWin: string; quipLose: string };
-const BJ_FALLBACK_DEALER: BjPersona = { name: "The House", avatar: "", quipWin: "The house always collects.", quipLose: "Well played." };
+const BJ_FALLBACK_DEALER: Persona = { name: "The House", avatar: "", quipWin: "The house always collects.", quipLose: "Well played." };
 const BJ_ROUND_TTL_MS = 60 * 60_000; // abandoned hands settle as a push
+
+// One random active dealer fronts each round of every minigame — blackjack
+// keeps it on the round row, instant games return it in the result.
+async function pickDealer(): Promise<Persona> {
+  const dealers = await db.select().from(schema.dealerPersona).where(eq(schema.dealerPersona.active, true));
+  const d = dealers.length > 0 ? dealers[randomInt(dealers.length)] : null;
+  return d ? { name: d.name, avatar: d.avatar, quipWin: d.quipWin, quipLose: d.quipLose } : BJ_FALLBACK_DEALER;
+}
 
 function shuffledShoe(): number[] {
   const d = Array.from({ length: 52 }, (_, i) => i);
@@ -2426,13 +2439,13 @@ type BjState = {
   dealerHidden: boolean;
   playerTotal: number;
   dealerTotal: number | null;
-  persona: BjPersona;
+  persona: Persona;
   status: string;
   result?: string | null;
   netCents?: number | null;
 };
 
-function bjState(r: { id: string; player: number[]; dealer: number[]; persona: BjPersona; status: string; result: string | null; netCents: number | null }, hideDealer: boolean): BjState {
+function bjState(r: { id: string; player: number[]; dealer: number[]; persona: Persona; status: string; result: string | null; netCents: number | null }, hideDealer: boolean): BjState {
   const p = handTotal(r.player);
   const d = handTotal(r.dealer);
   return {
@@ -2457,11 +2470,7 @@ export async function blackjackDeal(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    const dealers = await db.select().from(schema.dealerPersona).where(eq(schema.dealerPersona.active, true));
-    const d = dealers.length > 0 ? dealers[randomInt(dealers.length)] : null;
-    const persona: BjPersona = d
-      ? { name: d.name, avatar: d.avatar, quipWin: d.quipWin, quipLose: d.quipLose }
-      : BJ_FALLBACK_DEALER;
+    const persona = await pickDealer();
     const deck = shuffledShoe();
     const player = [deck.pop()!, deck.pop()!];
     const dealer = [deck.pop()!, deck.pop()!];
@@ -2563,7 +2572,16 @@ export async function adminUpsertDealer(input: {
     await requireAdmin();
     const name = input.name.trim().slice(0, 40);
     if (!name) throw new Error("Name required");
-    const avatar = input.avatar.trim().slice(0, 8);
+    // Avatar: an uploaded image (data URI or URL — same rules as market icons)
+    // or a short monogram when no picture is set.
+    const av = input.avatar.trim();
+    const isImg =
+      /^data:image\/(jpeg|png|webp);base64,/.test(av) ||
+      /^data:image\/svg\+xml[;,]/.test(av) ||
+      /^(https?:\/\/|\/)\S+$/.test(av);
+    if (av && !isImg && av.length > 8) throw new Error("Avatar must be an image or ≤8 characters");
+    if (isImg && av.length > 450_000) throw new Error("Image too large");
+    const avatar = isImg ? av : av.slice(0, 8);
     const vals = { name, avatar, quipWin: (input.quipWin ?? "").trim().slice(0, 140), quipLose: (input.quipLose ?? "").trim().slice(0, 140) };
     if (input.id) {
       await db.update(schema.dealerPersona).set(vals).where(eq(schema.dealerPersona.id, input.id));

@@ -32,6 +32,8 @@ import {
   cardLabel,
 } from "@/lib/games";
 import { fmtMonos } from "@/lib/money";
+import { DealerAvatar } from "@/components/dealer-avatar";
+import { type Persona } from "@/lib/games";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -87,6 +89,19 @@ function ResultTag({ net, lang }: { net: Net; lang?: Lang }) {
     >
       {net.won ? `+${fmtMonos(net.netCents, { lang })}` : `−${fmtMonos(-net.netCents, { lang })}`}
       <span className="ml-1.5 text-[11px] font-semibold text-mute">{net.won ? t.win : t.lose}</span>
+    </div>
+  );
+}
+
+// The persona hosting the round — name shows while it plays, quip on settle.
+function DealerTag({ dealer, won }: { dealer: Persona | null; won?: boolean | null }) {
+  if (!dealer) return null;
+  const quip = won == null ? null : won ? dealer.quipLose : dealer.quipWin;
+  return (
+    <div className="flex items-center justify-center gap-1.5 text-[11px] text-faint">
+      <DealerAvatar avatar={dealer.avatar} className="size-4.5 rounded" />
+      <span className="font-semibold text-mute">{dealer.name}</span>
+      {quip && <span className="italic">“{quip}”</span>}
     </div>
   );
 }
@@ -213,6 +228,7 @@ function CoinFlipCard({ balanceCents, lang }: { balanceCents: number; lang?: Lan
   const [rot, setRot] = useState(0);
   const [net, setNet] = useState<Net>(null);
   const [spinning, setSpinning] = useState(false);
+  const [dealer, setDealer] = useState<Persona | null>(null);
 
   const flip = () =>
     run(() => playCoinFlip({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), pick })).then(
@@ -220,6 +236,7 @@ function CoinFlipCard({ balanceCents, lang }: { balanceCents: number; lang?: Lan
         if (!r || !r.landed) return;
         playSfx("flip", 0.5);
         setNet(null);
+        setDealer(r.dealer ?? null);
         setSpinning(true);
         // Land heads on a full rotation, tails on a half — always ≥5 turns.
         setRot((prev) => Math.ceil((prev + 1) / 360) * 360 + 4 * 360 + (r.landed === "tails" ? 180 : 0));
@@ -259,6 +276,7 @@ function CoinFlipCard({ balanceCents, lang }: { balanceCents: number; lang?: Lan
             </div>
           </div>
           <ResultTag net={spinning ? null : net} lang={lang} />
+          <DealerTag dealer={dealer} won={spinning ? null : net?.won} />
         </div>
       }
       controls={
@@ -311,13 +329,16 @@ function DiceCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang })
   const [face, setFace] = useState(6);
   const [rolling, setRolling] = useState(false);
   const [net, setNet] = useState<Net>(null);
+  const [dealer, setDealer] = useState<Persona | null>(null);
 
   const roll = () => {
     setRolling(true);
     setNet(null);
+    setDealer(null);
     playSfx("roll", 0.45);
     const cyc = setInterval(() => setFace(1 + Math.floor(Math.random() * 6)), 70);
     run(() => playDice({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), over })).then((r) => {
+      if (r?.dealer) setDealer(r.dealer);
       setTimeout(() => {
         clearInterval(cyc);
         setRolling(false);
@@ -338,6 +359,7 @@ function DiceCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang })
         <div className="flex flex-col items-center gap-3">
           <DiceFace value={face} rolling={rolling} />
           <ResultTag net={rolling ? null : net} lang={lang} />
+          <DealerTag dealer={dealer} won={rolling ? null : net?.won} />
         </div>
       }
       controls={
@@ -381,6 +403,7 @@ function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   const [disp, setDisp] = useState(0);
   const [err, setErr] = useState<number | null>(null);
   const [net, setNet] = useState<Net>(null);
+  const [dealer, setDealer] = useState<Persona | null>(null);
   const tokenRef = useRef<string | null>(null);
   const t0 = useRef(0);
   const targetMs = Number(target) * 1000;
@@ -407,6 +430,7 @@ function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
       if (!r?.token) return;
       tokenRef.current = r.token;
       setNet(null);
+      setDealer(null);
       setErr(null);
       setDisp(0);
       t0.current = performance.now();
@@ -423,6 +447,7 @@ function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
       if (!r) return;
       setDisp(r.elapsedMs ?? 0);
       setErr(r.errMs ?? null);
+      setDealer(r.dealer ?? null);
       setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won });
     });
   };
@@ -447,6 +472,7 @@ function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
             {phase === "running" ? (hidden ? t.guessNow : t.memorize) : phase === "done" && err !== null ? t.offBy(err) : t.targetIs(`${target}.00s`)}
           </div>
           <ResultTag net={phase === "done" ? net : null} lang={lang} />
+          <DealerTag dealer={dealer} won={phase === "done" ? net?.won : null} />
         </div>
       }
       controls={
@@ -490,6 +516,7 @@ function LimboCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   const [busy, setBusy] = useState(false);
   const [wonLast, setWonLast] = useState<boolean | null>(null);
   const [net, setNet] = useState<Net>(null);
+  const [dealer, setDealer] = useState<Persona | null>(null);
   const raf = useRef(0);
 
   useEffect(() => () => cancelAnimationFrame(raf.current), []);
@@ -502,6 +529,7 @@ function LimboCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
         playSfx("launch", 0.4);
         setBusy(true);
         setNet(null);
+        setDealer(r.dealer ?? null);
         setWonLast(null);
         const start = performance.now();
         const dur = Math.min(1400, 500 + Math.log2(roll) * 140);
@@ -553,6 +581,7 @@ function LimboCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
             />
           </div>
           <ResultTag net={busy ? null : net} lang={lang} />
+          <DealerTag dealer={dealer} won={busy ? null : net?.won} />
         </div>
       }
       controls={
@@ -603,12 +632,14 @@ function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   const [spinning, setSpinning] = useState(false);
   const [landed, setLanded] = useState<number | null>(null);
   const [net, setNet] = useState<Net>(null);
+  const [dealer, setDealer] = useState<Persona | null>(null);
 
   const spin = () =>
     run(() => playWheel({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then((r) => {
       if (r?.index == null) return;
       playSfx("spin", 0.5);
       setNet(null);
+      setDealer(r.dealer ?? null);
       setLanded(null);
       setSpinning(true);
       // Land segment `index` under the top pointer, plus ~6 full turns.
@@ -668,12 +699,13 @@ function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
               Ɱ
             </div>
           </div>
-          <div className="h-5 flex items-center justify-center gap-2">
+          <div className="min-h-5 flex items-center justify-center gap-2">
             {landed !== null && !spinning && (
               <span className="num text-[12px] font-bold text-mute anim-win-pop">{landed}×</span>
             )}
             <ResultTag net={spinning ? null : net} lang={lang} />
           </div>
+          <DealerTag dealer={dealer} won={spinning ? null : net?.won} />
         </div>
       }
       controls={
@@ -699,6 +731,7 @@ function SlotsCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   const [settled, setSettled] = useState([true, true, true]);
   const [spinning, setSpinning] = useState(false);
   const [net, setNet] = useState<Net>(null);
+  const [dealer, setDealer] = useState<Persona | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(
@@ -717,6 +750,7 @@ function SlotsCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
         if (!r?.reels) return;
         playSfx("roll", 0.45);
         setNet(null);
+        setDealer(r.dealer ?? null);
         setSpinning(true);
         setSettled([false, false, false]);
         // Reels settle left to right; each cycles symbols until its turn.
@@ -786,6 +820,7 @@ function SlotsCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
             ))}
           </div>
           <ResultTag net={spinning ? null : net} lang={lang} />
+          <DealerTag dealer={dealer} won={spinning ? null : net?.won} />
         </div>
       }
       controls={
@@ -906,9 +941,7 @@ function BlackjackCard({ balanceCents, lang }: { balanceCents: number; lang?: La
           {/* dealer row */}
           <div className="w-full">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="size-6 grid place-items-center rounded-md bg-surface-3 text-[11px] font-bold text-mute">
-                {round?.persona.avatar ? round.persona.avatar : <Spade className="size-3.5" />}
-              </span>
+              <DealerAvatar avatar={round?.persona.avatar ?? ""} className="size-6" />
               <span className="text-[12px] font-semibold text-mute">{round?.persona.name ?? t.gBlackjack}</span>
               {round?.dealerTotal != null && <span className="num ml-auto text-[12px] font-bold">{round.dealerTotal}</span>}
             </div>

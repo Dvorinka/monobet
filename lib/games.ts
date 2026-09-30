@@ -3,6 +3,10 @@
 
 export const GAME_LEVERAGES = [1, 2, 3, 5, 10, 25, 50, 100] as const;
 
+// A dealer persona fronts every minigame — configured in admin; avatar may be
+// an image URL/data URI (rendered as a picture) or a short monogram.
+export type Persona = { name: string; avatar: string; quipWin: string; quipLose: string };
+
 // Coin flip: 50/50, house keeps ~2%.
 export const COINFLIP_MULT = 1.96;
 
