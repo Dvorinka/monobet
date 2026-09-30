@@ -1,8 +1,9 @@
 import { randomInt } from "node:crypto";
 
-// House debt — levered game losses and loans land on the user row with an
-// APR rolled at borrow time (taking a loan is itself a gamble). Interest
-// accrues lazily: every touch compounds the debt to `now` first.
+// House debt — only voluntary loans land on the user row; levered games pay
+// a funding fee instead of borrowing. The APR is rolled at borrow time
+// (taking a loan is itself a gamble). Interest accrues lazily: every touch
+// compounds the debt to `now` first.
 export const DEBT_CAP_CENTS = 100_000_000; // Ɱ1M ceiling — keeps integer sane
 export const LOAN_PRESETS_CENTS = [25_000, 100_000, 500_000]; // Ɱ250 / Ɱ1,000 / Ɱ5,000
 export const LOAN_RATE_MIN_BPS = 50; // 0.5% APR

@@ -2,6 +2,8 @@
 // server actions that settle rounds. No secrets here; tokens live in actions.
 
 export const GAME_LEVERAGES = [1, 2, 3, 5, 10, 25, 50, 100] as const;
+// Notional sanity cap — the stake times leverage can't exceed this.
+export const MAX_GAME_WAGER_CENTS = 100_000_00;
 
 // A dealer persona fronts every minigame — configured in admin; avatar may be
 // an image URL/data URI (rendered as a picture) or a short monogram.

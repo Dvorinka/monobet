@@ -479,7 +479,9 @@ export async function getRewardsState(userId: string) {
         markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.creatorId} = ${userId})`,
         comments: sql<number>`(select count(*)::int from ${schema.comment} where ${schema.comment.userId} = ${userId})`,
         games: sql<number>`(select count(*)::int from ${schema.ledger} where ${schema.ledger.userId} = ${userId} and kind = 'game')`,
-        gameWins: sql<number>`(select count(*)::int from ${schema.ledger} where ${schema.ledger.userId} = ${userId} and kind = 'game' and amount_cents > 0)`,
+        // Win rows carry "won ×n"/"natural 21 ×n" — refunds and side-bet
+        // payouts are deliberately excluded.
+        gameWins: sql<number>`(select count(*)::int from ${schema.ledger} where ${schema.ledger.userId} = ${userId} and kind = 'game' and amount_cents > 0 and memo ~ '(won|natural)')`,
         watching: sql<number>`(select count(*)::int from ${schema.watchlist} where ${schema.watchlist.userId} = ${userId})`,
         likes: sql<number>`(select count(*)::int from ${schema.marketLike} where ${schema.marketLike.userId} = ${userId})`,
         duels: sql<number>`(select count(*)::int from ${schema.challenge} where ${schema.challenge.creatorId} = ${userId} or ${schema.challenge.opponentId} = ${userId})`,

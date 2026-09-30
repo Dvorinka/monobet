@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, and, sql, desc, asc, isNull } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, VOW_CHOICES_BPS, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, VOW_CHOICES_BPS, type Persona } from "@/lib/games";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -313,7 +313,7 @@ export async function placeTrade(input: {
       if (m.status !== "live") throw new Error("Market is not live");
       if (m.opensAt && new Date(m.opensAt) > new Date()) throw new Error("Trading is not open yet");
       if (m.closesAt && new Date(m.closesAt) <= new Date()) throw new Error("Market is closed");
-      await lockUser(tx, u.id);
+      const cur = await lockUser(tx, u.id);
 
       const qYes = toNum(m.qYes);
       const qNo = toNum(m.qNo);
@@ -330,7 +330,9 @@ export async function placeTrade(input: {
         if (!Number.isFinite(spend) || spend < 100) throw new Error("Minimum trade is Ɱ 1");
         if (!TRADE_LEVERAGES.includes(leverage)) throw new Error("Bad leverage");
         if (leverage > m.maxLeverage) throw new Error(`Max leverage on this market is ${m.maxLeverage}×`);
-        assertCreditLine(u, leverage);
+        // Credit gate on the locked row — the pre-tx snapshot could be stale
+        // if a repayment landed between page load and this trade.
+        assertCreditLine(cur, leverage);
         const notional = spend * leverage;
         shares = sharesForSpend(qYes, qNo, b, outcome, notional / 100);
         if (shares <= 0) throw new Error("Trade too small");
@@ -538,7 +540,9 @@ async function bonusMet(tx: Tx, cur: typeof schema.user.$inferSelect, check: str
     case "game":
       return one(tx.select({ id: schema.ledger.id }).from(schema.ledger).where(and(eq(schema.ledger.userId, cur.id), eq(schema.ledger.kind, "game"))).limit(1));
     case "win":
-      return one(tx.select({ id: schema.ledger.id }).from(schema.ledger).where(and(eq(schema.ledger.userId, cur.id), eq(schema.ledger.kind, "game"), sql`${schema.ledger.amountCents} > 0`)).limit(1));
+      // Genuine win rows carry "won ×n" (or "natural 21 ×n") — partial
+      // returns, refunds, and side-bet payouts don't.
+      return one(tx.select({ id: schema.ledger.id }).from(schema.ledger).where(and(eq(schema.ledger.userId, cur.id), eq(schema.ledger.kind, "game"), sql`${schema.ledger.amountCents} > 0`, sql`${schema.ledger.memo} ~ '(won|natural)'`)).limit(1));
     case "avatar":
       return !!cur.image;
     case "watchlist":
@@ -982,13 +986,18 @@ export async function updateMarket(input: {
         b: admin && input.b && input.b > 0 ? input.b : m[0].b,
       })
       .where(eq(schema.market.id, input.marketId));
-    // Group children inherit the parent's category — keep them in sync or
-    // the old category keeps phantom options after a move.
-    if (m[0].kind === "group" && input.category !== m[0].category) {
-      await db
-        .update(schema.market)
-        .set({ category: input.category })
-        .where(eq(schema.market.parentId, input.marketId));
+    // Group children inherit the parent's category and schedule — keep them
+    // in sync or a rescheduled group leaves options trading under the old
+    // window (each child's own closesAt is what placeTrade checks).
+    if (m[0].kind === "group") {
+      const sync: Record<string, unknown> = {};
+      if (input.category !== m[0].category) sync.category = input.category;
+      // The parent treats a missing closesAt as "clear" — mirror that so the
+      // options never diverge from the parent's schedule.
+      sync.closesAt = input.closesAt ? new Date(input.closesAt) : null;
+      if (input.opensAt !== undefined) sync.opensAt = input.opensAt ? new Date(input.opensAt) : null;
+      if (Object.keys(sync).length)
+        await db.update(schema.market).set(sync).where(eq(schema.market.parentId, input.marketId));
     }
     revalidatePath(`/market/${m[0].slug}`);
     revalidatePath("/admin");
@@ -1664,7 +1673,7 @@ export async function takeLoan(input: { token: string; pick: number }): Promise<
     const rate = offers[pick];
     await db.transaction(async (tx) => {
       // Re-check on the locked row — the offers were dealt while debt-free,
-      // but a levered game loss could have landed in between.
+      // but a second loan or repay race could have landed in between.
       const cur = await lockUser(tx, u.id);
       if (accruedDebtCents(cur.debtCents, cur.debtRateBps, cur.debtSince) > 0)
         throw new Error("Repay your debt first");
@@ -1679,10 +1688,10 @@ export async function takeLoan(input: { token: string; pick: number }): Promise<
   }
 }
 
-export async function repayLoan(input: { amountCents?: number }): Promise<{ ok: boolean; error?: string; paidCents?: number }> {
+export async function repayLoan(input: { amountCents?: number }): Promise<{ ok: boolean; error?: string; paidCents?: number; leftCents?: number }> {
   try {
     const u = await requireUser();
-    await db.transaction(async (tx) => {
+    const out = await db.transaction(async (tx) => {
       const cur = await lockUser(tx, u.id);
       const now = new Date();
       const debt = accruedDebtCents(cur.debtCents, cur.debtRateBps, cur.debtSince, now);
@@ -1697,11 +1706,11 @@ export async function repayLoan(input: { amountCents?: number }): Promise<{ ok: 
         .update(schema.user)
         .set({ debtCents: left, debtRateBps: left > 0 ? cur.debtRateBps : 0, debtSince: left > 0 ? now : null })
         .where(eq(schema.user.id, u.id));
-      return { paid: pay };
+      return { paid: pay, left };
     });
     revalidatePath("/rewards");
     revalidatePath("/portfolio");
-    return { ok: true };
+    return { ok: true, paidCents: out.paid, leftCents: out.left };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Repay failed" };
   }
@@ -1709,7 +1718,7 @@ export async function repayLoan(input: { amountCents?: number }): Promise<{ ok: 
 
 // ---------- the Wall of Debts ----------
 // A prayer burns a candle fee and clears a small random slice of debt — or
-// nothing, when the wall stays silent. One prayer per 24h. The note is
+// nothing, when the wall stays silent. One prayer per 6h. The note is
 // public; the wall remembers everyone.
 
 export async function wallPray(input: { note?: string }): Promise<{
@@ -1725,6 +1734,9 @@ export async function wallPray(input: { note?: string }): Promise<{
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "wall");
+    // Cheap pre-check so the client gets the real countdown, not a raw error.
+    const preNext = u.wallPrayerAt ? u.wallPrayerAt.getTime() + WALL_COOLDOWN_MS : null;
+    if (preNext && preNext > Date.now()) return { ok: false, error: "The wall is still listening", nextAt: preNext };
     const out = await db.transaction(async (tx) => {
       const cur = await lockUser(tx, u.id);
       const now = new Date();
@@ -1733,7 +1745,7 @@ export async function wallPray(input: { note?: string }): Promise<{
       if (cur.wallPrayerAt && now.getTime() - cur.wallPrayerAt.getTime() < WALL_COOLDOWN_MS)
         throw new Error("The wall is still listening");
       const fee = Math.max(WALL_FEE_MIN_CENTS, Math.round(debt * WALL_FEE_DEBT_PCT));
-      if (cur.balanceCents < fee) throw new Error(`The candle costs Ɱ ${(fee / 100).toFixed(0)}`);
+      if (cur.balanceCents < fee) throw new Error(`The candle costs Ɱ ${(fee / 100).toFixed(2)}`);
       // The candle burns — the fee is gone regardless of what the wall answers.
       await credit(tx, u.id, -fee, "burn", null, "Wall candle");
       const silent = randomInt(100) < WALL_SILENT_PCT;
@@ -1760,6 +1772,16 @@ export async function wallPray(input: { note?: string }): Promise<{
         clearedCents: cleared,
         miracle,
       });
+      // A full absolution deserves a bell — it clears the whole debt.
+      if (miracle)
+        await tx.insert(schema.ledger).values({
+          userId: u.id,
+          amountCents: 0,
+          balanceAfterCents: cur.balanceCents - fee,
+          kind: "notify",
+          marketId: null,
+          memo: `The wall answered — all debt forgiven (${(debt / 100).toFixed(2)}Ɱ cleared)`,
+        });
       return { cleared, fee, left, silent, miracle, nextAt: now.getTime() + WALL_COOLDOWN_MS };
     });
     revalidatePath("/rewards");
@@ -1999,7 +2021,6 @@ export async function voteComment(input: {
 
 const MIN_BET_CENTS = 100; // Ɱ1
 const RIG_PCT = 35; // rigged dealers flip ~⅓ of player wins
-const MAX_WAGER_CENTS = 100_000_00; // Ɱ100k sanity cap
 
 // Leverage on games is margin, not credit: the stake is collateral, a win
 // pays stake + (mult-1) × notional, a loss forfeits the stake and nothing
@@ -2015,30 +2036,34 @@ async function settleGame(
   label: string
 ): Promise<{ netCents: number; feeCents: number; skimCents: number }> {
   const wager = Math.round(betCents * leverage);
-  if (!Number.isFinite(wager) || wager < MIN_BET_CENTS) throw new Error("Minimum bet is Ɱ 1");
-  if (wager > MAX_WAGER_CENTS) throw new Error("Bet too large");
+  if (wager > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
   const fee = levFeeCents(betCents, leverage);
+  // Credit check + charge both run on the locked row — the pre-tx snapshot
+  // could be a debt repayment stale.
   const u = await lockUser(tx, userId);
+  assertCreditLine(u, leverage);
   await credit(tx, userId, -(betCents + fee), "game", null, `${label} — wager ×${leverage}${fee > 0 ? ` · fee ${(fee / 100).toFixed(2)}Ɱ` : ""}`);
   let win = 0;
   let skim = 0;
   if (won) {
     win = levWinCents(betCents, leverage, mult);
-    // Wall vow — a pledged share of every win is garnished to the debt first.
-    skim = Math.min(win, await vowSkim(tx, userId, u.vowBps ?? 0, win, label));
+    // Wall vow — a pledged share of every win's *profit* goes to the debt.
+    skim = Math.min(win, await vowSkim(tx, userId, u.vowBps ?? 0, Math.max(0, win - betCents), label));
     const take = win - skim;
-    if (take > 0) await credit(tx, userId, take, "game", null, `${label} — won ×${mult}${skim ? " (vow skimmed)" : ""}`);
+    // Sub-1x segments refund part of the stake — the ledger says so plainly.
+    if (take > 0) await credit(tx, userId, take, "game", null, `${label} — ${win > betCents ? "won" : "partial return"} ×${mult}${skim ? " (vow skimmed)" : ""}`);
   }
   return { netCents: win - skim - betCents - fee, feeCents: fee, skimCents: skim };
 }
 
-// Garnishes `vowBps` of a win toward accrued debt; returns the skimmed cents.
-async function vowSkim(tx: Tx, userId: string, vowBps: number, winCents: number, label: string): Promise<number> {
+// Garnishes `vowBps` of a win's profit toward accrued debt — the stake is
+// never touched. Returns the skimmed cents.
+async function vowSkim(tx: Tx, userId: string, vowBps: number, profitCents: number, label: string): Promise<number> {
   if (!vowBps) return 0;
   const u = await lockUser(tx, userId);
   const debt = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince);
   if (debt <= 0) return 0;
-  const skim = Math.min(Math.round(winCents * (vowBps / 10_000)), debt);
+  const skim = Math.min(Math.round(profitCents * (vowBps / 10_000)), debt);
   if (skim <= 0) return 0;
   const left = Math.max(0, debt - skim);
   await tx
@@ -2051,7 +2076,7 @@ async function vowSkim(tx: Tx, userId: string, vowBps: number, winCents: number,
     balanceAfterCents: u.balanceCents,
     kind: "repay",
     marketId: null,
-    memo: `${label} — vow garnish ${skim / 100}Ɱ`,
+    memo: `${label} — vow garnish ${(skim / 100).toFixed(2)}Ɱ`,
   });
   return skim;
 }
@@ -2081,7 +2106,6 @@ export async function playCoinFlip(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    assertCreditLine(u, lev);
     if (input.pick !== "heads" && input.pick !== "tails") throw new Error("Pick a side");
     let landed: "heads" | "tails" = randomInt(2) === 0 ? "heads" : "tails";
     let won = landed === input.pick;
@@ -2111,7 +2135,6 @@ export async function playDice(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    assertCreditLine(u, lev);
     const over = Math.round(input.over);
     if (over < DICE_MIN_OVER || over > DICE_MAX_OVER) throw new Error("Bad target");
     let roll = randomInt(1, 7);
@@ -2176,7 +2199,6 @@ export async function stopTimerRound(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    assertCreditLine(u, lev);
     const { t: target, i: issued } = openTimerRound(input.token, u.id);
     const elapsed = Date.now() - issued;
     if (elapsed < 400) throw new Error("Stopped suspiciously fast");
@@ -2205,7 +2227,6 @@ export async function playLimbo(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    assertCreditLine(u, lev);
     const target = Number(input.target);
     if (!Number.isFinite(target) || target < LIMBO_MIN || target > LIMBO_MAX) throw new Error("Bad target");
     // Crash point: 0.99/(1−u), clamped — win when the rocket clears the bar.
@@ -2236,7 +2257,6 @@ export async function playWheel(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    assertCreditLine(u, lev);
     let index = randomInt(WHEEL_SEGMENTS.length);
     let mult = WHEEL_SEGMENTS[index];
     const dealer = await pickDealer(input.dealerId);
@@ -2265,7 +2285,6 @@ export async function playSlots(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    assertCreditLine(u, lev);
     const reels = [slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT))];
     let mult = slotPayout(reels[0], reels[1], reels[2]);
     const dealer = await pickDealer(input.dealerId);
@@ -2679,7 +2698,7 @@ async function settleBlackjack(
   if (result === "win" || result === "blackjack") {
     const mult = result === "blackjack" ? BJ_NATURAL_MULT : BJ_WIN_MULT;
     const win = levWinCents(round.betCents, round.leverage, mult);
-    const skim = Math.min(win, await vowSkim(tx, round.userId, u.vowBps ?? 0, win, label));
+    const skim = Math.min(win, await vowSkim(tx, round.userId, u.vowBps ?? 0, Math.max(0, win - round.betCents), label));
     const take = win - skim;
     if (take > 0) await credit(tx, round.userId, take, "game", null, `${label} — ${result === "blackjack" ? "natural 21" : "won"} ×${mult}${skim ? " (vow skimmed)" : ""}`);
     net = win - skim - round.betCents - fee;
@@ -2751,7 +2770,7 @@ export async function blackjackDeal(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    assertCreditLine(u, lev);
+    if (bet * lev > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
     const ppOn = !!input.sides?.pp;
     const t3On = !!input.sides?.t3;
     const sideStake = (ppOn ? bet : 0) + (t3On ? bet : 0);
@@ -2761,7 +2780,9 @@ export async function blackjackDeal(input: {
     const dealer = [deck.pop()!, deck.pop()!];
     let state!: BjState;
     await db.transaction(async (tx) => {
-      await lockUser(tx, u.id);
+      const cur = await lockUser(tx, u.id);
+      // Credit gate on the locked row, same as the other games' settle path.
+      assertCreditLine(cur, lev);
       // Collateral + funding fee leave the balance up front so a slow hand
       // can't double-spend them.
       const fee = levFeeCents(bet, lev);
@@ -2783,7 +2804,9 @@ export async function blackjackDeal(input: {
       }
       const [round] = await tx
         .insert(schema.blackjackRound)
-        .values({ userId: u.id, betCents: bet, leverage: lev, deck, player, dealer, persona, sides })
+        // loan_cents carries the funding fee so a mid-hand state can show
+        // what was already burned — it never becomes debt.
+        .values({ userId: u.id, betCents: bet, leverage: lev, deck, player, dealer, persona, sides, loanCents: fee })
         .returning();
       const pNat = isNatural(player);
       const dNat = isNatural(dealer);
@@ -2802,16 +2825,17 @@ export async function blackjackDeal(input: {
   }
 }
 
-// Loads + locks a live round owned by the user; stale hands push-refund.
+// Loads + locks a live round owned by the user; stale hands push-refund and
+// report the settled state so the client can show it instead of a dead hand.
 async function lockRound(tx: Tx, roundId: string, userId: string) {
   const [r] = await tx.select().from(schema.blackjackRound).where(eq(schema.blackjackRound.id, roundId)).for("update").limit(1);
   if (!r || r.userId !== userId) throw new Error("Round not found");
   if (r.status !== "playing") throw new Error("Hand already settled");
   if (Date.now() - r.createdAt.getTime() > BJ_ROUND_TTL_MS) {
-    await settleBlackjack(tx, r, "push", r.persona.name);
-    throw new Error("Hand timed out — stake refunded");
+    const { net, feeCents } = await settleBlackjack(tx, r, "push", r.persona.name);
+    return { r: { ...r, status: "settled", result: "push", netCents: net, loanCents: feeCents }, expired: true };
   }
-  return r;
+  return { r, expired: false };
 }
 
 export async function blackjackHit(input: { roundId: string }): Promise<{ ok: boolean; error?: string; state?: BjState }> {
@@ -2819,7 +2843,8 @@ export async function blackjackHit(input: { roundId: string }): Promise<{ ok: bo
     const u = await requireUser();
     let state!: BjState;
     await db.transaction(async (tx) => {
-      const r = await lockRound(tx, input.roundId, u.id);
+      const { r, expired } = await lockRound(tx, input.roundId, u.id);
+      if (expired) { state = bjState(r, false); return; }
       const deck = [...r.deck];
       const card = deck.pop()!;
       const player = [...r.player, card];
@@ -2843,7 +2868,8 @@ export async function blackjackStand(input: { roundId: string }): Promise<{ ok: 
     const u = await requireUser();
     let state!: BjState;
     await db.transaction(async (tx) => {
-      const r = await lockRound(tx, input.roundId, u.id);
+      const { r, expired } = await lockRound(tx, input.roundId, u.id);
+      if (expired) { state = bjState(r, false); return; }
       const deck = [...r.deck];
       const dealer = [...r.dealer];
       while (handTotal(dealer).total < 17) dealer.push(deck.pop()!);
@@ -2868,8 +2894,10 @@ export async function blackjackDouble(input: { roundId: string }): Promise<{ ok:
     const u = await requireUser();
     let state!: BjState;
     await db.transaction(async (tx) => {
-      const r = await lockRound(tx, input.roundId, u.id);
+      const { r, expired } = await lockRound(tx, input.roundId, u.id);
+      if (expired) { state = bjState(r, false); return; }
       if (r.player.length !== 2 || r.doubled) throw new Error("Double is a first-move option");
+      if (2 * r.betCents * r.leverage > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
       // The fee scales with the bet, so doubling costs bet + one more fee unit.
       const extraFee = levFeeCents(r.betCents, r.leverage);
       await credit(tx, u.id, -(r.betCents + extraFee), "game", null, `Blackjack vs ${r.persona.name} — doubled`);
@@ -2906,7 +2934,8 @@ export async function blackjackSurrender(input: { roundId: string }): Promise<{ 
     const u = await requireUser();
     let state!: BjState;
     await db.transaction(async (tx) => {
-      const r = await lockRound(tx, input.roundId, u.id);
+      const { r, expired } = await lockRound(tx, input.roundId, u.id);
+      if (expired) { state = bjState(r, false); return; }
       if (r.player.length !== 2 || r.doubled) throw new Error("Surrender is a first-move option");
       const { net, feeCents } = await settleBlackjack(tx, r, "surrender", r.persona.name);
       state = bjState({ ...r, status: "settled", result: "surrender", netCents: net, feeCents }, false);

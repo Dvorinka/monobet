@@ -87,27 +87,57 @@ export function WallCard({
   };
 
   // The paper slips peeking out of the wall — latest public notes.
-  const slips = prayers.filter((p) => p.note).slice(0, 6);
+  const slips = prayers.filter((p) => p.note).slice(0, 4);
+  // One votive candle per recent prayer — lit if the wall answered, a burnt
+  // stub trailing smoke if it stayed silent.
+  const candles = prayers.slice(0, 12);
 
   return (
     <div className="rounded-xl border border-line bg-surface overflow-hidden">
-      {/* the wall itself — stone bricks with prayer slips in the cracks */}
-      <div className="wall-bricks relative h-28 px-4 pt-3 overflow-hidden">
+      {/* the wall itself — night sky, old stone, candles on the ledge */}
+      <div className="wall-scene relative h-44 px-4 pt-3 overflow-hidden select-none">
         <div className="relative z-10 flex items-center gap-2">
-          <Landmark className="size-4 text-white/80" />
-          <span className="text-[13px] font-bold text-white tracking-wide drop-shadow">{t.wallTitle}</span>
+          <Landmark className="size-4 text-amber-100/80" />
+          <span className="text-[13px] font-bold text-amber-50/90 tracking-wide drop-shadow-[0_1px_2px_rgba(0,0,0,.6)]">{t.wallTitle}</span>
         </div>
-        <div className="absolute inset-x-3 bottom-1.5 flex items-end gap-3">
+        {/* slips folded into the cracks between bricks */}
+        <div className="absolute inset-x-4 top-24 flex gap-6">
           {slips.map((p, i) => (
             <div
               key={p.id}
-              className="wall-slip bg-[#f5f0e4] text-[#4a4033] text-[9px] leading-tight px-1.5 py-1 rounded-[2px] shadow-sm max-w-30 truncate"
-              style={{ transform: `rotate(${(i % 2 === 0 ? -1 : 1) * (2 + (i % 3))}deg)` }}
+              className="wall-slip bg-[#e8e0cb]/85 text-[#4a4033] text-[9px] leading-tight px-1.5 py-1 rounded-[2px] shadow max-w-24 truncate"
+              style={{ transform: `rotate(${(i % 2 === 0 ? -1 : 1) * (2 + (i % 3))}deg)`, marginTop: `${(i % 3) * 10}px` }}
               title={`@${p.username ?? p.name}: ${p.note}`}
             >
               {p.note}
             </div>
           ))}
+        </div>
+        {/* the ledge + votive candles */}
+        <div className="wall-ledge absolute inset-x-0 bottom-0 h-7">
+          <div className="absolute inset-x-4 bottom-1 flex items-end justify-between">
+            {candles.map((p, i) => {
+              const lit = p.miracle || p.clearedCents > 0;
+              return (
+                <div
+                  key={p.id}
+                  className="relative"
+                  title={`@${p.username ?? p.name}${p.note ? `: ${p.note}` : ""} — ${lit ? (p.miracle ? t.wallMiracle(fmtMonos(p.clearedCents, { lang })) : t.wallCleared(fmtMonos(p.clearedCents, { lang }))) : t.wallSilentShort}`}
+                >
+                  {lit && <span className="wall-candle-glow" />}
+                  <div
+                    className={cn("wall-candle", !lit && "wall-candle--burnt")}
+                    style={{ width: 8, height: 9 + ((i * 7) % 8) }}
+                  />
+                  {lit ? (
+                    <span className={cn("wall-flame", p.miracle && "wall-flame--miracle")} style={{ animationDelay: `${(i * 0.37) % 1.9}s` }} />
+                  ) : (
+                    <span className="wall-smoke" style={{ animationDelay: `${(i * 0.6) % 3.4}s` }} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -202,7 +232,9 @@ export function WallCard({
 
 function fmtRemain(ms: number) {
   const m = Math.ceil(ms / 60_000);
-  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
 }
 
 function playWallSfx() {

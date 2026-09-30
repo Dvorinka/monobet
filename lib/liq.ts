@@ -36,7 +36,9 @@ export function levFeeCents(betCents: number, leverage: number): number {
   if (leverage <= 1) return 0;
   return Math.round(betCents * (leverage - 1) * (LEV_FEE_BPS / 10_000));
 }
-// Win payout under margin rules: stake back plus amplified profit.
+// Win payout under margin rules: stake back plus amplified profit. A
+// sub-1x multiplier counts as a losing move on the position — deep enough
+// leverage wipes it out entirely, so the payout floors at zero.
 export function levWinCents(betCents: number, leverage: number, mult: number): number {
-  return Math.round(betCents * (1 + (mult - 1) * leverage));
+  return Math.max(0, Math.round(betCents * (1 + (mult - 1) * leverage)));
 }

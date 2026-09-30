@@ -45,7 +45,7 @@ export const user = pgTable("user", {
   // Temporary comment ban — a "timeout" that expires on its own.
   commentBanUntil: timestamp("comment_ban_until", { withTimezone: true }),
   squadId: uuid("squad_id"),
-  // House debt — levered game losses and loans land here. Rate is APR in
+  // House debt — voluntary loans land here (levered games never borrow). Rate is APR in
   // basis points rolled at borrow time; interest accrues lazily off debtSince.
   debtCents: integer("debt_cents").notNull().default(0),
   debtRateBps: integer("debt_rate_bps").notNull().default(0),

@@ -18,9 +18,10 @@ import {
   blackjackDouble,
   blackjackSurrender,
 } from "@/lib/actions";
-import { levFeeCents } from "@/lib/liq";
+import { levFeeCents, LEV_FEE_BPS } from "@/lib/liq";
 import {
   GAME_LEVERAGES,
+  MAX_GAME_WAGER_CENTS,
   diceMult,
   diceWinChance,
   TIMER_TARGETS,
@@ -139,6 +140,7 @@ function BetControls({
   disabled,
   locked,
   lang,
+  sideUnits,
 }: {
   bet: string;
   setBet: (v: string) => void;
@@ -148,12 +150,20 @@ function BetControls({
   disabled?: boolean;
   locked?: boolean;
   lang?: Lang;
+  sideUnits?: number;
 }) {
   const t = getT(lang ?? "en");
   const betCents = Math.round(parseFloat(bet || "0") * 100);
   const levN = Number(lev);
+  const sides = sideUnits ?? 0;
   const fee = levFeeCents(betCents, levN);
-  const atRisk = betCents + fee;
+  const atRisk = betCents * (1 + sides) + fee;
+  // Max stake: balance must cover stake units + the funding fee, and the
+  // borrowed notional stays under the house cap.
+  const maxCents = Math.min(
+    Math.floor(balanceCents / (1 + sides + ((levN - 1) * LEV_FEE_BPS) / 10_000)),
+    Math.floor(MAX_GAME_WAGER_CENTS / levN)
+  );
   return (
     <div className="space-y-2">
       <div className="relative">
@@ -192,7 +202,7 @@ function BetControls({
         ))}
         <button
           disabled={disabled}
-          onClick={() => setBet(String(Math.floor(balanceCents / 100)))}
+          onClick={() => setBet(String(Math.max(0, Math.floor(maxCents / 100))))}
           className="flex-1 h-6.5 rounded-md bg-surface-2 text-[11.5px] font-semibold text-mute hover:bg-surface-3 hover:text-ink cursor-pointer disabled:opacity-50"
         >
           {t.max}
@@ -687,8 +697,9 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       setTimeout(() => {
         setSpinning(false);
         setLanded(r.mult ?? null);
-        setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.mult && r.mult > 0, feeCents: r.feeCents });
-        dealerWinFx(r.dealer, !!r.mult && r.mult > 0, r.netCents ?? 0, onWinFx);
+        // 0.5×/0.6×/0.8× segments return part of the stake — still a loss.
+        setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents });
+        dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, r.netCents ?? 0, onWinFx);
       }, 3250);
     });
 
@@ -1023,6 +1034,10 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
           <div className="w-full">
             <div className="flex items-center gap-2 mb-1.5">
               <span className="text-[12px] font-semibold text-mute">{lang === "cs" ? "Vy" : "You"}</span>
+              {/* funding fee paid at deal — visible for the whole hand */}
+              {playing && (round.feeCents ?? 0) > 0 && (
+                <span className="num text-[10.5px] font-medium text-faint">{t.gameFeeChip(fmtMonos(round.feeCents!, { lang }))}</span>
+              )}
               {round && <span className="num ml-auto text-[12px] font-bold">{round.playerTotal}</span>}
             </div>
             <div className="flex gap-1.5 flex-wrap min-h-14">
@@ -1061,26 +1076,30 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
         <>
           {!playing && (
             <>
-              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} />
+              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} sideUnits={(pp ? 1 : 0) + (t3 ? 1 : 0)} />
               <div className="flex gap-1.5">
                 {([
-                  { on: pp, set: setPp, label: `PP · ${t.bjSidePP}` },
-                  { on: t3, set: setT3, label: `21+3 · ${t.bjSide21}` },
+                  { on: pp, set: setPp, name: "PP", desc: t.bjSidePP },
+                  { on: t3, set: setT3, name: "21+3", desc: t.bjSide21 },
                 ] as const).map((s) => (
                   <button
-                    key={s.label}
+                    key={s.name}
                     type="button"
                     onClick={() => s.set(!s.on)}
                     disabled={pending}
                     className={cn(
-                      "flex-1 h-8 rounded-lg border text-[11.5px] font-semibold transition-all cursor-pointer",
+                      "flex-1 h-8 rounded-lg border text-[11.5px] font-semibold transition-all cursor-pointer inline-flex items-center justify-center gap-1",
                       s.on
                         ? "border-brand bg-brand-soft text-brand-strong"
                         : "border-line bg-surface-2 text-mute hover:text-ink"
                     )}
-                    title={s.label}
+                    title={s.desc}
                   >
-                    {s.label}
+                    {s.name}
+                    {/* each side bet costs a full stake */}
+                    <span className={cn("num text-[10px] font-semibold", s.on ? "text-brand-strong/70" : "text-faint")}>
+                      +{fmtMonos(Math.round(parseFloat(bet || "0") * 100), { lang, decimals: false })}
+                    </span>
                   </button>
                 ))}
               </div>

@@ -273,13 +273,15 @@ function InviteCard({ username, lang }: { username: string; lang: Lang }) {
 
 // House loan card — borrow Monos via a pick-a-card gamble: clicking an amount
 // deals three hidden APRs (server-signed), the card you pick sets your rate.
-// Borrowing is blocked while you owe the house; levered game losses land here.
-function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps: number; t: ReturnType<typeof getT>; lang: Lang }) {
+// Borrowing is blocked while you owe the house; this is the only debt source.
+function LoanCard({ debtCents, rateBps, balanceCents, t, lang }: { debtCents: number; rateBps: number; balanceCents: number; t: ReturnType<typeof getT>; lang: Lang }) {
   const [pending, start] = useTransition();
   const router = useRouter();
   const [offer, setOffer] = useState<{ token: string; amount: number } | null>(null);
   const [reveal, setReveal] = useState<{ picked: number; offers: number[] } | null>(null);
   const inDebt = debtCents > 0;
+  const loanErr = (e?: string) =>
+    e === "Repay your debt first" ? t.loanBlockedDebt : e === "Insufficient balance" ? t.errInsufficient : e ?? "Error";
 
   const deal = (cents: number) =>
     start(async () => {
@@ -288,7 +290,7 @@ function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps:
       if (r.ok && r.token) {
         playSfx("flip", 0.4);
         setOffer({ token: r.token, amount: cents });
-      } else toast.error(r.error === "Repay your debt first" ? t.loanBlockedDebt : r.error);
+      } else toast.error(loanErr(r.error));
     });
 
   const pick = (i: number) => {
@@ -301,7 +303,7 @@ function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps:
         toast.success(t.loanTaken(fmtMonos(offer.amount, { lang }), ((r.rateBps ?? 0) / 100).toFixed(1)));
         router.refresh();
         setTimeout(() => setOffer(null), 4000);
-      } else toast.error(r.error);
+      } else toast.error(loanErr(r.error));
     });
   };
 
@@ -406,20 +408,25 @@ function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps:
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {inDebt ? (
           <button
-            disabled={pending}
+            disabled={pending || balanceCents <= 0}
             onClick={() =>
               start(async () => {
                 const r = await repayLoan({});
                 if (r.ok) {
                   playSfx("claim", 0.5);
-                  toast.success(t.loanRepaid);
+                  // Balance may only cover part of the debt — say so.
+                  toast.success(
+                    r.leftCents && r.leftCents > 0
+                      ? t.loanRepaidPart(fmtMonos(r.paidCents ?? 0, { lang }), fmtMonos(r.leftCents, { lang }))
+                      : t.loanRepaid
+                  );
                   router.refresh();
-                } else toast.error(r.error);
+                } else toast.error(loanErr(r.error));
               })
             }
             className="h-8 px-3.5 rounded-lg bg-brand text-brand-on text-[12.5px] font-semibold hover:bg-brand-strong transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {t.loanRepayAll}
+            {balanceCents >= debtCents ? t.loanRepayAll : t.loanRepayAvail(fmtMonos(balanceCents, { lang }))}
           </button>
         ) : (
           !offer &&
@@ -509,7 +516,7 @@ export function RewardsPanels({
           <AdCard nextAt={ad.nextAt} amount={ad.amount} t={t} />
         </div>
         <div className="mt-3">
-          <LoanCard debtCents={debt.cents} rateBps={debt.rateBps} t={t} lang={lang} />
+          <LoanCard debtCents={debt.cents} rateBps={debt.rateBps} balanceCents={wall.balanceCents} t={t} lang={lang} />
         </div>
         <div className="mt-3">
           <WallCard debtCents={debt.cents} wallPrayerAt={wall.prayerAt} vowBps={wall.vowBps} prayers={wall.prayers} lang={lang} now={wallNow} balanceCents={wall.balanceCents} />
