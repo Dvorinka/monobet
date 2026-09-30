@@ -220,6 +220,7 @@ function KindBadge({ kind, lang }: { kind: string; lang?: Lang }) {
   const map: Record<string, { label: string; tone: "yes" | "no" | "ink" | "mute" | "warn" }> = {
     signup: { label: t.kindBonus, tone: "ink" },
     claim: { label: t.kindClaim, tone: "ink" },
+    activity: { label: t.kindActivity, tone: "ink" },
     grant: { label: t.kindGrant, tone: "ink" },
     buy: { label: t.kindBuy, tone: "mute" },
     sell: { label: t.kindSell, tone: "mute" },

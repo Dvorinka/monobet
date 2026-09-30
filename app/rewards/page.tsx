@@ -8,6 +8,7 @@ import { accruedDebtCents } from "@/lib/loans";
 import { AnimatedMoney } from "@/components/animated-number";
 import { RewardsPanels } from "@/components/rewards-panels";
 import { fmtMonos } from "@/lib/money";
+import { activityBonusCents } from "@/lib/activity";
 import {
   DAILY_COOLDOWN_MS,
   WEEKLY_COOLDOWN_MS,
@@ -55,6 +56,13 @@ export default async function RewardsPage() {
           amount: fmtMonos(100_000, { lang }),
         }}
         ad={{ nextAt: nextAt(state.lastAd, AD_COOLDOWN_MS), amount: fmtMonos(5_000, { lang }) }}
+        // getCurrentUser already rolled today's presence — activityStreak is
+        // post-roll, so `today` is what this visit just paid.
+        activity={{
+          streak: user.activityStreak,
+          today: fmtMonos(activityBonusCents(user.activityStreak), { lang }),
+          next: fmtMonos(activityBonusCents(user.activityStreak + 1), { lang }),
+        }}
         bonuses={bonusState}
         username={user.username ?? user.name}
         debt={{ cents: accruedDebtCents(user.debtCents, user.debtRateBps, user.debtSince), rateBps: user.debtRateBps }}

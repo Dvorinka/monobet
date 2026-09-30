@@ -1,6 +1,8 @@
 import { headers } from "next/headers";
 import { cache } from "react";
 import { auth, SUPER_ADMIN_EMAIL } from "@/lib/auth";
+import { touchActivity, todayUtc } from "@/lib/activity";
+import { SEEN_THROTTLE_MS } from "@/lib/rewards";
 
 export type CurrentUser = {
   id: string;
@@ -12,6 +14,9 @@ export type CurrentUser = {
   balanceCents: number;
   lastClaimAt: Date | null;
   claimStreak: number;
+  lastActiveDay: string | null;
+  activityStreak: number;
+  lastSeenAt: Date | null;
   commentsBanned: boolean;
   commentBanUntil: Date | null;
   debtCents: number;
@@ -41,6 +46,9 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     commentsBanned?: boolean;
     commentBanUntil?: Date | null;
     claimStreak?: number;
+    lastActiveDay?: string | null;
+    activityStreak?: number;
+    lastSeenAt?: Date | null;
     debtCents?: number;
     debtRateBps?: number;
     debtSince?: Date | null;
@@ -50,6 +58,18 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
   // Banned accounts keep a session cookie until it expires; treat them as
   // signed out everywhere so requireUser blocks them.
   if (u.bannedAt) return null;
+  // Presence roll — first hit of a UTC day pays the streak bonus and stamps
+  // last_seen. Best-effort: a failed write must not take the page down, and
+  // the returned user is patched so pages don't render pre-roll values.
+  let active = { lastActiveDay: u.lastActiveDay ?? null, activityStreak: u.activityStreak ?? 0, lastSeenAt: u.lastSeenAt ?? null, creditedCents: 0 };
+  const seenStale = !active.lastSeenAt || Date.now() - new Date(active.lastSeenAt).getTime() > SEEN_THROTTLE_MS;
+  if (active.lastActiveDay !== todayUtc() || seenStale) {
+    try {
+      active = await touchActivity(u.id);
+    } catch {
+      /* presence is best-effort */
+    }
+  }
   return {
     id: u.id,
     name: u.name,
@@ -57,9 +77,12 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     email: u.email ?? null,
     image: u.image ?? null,
     role: u.email?.toLowerCase() === SUPER_ADMIN_EMAIL ? "admin" : (u.role ?? "user"),
-    balanceCents: u.balanceCents ?? 0,
+    balanceCents: (u.balanceCents ?? 0) + active.creditedCents,
     lastClaimAt: u.lastClaimAt ?? null,
     claimStreak: u.claimStreak ?? 0,
+    lastActiveDay: active.lastActiveDay,
+    activityStreak: active.activityStreak,
+    lastSeenAt: active.lastSeenAt,
     commentsBanned: u.commentsBanned ?? false,
     commentBanUntil: u.commentBanUntil ?? null,
     debtCents: u.debtCents ?? 0,
