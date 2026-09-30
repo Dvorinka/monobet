@@ -25,9 +25,9 @@ create table dealer_persona (
   created_at timestamptz not null default now()
 );
 insert into dealer_persona (name, avatar, quip_win, quip_lose) values
-  ('Dealer Dan', '🤵', 'The house always collects.', 'Enjoy it while it lasts.'),
-  ('Madame V', '🃏', 'The cards told me so.', 'Hmm. The deck favors you today.'),
-  ('One-Eye Otto', '🦹', 'Read them and weep.', 'I let you have that one.');
+  ('Dealer Dan', 'DD', 'The house always collects.', 'Enjoy it while it lasts.'),
+  ('Madame V', 'MV', 'The cards told me so.', 'Hmm. The deck favors you today.'),
+  ('One-Eye Otto', 'OO', 'Read them and weep.', 'I let you have that one.');
 
 -- Blackjack rounds live server-side so hit/stand can't forge the deck.
 create table blackjack_round (

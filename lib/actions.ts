@@ -2372,7 +2372,7 @@ export async function setNotifPrefs(input: {
 // parks the levered remainder on house debt like every other game.
 
 type BjPersona = { name: string; avatar: string; quipWin: string; quipLose: string };
-const BJ_FALLBACK_DEALER: BjPersona = { name: "The House", avatar: "🃏", quipWin: "The house always collects.", quipLose: "Well played." };
+const BJ_FALLBACK_DEALER: BjPersona = { name: "The House", avatar: "", quipWin: "The house always collects.", quipLose: "Well played." };
 const BJ_ROUND_TTL_MS = 60 * 60_000; // abandoned hands settle as a push
 
 function shuffledShoe(): number[] {
@@ -2563,7 +2563,7 @@ export async function adminUpsertDealer(input: {
     await requireAdmin();
     const name = input.name.trim().slice(0, 40);
     if (!name) throw new Error("Name required");
-    const avatar = (input.avatar.trim() || "🃏").slice(0, 8);
+    const avatar = input.avatar.trim().slice(0, 8);
     const vals = { name, avatar, quipWin: (input.quipWin ?? "").trim().slice(0, 140), quipLose: (input.quipLose ?? "").trim().slice(0, 140) };
     if (input.id) {
       await db.update(schema.dealerPersona).set(vals).where(eq(schema.dealerPersona.id, input.id));

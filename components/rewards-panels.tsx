@@ -332,7 +332,7 @@ function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps:
                       <span className="block text-[10px] font-medium">APR</span>
                     </span>
                   ) : (
-                    <span className="text-[20px]">🂠</span>
+                    <span className="mx-auto block h-9 w-7 rounded-[4px] bg-[repeating-linear-gradient(45deg,var(--color-line-2)_0px,var(--color-line-2)_3px,transparent_3px,transparent_7px)] ring-1 ring-line-2" />
                   )}
                 </button>
               );

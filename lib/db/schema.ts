@@ -339,7 +339,7 @@ export const communityNote = pgTable(
 export const dealerPersona = pgTable("dealer_persona", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
-  avatar: text("avatar").notNull().default("🃏"),
+  avatar: text("avatar").notNull().default(""),
   quipWin: text("quip_win").notNull().default(""), // shown when the dealer wins
   quipLose: text("quip_lose").notNull().default(""), // dealer loses or pushes
   active: boolean("active").notNull().default(true),

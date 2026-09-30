@@ -8,7 +8,7 @@ import { Button, Input, Select, Badge } from "@/components/ui/primitives";
 import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer } from "@/lib/actions";
 import { fmtMonos, fmtDate } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
-import { Check, X, CircleCheck, Ban, Pencil, Trash2, KeyRound, MessageSquareOff, MessageSquare, ShieldPlus, ShieldMinus, GripVertical, StickyNote, Scale } from "lucide-react";
+import { Check, X, CircleCheck, Ban, Pencil, Trash2, KeyRound, MessageSquareOff, MessageSquare, ShieldPlus, ShieldMinus, GripVertical, StickyNote, Scale, Spade } from "lucide-react";
 
 function useAction(lang?: Lang) {
   const [pending, start] = useTransition();
@@ -618,7 +618,9 @@ export function DealersPanel({
               />
             ) : (
               <div className="flex items-center gap-2.5 flex-wrap">
-                <span className="size-8 grid place-items-center rounded-lg bg-surface-2 text-[17px] shrink-0">{d.avatar}</span>
+                <span className="size-8 grid place-items-center rounded-lg bg-surface-2 text-[13px] font-bold text-mute shrink-0">
+                  {d.avatar || <Spade className="size-4" />}
+                </span>
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] font-semibold flex items-center gap-1.5">
                     {d.name}
@@ -727,7 +729,7 @@ function DealerForm({
       }}
     >
       <div className="grid grid-cols-[3rem_1fr] gap-2">
-        <Input value={avatar} onChange={(e) => setters.setAvatar(e.target.value)} placeholder="🃏" maxLength={4} className="h-9 text-center" />
+        <Input value={avatar} onChange={(e) => setters.setAvatar(e.target.value)} placeholder="DD" maxLength={4} className="h-9 text-center" />
         <Input value={name} onChange={(e) => setters.setName(e.target.value)} placeholder={t.dealerNamePh} maxLength={40} required className="h-9" />
       </div>
       <Input value={quipWin} onChange={(e) => setters.setQuipWin(e.target.value)} placeholder={t.dealerQuipWinPh} maxLength={140} className="h-9" />

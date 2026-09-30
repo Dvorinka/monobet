@@ -820,8 +820,8 @@ type BjRound = {
 function PlayingCard({ v, hidden }: { v?: number; hidden?: boolean }) {
   if (hidden || v === undefined)
     return (
-      <div className="w-10 h-14 rounded-md border border-line bg-ink grid place-items-center text-surface-3 text-[15px] shadow-sm">
-        🂠
+      <div className="w-10 h-14 rounded-md border border-line bg-ink p-1 shadow-sm">
+        <div className="h-full w-full rounded-[3px] bg-[repeating-linear-gradient(45deg,rgba(255,255,255,0.14)_0px,rgba(255,255,255,0.14)_2px,transparent_2px,transparent_6px)]" />
       </div>
     );
   const c = cardLabel(v);
@@ -906,7 +906,9 @@ function BlackjackCard({ balanceCents, lang }: { balanceCents: number; lang?: La
           {/* dealer row */}
           <div className="w-full">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="size-6 grid place-items-center rounded-md bg-surface-3 text-[14px]">{round?.persona.avatar ?? "🃏"}</span>
+              <span className="size-6 grid place-items-center rounded-md bg-surface-3 text-[11px] font-bold text-mute">
+                {round?.persona.avatar ? round.persona.avatar : <Spade className="size-3.5" />}
+              </span>
               <span className="text-[12px] font-semibold text-mute">{round?.persona.name ?? t.gBlackjack}</span>
               {round?.dealerTotal != null && <span className="num ml-auto text-[12px] font-bold">{round.dealerTotal}</span>}
             </div>
