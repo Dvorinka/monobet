@@ -12,6 +12,9 @@ export const LOAN_RATE_MAX_BPS = 3000; // 30% APR
 export const LOAN_OFFER_COUNT = 3;
 export const LOAN_OFFER_TTL_MS = 10 * 60_000;
 
+// Wall constants live in lib/games.ts — client components can't import this
+// file (node:crypto).
+
 export function rollRateBps(): number {
   return LOAN_RATE_MIN_BPS + randomInt(LOAN_RATE_MAX_BPS - LOAN_RATE_MIN_BPS + 1);
 }

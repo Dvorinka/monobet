@@ -200,3 +200,28 @@ body {
 }
 .anim-bonnie-blob { animation: bonnie-blob 550ms cubic-bezier(0.16, 0.84, 0.3, 1) both; }
 .anim-bonnie-veil { animation: bonnie-veil 2s ease both; }
+
+@keyframes plane-fly {
+  0% { transform: translateX(-30vw) translateY(6vh); opacity: 0; }
+  12% { opacity: 1; }
+  100% { transform: translateX(115vw) translateY(-3vh); opacity: 1; }
+}
+.anim-plane-fly { animation: plane-fly 1.7s cubic-bezier(0.3, 0.5, 0.4, 1) both; }
+
+/* The Wall — stone brickwork with alternating joints. */
+.wall-bricks {
+  background:
+    linear-gradient(rgba(30,22,14,.35) 2px, transparent 2px) 0 0/100% 26px,
+    linear-gradient(90deg, rgba(30,22,14,.35) 2px, transparent 2px) 0 0/66px 26px,
+    linear-gradient(90deg, rgba(30,22,14,.35) 2px, transparent 2px) 33px 13px/66px 26px,
+    linear-gradient(180deg, #97846e 0%, #7d6d58 100%);
+}
+.wall-slip {
+  transition: transform 180ms ease;
+}
+.wall-slip:hover {
+  transform: scale(1.6) rotate(0deg) !important;
+  z-index: 20;
+  max-width: none;
+  white-space: normal;
+}

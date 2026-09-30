@@ -7,6 +7,29 @@ export const GAME_LEVERAGES = [1, 2, 3, 5, 10, 25, 50, 100] as const;
 // an image URL/data URI (rendered as a picture) or a short monogram.
 export type Persona = { id?: string; name: string; avatar: string; quipWin: string; quipLose: string };
 
+// Special personas keyed by name — admin can add/remove dealers freely, but
+// these names carry behavior: a win overlay ("splash"/"plane") and/or a
+// rigged table (rigged dealers get a re-roll against player wins).
+export type DealerFx = { winFx?: "splash" | "plane"; rigged?: boolean };
+export function dealerFx(p?: Persona | null): DealerFx {
+  const n = p?.name.toLowerCase().replace(/[^a-z.]/g, "") ?? "";
+  if (n === "bonnieblue") return { winFx: "splash" };
+  if (n === "j.epst." || n === "jepst" || n === "j.epst") return { winFx: "plane", rigged: true };
+  return {};
+}
+
+// The Wall of Debts — a sacrificial relief mechanic. A prayer burns a candle
+// fee (min Ɱ25 or 2% of the debt, whichever is steeper) and clears a small
+// random slice; sometimes the wall stays silent and keeps the fee anyway.
+// Vows pledge a share of every win to the debt until it's gone.
+export const WALL_COOLDOWN_MS = 24 * 3600_000;
+export const WALL_FEE_MIN_CENTS = 2_500;
+export const WALL_FEE_DEBT_PCT = 0.02;
+export const WALL_CLEAR_MIN_PCT = 0.02;
+export const WALL_CLEAR_MAX_PCT = 0.08;
+export const WALL_SILENT_PCT = 18; // % of prayers the wall ignores
+export const VOW_CHOICES_BPS = [0, 1000, 2000, 3000]; // 0/10/20/30% of wins
+
 // Coin flip: 50/50, house keeps ~2%.
 export const COINFLIP_MULT = 1.96;
 

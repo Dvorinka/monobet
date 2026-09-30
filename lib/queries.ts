@@ -978,6 +978,24 @@ export async function getNoteCounts(marketIds: string[]) {
   return map;
 }
 
+// Public prayer wall — the latest sacrifices at the Wall of Debts.
+export async function getWallPrayers(limit = 12) {
+  return db
+    .select({
+      id: schema.wallPrayer.id,
+      note: schema.wallPrayer.note,
+      feeCents: schema.wallPrayer.feeCents,
+      clearedCents: schema.wallPrayer.clearedCents,
+      createdAt: schema.wallPrayer.createdAt,
+      username: schema.user.username,
+      name: schema.user.name,
+    })
+    .from(schema.wallPrayer)
+    .innerJoin(schema.user, eq(schema.wallPrayer.userId, schema.user.id))
+    .orderBy(desc(schema.wallPrayer.createdAt))
+    .limit(limit);
+}
+
 // Blackjack dealers — admin panel lists all; rounds pick from active ones.
 export async function listDealers() {
   return db.select().from(schema.dealerPersona).orderBy(schema.dealerPersona.createdAt);

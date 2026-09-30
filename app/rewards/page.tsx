@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { getCurrentUser } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
-import { getRewardsState } from "@/lib/queries";
+import { getRewardsState, getWallPrayers } from "@/lib/queries";
 import { accruedDebtCents } from "@/lib/loans";
 import { AnimatedMoney } from "@/components/animated-number";
 import { RewardsPanels } from "@/components/rewards-panels";
@@ -22,7 +22,7 @@ export default async function RewardsPage() {
   const [user, lang] = await Promise.all([getCurrentUser(), getLang()]);
   if (!user) redirect("/login");
   const t = getT(lang);
-  const state = await getRewardsState(user.id);
+  const [state, prayers] = await Promise.all([getRewardsState(user.id), getWallPrayers()]);
 
   const nextAt = (last: Date | null, cd: number) =>
     last ? new Date(last).getTime() + cd : null;
@@ -58,6 +58,9 @@ export default async function RewardsPage() {
         bonuses={bonusState}
         username={user.username ?? user.name}
         debt={{ cents: accruedDebtCents(user.debtCents, user.debtRateBps, user.debtSince), rateBps: user.debtRateBps }}
+        wall={{ prayerAt: user.wallPrayerAt, vowBps: user.vowBps, prayers }}
+        // eslint-disable-next-line react-hooks/purity -- server component renders once per request
+        wallNow={Date.now()}
       />
     </div>
   );

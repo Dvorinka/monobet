@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, and, sql, desc, asc, isNull } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, dealerFx, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, VOW_CHOICES_BPS, type Persona } from "@/lib/games";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -30,8 +30,8 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // Crude spam brakes for a friends group — recent-row counts on the live
 // tables, generous thresholds, no new infra.
-async function assertNotSpam(userId: string, kind: "trade" | "game" | "comment" | "loan") {
-  const limits = { trade: 60, game: 60, comment: 5, loan: 3 };
+async function assertNotSpam(userId: string, kind: "trade" | "game" | "comment" | "loan" | "wall") {
+  const limits = { trade: 60, game: 60, comment: 5, loan: 3, wall: 2 };
   const max = limits[kind];
   let n = 0;
   if (kind === "comment") {
@@ -51,6 +51,12 @@ async function assertNotSpam(userId: string, kind: "trade" | "game" | "comment" 
       .select({ n: sql<number>`count(*)::int` })
       .from(schema.ledger)
       .where(and(eq(schema.ledger.userId, userId), eq(schema.ledger.kind, "game"), sql`${schema.ledger.createdAt} > now() - interval '5 minutes'`));
+    n = r?.n ?? 0;
+  } else if (kind === "wall") {
+    const [r] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.wallPrayer)
+      .where(and(eq(schema.wallPrayer.userId, userId), sql`${schema.wallPrayer.createdAt} > now() - interval '5 minutes'`));
     n = r?.n ?? 0;
   } else {
     const [r] = await db
@@ -1617,6 +1623,78 @@ export async function repayLoan(input: { amountCents?: number }): Promise<{ ok: 
   }
 }
 
+// ---------- the Wall of Debts ----------
+// A prayer burns a candle fee and clears a small random slice of debt — or
+// nothing, when the wall stays silent. One prayer per 24h. The note is
+// public; the wall remembers everyone.
+
+export async function wallPray(input: { note?: string }): Promise<{
+  ok: boolean;
+  error?: string;
+  silent?: boolean;
+  clearedCents?: number;
+  feeCents?: number;
+  debtCents?: number;
+  nextAt?: number;
+}> {
+  try {
+    const u = await requireUser();
+    await assertNotSpam(u.id, "wall");
+    const out = await db.transaction(async (tx) => {
+      const cur = await lockUser(tx, u.id);
+      const now = new Date();
+      const debt = accruedDebtCents(cur.debtCents, cur.debtRateBps, cur.debtSince, now);
+      if (debt <= 0) throw new Error("No debt to pray away");
+      if (cur.wallPrayerAt && now.getTime() - cur.wallPrayerAt.getTime() < WALL_COOLDOWN_MS)
+        throw new Error("The wall is still listening");
+      const fee = Math.max(WALL_FEE_MIN_CENTS, Math.round(debt * WALL_FEE_DEBT_PCT));
+      if (cur.balanceCents < fee) throw new Error(`The candle costs Ɱ ${(fee / 100).toFixed(0)}`);
+      // The candle burns — the fee is gone regardless of what the wall answers.
+      await credit(tx, u.id, -fee, "burn", null, "Wall candle");
+      const silent = randomInt(100) < WALL_SILENT_PCT;
+      const cleared = silent
+        ? 0
+        : Math.round(debt * (WALL_CLEAR_MIN_PCT + (randomInt(1000) / 1000) * (WALL_CLEAR_MAX_PCT - WALL_CLEAR_MIN_PCT)));
+      const left = Math.max(0, debt - cleared);
+      await tx
+        .update(schema.user)
+        .set({
+          debtCents: left,
+          debtRateBps: left > 0 ? cur.debtRateBps : 0,
+          debtSince: left > 0 ? now : null,
+          wallPrayerAt: now,
+        })
+        .where(eq(schema.user.id, u.id));
+      await tx.insert(schema.wallPrayer).values({
+        userId: u.id,
+        note: (input.note ?? "").slice(0, 140),
+        feeCents: fee,
+        clearedCents: cleared,
+      });
+      return { cleared, fee, left, silent, nextAt: now.getTime() + WALL_COOLDOWN_MS };
+    });
+    revalidatePath("/rewards");
+    revalidatePath("/portfolio");
+    return { ok: true, silent: out.silent, clearedCents: out.cleared, feeCents: out.fee, debtCents: out.left, nextAt: out.nextAt };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "The wall didn't answer" };
+  }
+}
+
+// The vow — pledge a share of every win toward the debt until it's clear.
+export async function setVow(input: { bps: number }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const bps = Math.round(input.bps);
+    if (!VOW_CHOICES_BPS.includes(bps)) throw new Error("Bad vow");
+    await db.update(schema.user).set({ vowBps: bps }).where(eq(schema.user.id, u.id));
+    revalidatePath("/rewards");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Vow failed" };
+  }
+}
+
 export async function cancelMarket(marketId: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
@@ -1831,6 +1909,7 @@ export async function voteComment(input: {
 // ---------- minigames ----------
 
 const MIN_BET_CENTS = 100; // Ɱ1
+const RIG_PCT = 35; // rigged dealers flip ~⅓ of player wins
 const MAX_WAGER_CENTS = 100_000_00; // Ɱ100k sanity cap
 
 // Debit the collateral, pay out on a win. With leverage the house covers the
@@ -1845,22 +1924,53 @@ async function settleGame(
   won: boolean,
   mult: number,
   label: string
-): Promise<number> {
+): Promise<{ netCents: number; loanCents: number; skimCents: number }> {
   const wager = Math.round(betCents * leverage);
   if (!Number.isFinite(wager) || wager < MIN_BET_CENTS) throw new Error("Minimum bet is Ɱ 1");
   if (wager > MAX_WAGER_CENTS) throw new Error("Bet too large");
   const borrowed = Math.round(betCents * (leverage - 1));
-  await lockUser(tx, userId);
+  const u = await lockUser(tx, userId);
   await credit(tx, userId, -betCents, "game", null, `${label} — wager ×${leverage}`);
   let win = 0;
+  let skim = 0;
   if (won) {
     win = Math.round(wager * mult);
-    await credit(tx, userId, win, "game", null, `${label} — won ×${mult}`);
-  } else if (borrowed > 0) {
+    // Wall vow — a pledged share of every win is garnished to the debt first.
+    skim = Math.min(win, await vowSkim(tx, userId, u.vowBps ?? 0, win, label));
+    const take = win - skim;
+    if (take > 0) await credit(tx, userId, take, "game", null, `${label} — won ×${mult}${skim ? " (vow skimmed)" : ""}`);
+  }
+  let loan = 0;
+  if (!won && borrowed > 0) {
     const r = rollRateBps();
+    loan = borrowed;
     await addDebt(tx, userId, borrowed, r, `${label} — house loan ${(borrowed / 100).toFixed(0)}Ɱ @ ${(r / 100).toFixed(1)}% APR`);
   }
-  return win - wager;
+  return { netCents: win - wager, loanCents: loan, skimCents: skim };
+}
+
+// Garnishes `vowBps` of a win toward accrued debt; returns the skimmed cents.
+async function vowSkim(tx: Tx, userId: string, vowBps: number, winCents: number, label: string): Promise<number> {
+  if (!vowBps) return 0;
+  const u = await lockUser(tx, userId);
+  const debt = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince);
+  if (debt <= 0) return 0;
+  const skim = Math.min(Math.round(winCents * (vowBps / 10_000)), debt);
+  if (skim <= 0) return 0;
+  const left = Math.max(0, debt - skim);
+  await tx
+    .update(schema.user)
+    .set({ debtCents: left, debtRateBps: left > 0 ? u.debtRateBps : 0, debtSince: left > 0 ? new Date() : null })
+    .where(eq(schema.user.id, userId));
+  await tx.insert(schema.ledger).values({
+    userId,
+    amountCents: 0,
+    balanceAfterCents: u.balanceCents,
+    kind: "repay",
+    marketId: null,
+    memo: `${label} — vow garnish ${skim / 100}Ɱ`,
+  });
+  return skim;
 }
 
 function checkBet(betCents: number, leverage: number) {
@@ -1876,20 +1986,25 @@ export async function playCoinFlip(input: {
   leverage: number;
   pick: "heads" | "tails";
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; landed?: string; netCents?: number; dealer?: Persona }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; landed?: string; netCents?: number; dealer?: Persona; loanCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     if (input.pick !== "heads" && input.pick !== "tails") throw new Error("Pick a side");
-    const landed = randomInt(2) === 0 ? "heads" : "tails";
-    const won = landed === input.pick;
+    let landed: "heads" | "tails" = randomInt(2) === 0 ? "heads" : "tails";
+    let won = landed === input.pick;
     const dealer = await pickDealer(input.dealerId);
-    const netCents = await db.transaction(async (tx) =>
+    // Rigged table: a share of player wins quietly flips the other way.
+    if (dealerFx(dealer).rigged && won && randomInt(100) < RIG_PCT) {
+      landed = landed === "heads" ? "tails" : "heads";
+      won = false;
+    }
+    const { netCents, loanCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, COINFLIP_MULT, `Coin flip ${input.pick}→${landed}`)
     );
     revalidatePath("/games");
-    return { ok: true, won, landed, netCents, dealer };
+    return { ok: true, won, landed, netCents, dealer, loanCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Flip failed" };
   }
@@ -1900,22 +2015,26 @@ export async function playDice(input: {
   leverage: number;
   over: number;
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona; loanCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     const over = Math.round(input.over);
     if (over < DICE_MIN_OVER || over > DICE_MAX_OVER) throw new Error("Bad target");
-    const roll = randomInt(1, 7);
-    const won = roll > over;
+    let roll = randomInt(1, 7);
+    let won = roll > over;
     const mult = diceMult(over);
     const dealer = await pickDealer(input.dealerId);
-    const netCents = await db.transaction(async (tx) =>
+    if (dealerFx(dealer).rigged && won && randomInt(100) < RIG_PCT) {
+      roll = randomInt(1, over); // a losing face, still inside 1..over
+      won = false;
+    }
+    const { netCents, loanCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, mult, `Dice >${over} → ${roll}`)
     );
     revalidatePath("/games");
-    return { ok: true, won, roll, netCents, dealer };
+    return { ok: true, won, roll, netCents, dealer, loanCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Roll failed" };
   }
@@ -1960,7 +2079,7 @@ export async function stopTimerRound(input: {
   betCents: number;
   leverage: number;
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number; dealer?: Persona }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number; dealer?: Persona; loanCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -1973,11 +2092,11 @@ export async function stopTimerRound(input: {
     const mult = timerMult(err, target);
     const won = mult > 0;
     const dealer = await pickDealer(input.dealerId);
-    const netCents = await db.transaction(async (tx) =>
+    const { netCents, loanCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, mult, `Timer ${target / 1000}s off by ${err}ms`)
     );
     revalidatePath("/games");
-    return { ok: true, won, elapsedMs: elapsed, errMs: err, netCents, mult, dealer };
+    return { ok: true, won, elapsedMs: elapsed, errMs: err, netCents, mult, dealer, loanCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Stop failed" };
   }
@@ -1988,7 +2107,7 @@ export async function playLimbo(input: {
   leverage: number;
   target: number;
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona; loanCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -1997,14 +2116,18 @@ export async function playLimbo(input: {
     if (!Number.isFinite(target) || target < LIMBO_MIN || target > LIMBO_MAX) throw new Error("Bad target");
     // Crash point: 0.99/(1−u), clamped — win when the rocket clears the bar.
     const u1 = (randomInt(2 ** 32) + randomInt(2 ** 32) / 2 ** 32) / 2 ** 32;
-    const roll = Math.min(1000, Math.max(1, 0.99 / (1 - u1)));
-    const won = roll >= target;
+    let roll = Math.min(1000, Math.max(1, 0.99 / (1 - u1)));
+    let won = roll >= target;
     const dealer = await pickDealer(input.dealerId);
-    const netCents = await db.transaction(async (tx) =>
+    if (dealerFx(dealer).rigged && won && randomInt(100) < RIG_PCT) {
+      roll = Math.max(1, target * (0.3 + (randomInt(60) / 100))); // crashes under the bar
+      won = false;
+    }
+    const { netCents, loanCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, target * 0.98, `Limbo ≥${target}x → ${roll.toFixed(2)}x`)
     );
     revalidatePath("/games");
-    return { ok: true, won, roll: Math.round(roll * 100) / 100, netCents, dealer };
+    return { ok: true, won, roll: Math.round(roll * 100) / 100, netCents, dealer, loanCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Limbo failed" };
   }
@@ -2014,19 +2137,24 @@ export async function playWheel(input: {
   betCents: number;
   leverage: number;
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; index?: number; mult?: number; netCents?: number; dealer?: Persona }> {
+}): Promise<{ ok: boolean; error?: string; index?: number; mult?: number; netCents?: number; dealer?: Persona; loanCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    const index = randomInt(WHEEL_SEGMENTS.length);
-    const mult = WHEEL_SEGMENTS[index];
+    let index = randomInt(WHEEL_SEGMENTS.length);
+    let mult = WHEEL_SEGMENTS[index];
     const dealer = await pickDealer(input.dealerId);
-    const netCents = await db.transaction(async (tx) =>
+    if (dealerFx(dealer).rigged && mult > 0 && randomInt(100) < RIG_PCT) {
+      const zeros = WHEEL_SEGMENTS.map((m, i) => (m === 0 ? i : -1)).filter((i) => i >= 0);
+      index = zeros[randomInt(zeros.length)];
+      mult = 0;
+    }
+    const { netCents, loanCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, mult > 0, mult, `Wheel → ${mult}x`)
     );
     revalidatePath("/games");
-    return { ok: true, index, mult, netCents, dealer };
+    return { ok: true, index, mult, netCents, dealer, loanCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Spin failed" };
   }
@@ -2037,20 +2165,30 @@ export async function playSlots(input: {
   betCents: number;
   leverage: number;
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; reels?: number[]; mult?: number; netCents?: number; dealer?: Persona }> {
+}): Promise<{ ok: boolean; error?: string; reels?: number[]; mult?: number; netCents?: number; dealer?: Persona; loanCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     const reels = [slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT))];
-    const mult = slotPayout(reels[0], reels[1], reels[2]);
-    const label = `Slots ${reels.map((i) => SLOT_SYMBOLS[i]).join(" ")}`;
+    let mult = slotPayout(reels[0], reels[1], reels[2]);
     const dealer = await pickDealer(input.dealerId);
-    const netCents = await db.transaction(async (tx) =>
+    if (dealerFx(dealer).rigged && mult > 0 && randomInt(100) < RIG_PCT) {
+      // Re-deal until a dead spin — reels visibly miss.
+      for (let i = 0; i < 40 && mult > 0; i++) {
+        reels[0] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));
+        reels[1] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));
+        reels[2] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));
+        mult = slotPayout(reels[0], reels[1], reels[2]);
+      }
+      if (mult > 0) { reels[2] = (reels[0] + 1) % SLOT_SYMBOLS.length; mult = slotPayout(reels[0], reels[1], reels[2]); }
+    }
+    const label = `Slots ${reels.map((i) => SLOT_SYMBOLS[i]).join(" ")}`;
+    const { netCents, loanCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, mult > 0, mult, label)
     );
     revalidatePath("/games");
-    return { ok: true, reels, mult, netCents, dealer };
+    return { ok: true, reels, mult, netCents, dealer, loanCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Spin failed" };
   }
@@ -2436,16 +2574,19 @@ async function settleBlackjack(
   round: { id: string; userId: string; betCents: number; leverage: number },
   result: "win" | "lose" | "push" | "blackjack",
   dealerName: string
-): Promise<number> {
+): Promise<{ net: number; loanCents: number }> {
   const wager = Math.round(round.betCents * round.leverage);
   const borrowed = Math.round(round.betCents * (round.leverage - 1));
   const label = `Blackjack vs ${dealerName}`;
-  await lockUser(tx, round.userId);
+  const u = await lockUser(tx, round.userId);
   let net: number;
+  let loan = 0;
   if (result === "win" || result === "blackjack") {
     const mult = result === "blackjack" ? BJ_NATURAL_MULT : BJ_WIN_MULT;
     const win = Math.round(wager * mult);
-    await credit(tx, round.userId, win, "game", null, `${label} — ${result === "blackjack" ? "natural 21" : "won"} ×${mult}`);
+    const skim = Math.min(win, await vowSkim(tx, round.userId, u.vowBps ?? 0, win, label));
+    const take = win - skim;
+    if (take > 0) await credit(tx, round.userId, take, "game", null, `${label} — ${result === "blackjack" ? "natural 21" : "won"} ×${mult}${skim ? " (vow skimmed)" : ""}`);
     net = win - wager;
   } else if (result === "push") {
     await credit(tx, round.userId, round.betCents, "game", null, `${label} — push, stake back`);
@@ -2453,15 +2594,16 @@ async function settleBlackjack(
   } else {
     if (borrowed > 0) {
       const r = rollRateBps();
+      loan = borrowed;
       await addDebt(tx, round.userId, borrowed, r, `${label} — house loan ${(borrowed / 100).toFixed(0)}Ɱ @ ${(r / 100).toFixed(1)}% APR`);
     }
     net = -wager;
   }
   await tx
     .update(schema.blackjackRound)
-    .set({ status: "settled", result, netCents: net, settledAt: new Date() })
+    .set({ status: "settled", result, netCents: net, settledAt: new Date(), loanCents: loan })
     .where(eq(schema.blackjackRound.id, round.id));
-  return net;
+  return { net, loanCents: loan };
 }
 
 type BjState = {
@@ -2475,9 +2617,10 @@ type BjState = {
   status: string;
   result?: string | null;
   netCents?: number | null;
+  loanCents?: number;
 };
 
-function bjState(r: { id: string; player: number[]; dealer: number[]; persona: Persona; status: string; result: string | null; netCents: number | null }, hideDealer: boolean): BjState {
+function bjState(r: { id: string; player: number[]; dealer: number[]; persona: Persona; status: string; result: string | null; netCents: number | null; loanCents?: number }, hideDealer: boolean): BjState {
   const p = handTotal(r.player);
   const d = handTotal(r.dealer);
   return {
@@ -2491,6 +2634,7 @@ function bjState(r: { id: string; player: number[]; dealer: number[]; persona: P
     status: r.status,
     result: r.result,
     netCents: r.netCents,
+    loanCents: r.loanCents ?? 0,
   };
 }
 
@@ -2520,8 +2664,8 @@ export async function blackjackDeal(input: {
       const dNat = isNatural(dealer);
       if (pNat || dNat) {
         const result = pNat && dNat ? "push" : pNat ? "blackjack" : "lose";
-        const net = await settleBlackjack(tx, round, result, persona.name);
-        state = bjState({ ...round, status: "settled", result, netCents: net }, false);
+        const { net, loanCents } = await settleBlackjack(tx, round, result, persona.name);
+        state = bjState({ ...round, status: "settled", result, netCents: net, loanCents }, false);
       } else {
         state = bjState(round, true);
       }
@@ -2556,8 +2700,8 @@ export async function blackjackHit(input: { roundId: string }): Promise<{ ok: bo
       const player = [...r.player, card];
       await tx.update(schema.blackjackRound).set({ deck, player }).where(eq(schema.blackjackRound.id, r.id));
       if (handTotal(player).total > 21) {
-        const net = await settleBlackjack(tx, r, "lose", r.persona.name);
-        state = bjState({ ...r, player, status: "settled", result: "lose", netCents: net }, false);
+        const { net, loanCents } = await settleBlackjack(tx, r, "lose", r.persona.name);
+        state = bjState({ ...r, player, status: "settled", result: "lose", netCents: net, loanCents }, false);
       } else {
         state = bjState({ ...r, player }, true);
       }
@@ -2581,9 +2725,9 @@ export async function blackjackStand(input: { roundId: string }): Promise<{ ok: 
       const p = handTotal(r.player).total;
       const d = handTotal(dealer).total;
       const result = d > 21 || p > d ? "win" : p === d ? "push" : "lose";
-      const net = await settleBlackjack(tx, r, result, r.persona.name);
+      const { net, loanCents } = await settleBlackjack(tx, r, result, r.persona.name);
       await tx.update(schema.blackjackRound).set({ deck, dealer }).where(eq(schema.blackjackRound.id, r.id));
-      state = bjState({ ...r, dealer, status: "settled", result, netCents: net }, false);
+      state = bjState({ ...r, dealer, status: "settled", result, netCents: net, loanCents }, false);
     });
     revalidatePath("/games");
     return { ok: true, state };

@@ -50,6 +50,10 @@ export const user = pgTable("user", {
   debtCents: integer("debt_cents").notNull().default(0),
   debtRateBps: integer("debt_rate_bps").notNull().default(0),
   debtSince: timestamp("debt_since", { withTimezone: true }),
+  // The Wall — last prayer timestamp for the cooldown, and the vow: a pledged
+  // share of every win (bps) garnished to debt until it's clear.
+  wallPrayerAt: timestamp("wall_prayer_at", { withTimezone: true }),
+  vowBps: integer("vow_bps").notNull().default(0),
   // Notification prefs — resolve fan-out and closing-soon reminders.
   notifResolve: boolean("notif_resolve").notNull().default(true),
   notifClosing: boolean("notif_closing").notNull().default(true),
@@ -336,6 +340,16 @@ export const communityNote = pgTable(
 
 // ---------- blackjack ----------
 
+// Notes left at the Wall of Debts — public ledger of who begged for relief.
+export const wallPrayer = pgTable("wall_prayer", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  note: text("note").notNull().default(""),
+  feeCents: bigint("fee_cents", { mode: "number" }).notNull(),
+  clearedCents: bigint("cleared_cents", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Dealer personas — admin-configured characters that front the automated
 // blackjack dealer. Each round snapshots the persona so edits can't
 // rewrite history.
@@ -365,6 +379,7 @@ export const blackjackRound = pgTable(
     status: text("status").notNull().default("playing"), // playing | settled
     result: text("result"), // win | lose | push | blackjack
     netCents: integer("net_cents"),
+    loanCents: integer("loan_cents").notNull().default(0), // house loan parked by a levered loss
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     settledAt: timestamp("settled_at", { withTimezone: true }),
   },

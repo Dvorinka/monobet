@@ -8,6 +8,7 @@ import { LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT } from "@/lib/loans";
 import { getT, type Lang } from "@/lib/i18n";
 import { AD_WATCH_MS } from "@/lib/rewards";
 import { fmtMonos } from "@/lib/money";
+import { WallCard, type WallPrayerRow } from "@/components/wall-card";
 import { playSfx } from "@/lib/sfx";
 import {
   CalendarCheck,
@@ -434,6 +435,8 @@ export function RewardsPanels({
   bonuses,
   username,
   debt,
+  wall,
+  wallNow,
 }: {
   lang: Lang;
   daily: Recurring;
@@ -442,6 +445,8 @@ export function RewardsPanels({
   bonuses: BonusState[];
   username: string;
   debt: { cents: number; rateBps: number };
+  wall: { prayerAt: Date | null; vowBps: number; prayers: WallPrayerRow[] };
+  wallNow: number;
 }) {
   const t = getT(lang);
   const [pending, start] = useTransition();
@@ -484,6 +489,9 @@ export function RewardsPanels({
         </div>
         <div className="mt-3">
           <LoanCard debtCents={debt.cents} rateBps={debt.rateBps} t={t} lang={lang} />
+        </div>
+        <div className="mt-3">
+          <WallCard debtCents={debt.cents} wallPrayerAt={wall.prayerAt} vowBps={wall.vowBps} prayers={wall.prayers} lang={lang} now={wallNow} />
         </div>
       </section>
 
