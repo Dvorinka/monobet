@@ -37,7 +37,7 @@ import { type Persona } from "@/lib/games";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, X } from "lucide-react";
+import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, Shuffle, X } from "lucide-react";
 
 type Net = { netCents: number; won: boolean; stamp: number } | null;
 
@@ -106,6 +106,12 @@ function DealerTag({ dealer, won }: { dealer: Persona | null; won?: boolean | nu
   );
 }
 
+
+// Bonnie Blue easter egg — a win at her table triggers the splash overlay.
+function bonnieFx(dealer: Persona | null | undefined, won: boolean, netCents: number, cb?: (amt: number) => void) {
+  if (won && netCents > 0 && dealer?.name.toLowerCase() === "bonnie blue") cb?.(netCents);
+}
+
 // Ɱ amount input + quick chips + leverage row — shared by every game card.
 function BetControls({
   bet,
@@ -164,7 +170,7 @@ function BetControls({
         ))}
         <button
           disabled={disabled}
-          onClick={() => setBet(String(Math.floor(balanceCents / 100 / Number(lev))))}
+          onClick={() => setBet(String(Math.floor(balanceCents / 100)))}
           className="flex-1 h-6.5 rounded-md bg-surface-2 text-[11.5px] font-semibold text-mute hover:bg-surface-3 hover:text-ink cursor-pointer disabled:opacity-50"
         >
           {t.max}
@@ -219,7 +225,9 @@ function GameCard({
 
 // ---------- coin flip ----------
 
-function CoinFlipCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
+type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; onBonnieWin?: (amt: number) => void };
+
+function CoinFlipCard({ balanceCents, lang, dealerId, onBonnieWin }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [pick, setPick] = useState<"heads" | "tails">("heads");
@@ -231,7 +239,7 @@ function CoinFlipCard({ balanceCents, lang }: { balanceCents: number; lang?: Lan
   const [dealer, setDealer] = useState<Persona | null>(null);
 
   const flip = () =>
-    run(() => playCoinFlip({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), pick })).then(
+    run(() => playCoinFlip({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), pick })).then(
       (r) => {
         if (!r || !r.landed) return;
         playSfx("flip", 0.5);
@@ -243,6 +251,7 @@ function CoinFlipCard({ balanceCents, lang }: { balanceCents: number; lang?: Lan
         setTimeout(() => {
           setSpinning(false);
           setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won });
+          bonnieFx(r.dealer, !!r.won, r.netCents ?? 0, onBonnieWin);
         }, 1150);
       }
     );
@@ -320,7 +329,7 @@ function DiceFace({ value, rolling }: { value: number; rolling: boolean }) {
   );
 }
 
-function DiceCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
+function DiceCard({ balanceCents, lang, dealerId, onBonnieWin }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [over, setOver] = useState(3);
@@ -337,7 +346,7 @@ function DiceCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang })
     setDealer(null);
     playSfx("roll", 0.45);
     const cyc = setInterval(() => setFace(1 + Math.floor(Math.random() * 6)), 70);
-    run(() => playDice({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), over })).then((r) => {
+    run(() => playDice({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), over })).then((r) => {
       if (r?.dealer) setDealer(r.dealer);
       setTimeout(() => {
         clearInterval(cyc);
@@ -345,6 +354,7 @@ function DiceCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang })
         if (r?.roll) {
           setFace(r.roll);
           setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won });
+          bonnieFx(r.dealer, !!r.won, r.netCents ?? 0, onBonnieWin);
         }
       }, 650);
     });
@@ -393,7 +403,7 @@ function DiceCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang })
 
 // ---------- stop the timer ----------
 
-function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
+function TimerCard({ balanceCents, lang, dealerId, onBonnieWin }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [target, setTarget] = useState("10");
@@ -441,7 +451,7 @@ function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
     const token = tokenRef.current;
     if (!token) return;
     run(() =>
-      stopTimerRound({ token, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })
+      stopTimerRound({ dealerId, token, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })
     ).then((r) => {
       setPhase("done");
       if (!r) return;
@@ -449,6 +459,7 @@ function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
       setErr(r.errMs ?? null);
       setDealer(r.dealer ?? null);
       setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won });
+      bonnieFx(r.dealer, !!r.won, r.netCents ?? 0, onBonnieWin);
     });
   };
 
@@ -506,7 +517,7 @@ function TimerCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
 
 // ---------- limbo ----------
 
-function LimboCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
+function LimboCard({ balanceCents, lang, dealerId, onBonnieWin }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [target, setTarget] = useState(2);
@@ -522,7 +533,7 @@ function LimboCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   useEffect(() => () => cancelAnimationFrame(raf.current), []);
 
   const play = () =>
-    run(() => playLimbo({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), target })).then(
+    run(() => playLimbo({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), target })).then(
       (r) => {
         if (r?.roll == null) return;
         const roll = r.roll;
@@ -541,6 +552,7 @@ function LimboCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
             setBusy(false);
             setWonLast(!!r.won);
             setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won });
+            bonnieFx(r.dealer, !!r.won, r.netCents ?? 0, onBonnieWin);
           }
         };
         raf.current = requestAnimationFrame(step);
@@ -623,7 +635,7 @@ function wheelColor(m: number, i: number) {
   return i % 2 ? "var(--color-brand-strong)" : "var(--color-brand)";
 }
 
-function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
+function WheelCard({ balanceCents, lang, dealerId, onBonnieWin }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -635,7 +647,7 @@ function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   const [dealer, setDealer] = useState<Persona | null>(null);
 
   const spin = () =>
-    run(() => playWheel({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then((r) => {
+    run(() => playWheel({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then((r) => {
       if (r?.index == null) return;
       playSfx("spin", 0.5);
       setNet(null);
@@ -649,6 +661,7 @@ function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
         setSpinning(false);
         setLanded(r.mult ?? null);
         setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.mult && r.mult > 0 });
+        bonnieFx(r.dealer, !!r.mult && r.mult > 0, r.netCents ?? 0, onBonnieWin);
       }, 3250);
     });
 
@@ -722,7 +735,7 @@ function WheelCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
 
 // ---------- slots ----------
 
-function SlotsCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
+function SlotsCard({ balanceCents, lang, dealerId, onBonnieWin }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -745,7 +758,7 @@ function SlotsCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   );
 
   const spin = () =>
-    run(() => playSlots({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then(
+    run(() => playSlots({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then(
       (r) => {
         if (!r?.reels) return;
         playSfx("roll", 0.45);
@@ -789,6 +802,7 @@ function SlotsCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
           setTimeout(() => {
             setSpinning(false);
             setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0 });
+            bonnieFx(r.dealer, (r.netCents ?? 0) > 0, r.netCents ?? 0, onBonnieWin);
           }, 700 + r.reels.length * 350 + 150)
         );
       }
@@ -873,7 +887,7 @@ function PlayingCard({ v, hidden }: { v?: number; hidden?: boolean }) {
   );
 }
 
-function BlackjackCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
+function BlackjackCard({ balanceCents, lang, dealerId, onBonnieWin }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -885,10 +899,11 @@ function BlackjackCard({ balanceCents, lang }: { balanceCents: number; lang?: La
     if (!s || s.status !== "settled") return;
     playSfx(s.result === "lose" ? "lose" : "win", 0.5);
     setNet({ stamp: Date.now(), netCents: s.netCents ?? 0, won: s.result !== "lose" });
+    bonnieFx(s.persona, s.result === "win" || s.result === "blackjack", s.netCents ?? 0, onBonnieWin);
   };
 
   const deal = () =>
-    run(() => blackjackDeal({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then((r) => {
+    run(() => blackjackDeal({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then((r) => {
       if (!r?.state) return;
       playSfx("flip", 0.4);
       setNet(null);
@@ -1005,7 +1020,80 @@ export const GAME_COMPONENTS = {
 
 export type GameSlug = keyof typeof GAME_COMPONENTS;
 
-export function GameView({ game, balanceCents, lang }: { game: GameSlug; balanceCents: number; lang?: Lang }) {
+// Bonnie Blue win easter egg — milky splash covering the screen for ~2s.
+function BonnieSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }) {
+  const t = getT(lang ?? "en");
+  const blobs = [
+    { l: "12%", t: "8%", s: 46, d: "0ms" },
+    { l: "58%", t: "-6%", s: 55, d: "60ms" },
+    { l: "-10%", t: "42%", s: 52, d: "100ms" },
+    { l: "70%", t: "38%", s: 48, d: "40ms" },
+    { l: "30%", t: "62%", s: 58, d: "80ms" },
+    { l: "78%", t: "72%", s: 44, d: "120ms" },
+  ];
+  return (
+    <div className="anim-bonnie-veil fixed inset-0 z-[100] grid place-items-center overflow-hidden" role="status" aria-live="polite">
+      {blobs.map((b, i) => (
+        <div
+          key={i}
+          aria-hidden
+          className="anim-bonnie-blob absolute rounded-full bg-white"
+          style={{ left: b.l, top: b.t, width: `${b.s}vmax`, height: `${b.s}vmax`, filter: "blur(24px)", animationDelay: b.d }}
+        />
+      ))}
+      <div className="absolute inset-0 bg-white/60" style={{ animationDelay: "150ms" }} />
+      <div className="anim-win-pop relative text-center px-6">
+        <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-ink/60">{t.bonnieWin}</div>
+        <div className="num text-5xl font-black text-ink mt-1">+{fmtMonos(amountCents, { lang })}</div>
+      </div>
+    </div>
+  );
+}
+
+export function GameView({
+  game,
+  balanceCents,
+  lang,
+  dealers,
+}: {
+  game: GameSlug;
+  balanceCents: number;
+  lang?: Lang;
+  dealers?: (Persona & { id: string })[];
+}) {
+  const t = getT(lang ?? "en");
   const Game = GAME_COMPONENTS[game];
-  return <Game balanceCents={balanceCents} lang={lang} />;
+  const [dealerId, setDealerId] = useState<string>();
+  const [splash, setSplash] = useState<number | null>(null);
+  useEffect(() => {
+    if (splash == null) return;
+    const id = setTimeout(() => setSplash(null), 2000);
+    return () => clearTimeout(id);
+  }, [splash]);
+  const chip = (on: boolean) =>
+    cn(
+      "h-8 inline-flex items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-semibold cursor-pointer transition-colors",
+      on ? "border-brand bg-brand-soft text-brand-strong" : "border-line bg-surface text-mute hover:text-ink hover:border-mute"
+    );
+  return (
+    <div>
+      {dealers && dealers.length > 0 && (
+        <div className="mb-4">
+          <div className="text-[12px] font-semibold text-mute mb-1.5">{t.dealerPick}</div>
+          <div className="flex gap-1.5 flex-wrap">
+            <button type="button" onClick={() => setDealerId(undefined)} className={chip(dealerId == null)}>
+              <Shuffle className="size-3.5" /> {t.dealerRandom}
+            </button>
+            {dealers.map((d) => (
+              <button type="button" key={d.id} onClick={() => setDealerId(d.id)} className={chip(dealerId === d.id)}>
+                <DealerAvatar avatar={d.avatar} className="size-4.5 rounded-full" /> {d.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} onBonnieWin={setSplash} />
+      {splash != null && <BonnieSplash amountCents={splash} lang={lang} />}
+    </div>
+  );
 }

@@ -85,7 +85,7 @@ export function GroupTrade({
   // line can be spotlighted while the rest fade — function props can't cross
   // the server boundary, so the page passes plain data instead.
   chartSeries?: Series[];
-  chartNow?: number;
+  chartNow: number;
   chartLive?: boolean;
   chartFooter?: React.ReactNode;
   left?: React.ReactNode;
@@ -145,7 +145,7 @@ export function GroupTrade({
             {chartSeries.length > 0 ? (
               <MultiPriceChart
                 series={chartSeries}
-                now={chartNow ?? Date.now()}
+                now={chartNow}
                 live={chartLive}
                 focusKey={sel?.id ?? null}
                 lang={lang}

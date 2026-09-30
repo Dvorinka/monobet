@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { GameView, type GameSlug } from "@/components/games-panel";
+import { listDealers } from "@/lib/queries";
 import { ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export async function generateMetadata({ params }: { params: Promise<{ game: str
 export default async function GamePage({ params }: { params: Promise<{ game: string }> }) {
   const { game } = await params;
   if (!SLUGS.includes(game as GameSlug)) notFound();
-  const [user, lang] = await Promise.all([getCurrentUser(), getLang()]);
+  const [user, lang, dealers] = await Promise.all([getCurrentUser(), getLang(), listDealers()]);
   if (!user) redirect("/login");
   const t = getT(lang);
 
@@ -29,7 +30,12 @@ export default async function GamePage({ params }: { params: Promise<{ game: str
         <ArrowLeft className="size-3.5" /> {t.games}
       </Link>
       <div className="mt-4">
-        <GameView game={game as GameSlug} balanceCents={user.balanceCents} lang={lang} />
+        <GameView
+          game={game as GameSlug}
+          balanceCents={user.balanceCents}
+          lang={lang}
+          dealers={dealers.filter((d) => d.active).map((d) => ({ id: d.id, name: d.name, avatar: d.avatar, quipWin: d.quipWin, quipLose: d.quipLose }))}
+        />
       </div>
       <p className="mt-8 text-[12px] text-faint leading-relaxed">{t.fairNote}</p>
     </div>

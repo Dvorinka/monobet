@@ -188,3 +188,15 @@ body {
     animation: none;
   }
 }
+
+@keyframes bonnie-blob {
+  0% { transform: scale(0); opacity: 0.85; }
+  100% { transform: scale(2.6); opacity: 1; }
+}
+@keyframes bonnie-veil {
+  0% { opacity: 1; }
+  78% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.anim-bonnie-blob { animation: bonnie-blob 550ms cubic-bezier(0.16, 0.84, 0.3, 1) both; }
+.anim-bonnie-veil { animation: bonnie-veil 2s ease both; }

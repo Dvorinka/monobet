@@ -25,7 +25,7 @@ export async function listCategoryRows() {
   const rows = await db
     .select({
       name: schema.category.name,
-      markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.category} = ${schema.category.name})`,
+      markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.category} = ${schema.category.name} and ${schema.market.parentId} is null)`,
     })
     .from(schema.category)
     .orderBy(asc(schema.category.sortIndex), asc(schema.category.createdAt));

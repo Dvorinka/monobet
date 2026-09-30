@@ -931,6 +931,14 @@ export async function updateMarket(input: {
         b: admin && input.b && input.b > 0 ? input.b : m[0].b,
       })
       .where(eq(schema.market.id, input.marketId));
+    // Group children inherit the parent's category — keep them in sync or
+    // the old category keeps phantom options after a move.
+    if (m[0].kind === "group" && input.category !== m[0].category) {
+      await db
+        .update(schema.market)
+        .set({ category: input.category })
+        .where(eq(schema.market.parentId, input.marketId));
+    }
     revalidatePath(`/market/${m[0].slug}`);
     revalidatePath("/admin");
     revalidatePath("/");
@@ -1867,6 +1875,7 @@ export async function playCoinFlip(input: {
   betCents: number;
   leverage: number;
   pick: "heads" | "tails";
+  dealerId?: string;
 }): Promise<{ ok: boolean; error?: string; won?: boolean; landed?: string; netCents?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
@@ -1875,7 +1884,7 @@ export async function playCoinFlip(input: {
     if (input.pick !== "heads" && input.pick !== "tails") throw new Error("Pick a side");
     const landed = randomInt(2) === 0 ? "heads" : "tails";
     const won = landed === input.pick;
-    const dealer = await pickDealer();
+    const dealer = await pickDealer(input.dealerId);
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, COINFLIP_MULT, `Coin flip ${input.pick}→${landed}`)
     );
@@ -1890,6 +1899,7 @@ export async function playDice(input: {
   betCents: number;
   leverage: number;
   over: number;
+  dealerId?: string;
 }): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
@@ -1900,7 +1910,7 @@ export async function playDice(input: {
     const roll = randomInt(1, 7);
     const won = roll > over;
     const mult = diceMult(over);
-    const dealer = await pickDealer();
+    const dealer = await pickDealer(input.dealerId);
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, mult, `Dice >${over} → ${roll}`)
     );
@@ -1949,6 +1959,7 @@ export async function stopTimerRound(input: {
   token: string;
   betCents: number;
   leverage: number;
+  dealerId?: string;
 }): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
@@ -1961,7 +1972,7 @@ export async function stopTimerRound(input: {
     const err = Math.abs(elapsed - target);
     const mult = timerMult(err, target);
     const won = mult > 0;
-    const dealer = await pickDealer();
+    const dealer = await pickDealer(input.dealerId);
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, mult, `Timer ${target / 1000}s off by ${err}ms`)
     );
@@ -1976,6 +1987,7 @@ export async function playLimbo(input: {
   betCents: number;
   leverage: number;
   target: number;
+  dealerId?: string;
 }): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
@@ -1987,7 +1999,7 @@ export async function playLimbo(input: {
     const u1 = (randomInt(2 ** 32) + randomInt(2 ** 32) / 2 ** 32) / 2 ** 32;
     const roll = Math.min(1000, Math.max(1, 0.99 / (1 - u1)));
     const won = roll >= target;
-    const dealer = await pickDealer();
+    const dealer = await pickDealer(input.dealerId);
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, target * 0.98, `Limbo ≥${target}x → ${roll.toFixed(2)}x`)
     );
@@ -2001,6 +2013,7 @@ export async function playLimbo(input: {
 export async function playWheel(input: {
   betCents: number;
   leverage: number;
+  dealerId?: string;
 }): Promise<{ ok: boolean; error?: string; index?: number; mult?: number; netCents?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
@@ -2008,7 +2021,7 @@ export async function playWheel(input: {
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     const index = randomInt(WHEEL_SEGMENTS.length);
     const mult = WHEEL_SEGMENTS[index];
-    const dealer = await pickDealer();
+    const dealer = await pickDealer(input.dealerId);
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, mult > 0, mult, `Wheel → ${mult}x`)
     );
@@ -2023,6 +2036,7 @@ export async function playWheel(input: {
 export async function playSlots(input: {
   betCents: number;
   leverage: number;
+  dealerId?: string;
 }): Promise<{ ok: boolean; error?: string; reels?: number[]; mult?: number; netCents?: number; dealer?: Persona }> {
   try {
     const u = await requireUser();
@@ -2031,7 +2045,7 @@ export async function playSlots(input: {
     const reels = [slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT))];
     const mult = slotPayout(reels[0], reels[1], reels[2]);
     const label = `Slots ${reels.map((i) => SLOT_SYMBOLS[i]).join(" ")}`;
-    const dealer = await pickDealer();
+    const dealer = await pickDealer(input.dealerId);
     const netCents = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, mult > 0, mult, label)
     );
@@ -2396,12 +2410,14 @@ export async function setNotifPrefs(input: {
 const BJ_FALLBACK_DEALER: Persona = { name: "The House", avatar: "", quipWin: "The house always collects.", quipLose: "Well played." };
 const BJ_ROUND_TTL_MS = 60 * 60_000; // abandoned hands settle as a push
 
-// One random active dealer fronts each round of every minigame — blackjack
-// keeps it on the round row, instant games return it in the result.
-async function pickDealer(): Promise<Persona> {
+// One active dealer fronts each round of every minigame — the player picks
+// theirs; absent or invalid picks fall back to a random active persona.
+// Blackjack keeps it on the round row, instant games return it in the result.
+async function pickDealer(dealerId?: string): Promise<Persona> {
   const dealers = await db.select().from(schema.dealerPersona).where(eq(schema.dealerPersona.active, true));
-  const d = dealers.length > 0 ? dealers[randomInt(dealers.length)] : null;
-  return d ? { name: d.name, avatar: d.avatar, quipWin: d.quipWin, quipLose: d.quipLose } : BJ_FALLBACK_DEALER;
+  const picked = dealerId ? dealers.find((d) => d.id === dealerId) : null;
+  const d = picked ?? (dealers.length > 0 ? dealers[randomInt(dealers.length)] : null);
+  return d ? { id: d.id, name: d.name, avatar: d.avatar, quipWin: d.quipWin, quipLose: d.quipLose } : BJ_FALLBACK_DEALER;
 }
 
 function shuffledShoe(): number[] {
@@ -2481,12 +2497,13 @@ function bjState(r: { id: string; player: number[]; dealer: number[]; persona: P
 export async function blackjackDeal(input: {
   betCents: number;
   leverage: number;
+  dealerId?: string;
 }): Promise<{ ok: boolean; error?: string; state?: BjState }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    const persona = await pickDealer();
+    const persona = await pickDealer(input.dealerId);
     const deck = shuffledShoe();
     const player = [deck.pop()!, deck.pop()!];
     const dealer = [deck.pop()!, deck.pop()!];

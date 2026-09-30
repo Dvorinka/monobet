@@ -45,7 +45,6 @@ import { ActivityFeed } from "@/components/activity-feed";
 import { Badge, Card, Avatar } from "@/components/ui/primitives";
 import { MarketIcon } from "@/components/market-icon";
 import { GroupTrade } from "@/components/group-trade";
-import { MultiPriceChart } from "@/components/multi-chart";
 import { DeleteMarketButton } from "@/components/delete-market-button";
 import { MarketManagePanel } from "@/components/market-manage";
 import { ResolutionPanel } from "@/components/resolution-panel";
