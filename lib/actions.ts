@@ -1413,6 +1413,45 @@ export async function adminSetUserRole(input: {
   }
 }
 
+// Rename a user's handle — updates both the normalized `username` and the
+// display casing. The owner may rename anyone, including themselves (the
+// handle isn't security-sensitive like a ban).
+export async function adminRenameUser(input: {
+  userId: string;
+  username: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const admin = await requireAdmin();
+    const display = input.username.trim().replace(/^@/, "");
+    const normalized = display.toLowerCase();
+    if (!/^[a-z0-9][a-z0-9_-]{1,31}$/.test(normalized))
+      throw new Error("Username: 2–32 chars, letters/numbers/_/-, no leading - or _");
+    const [exists] = await db
+      .select({ id: schema.user.id })
+      .from(schema.user)
+      .where(eq(schema.user.id, input.userId))
+      .limit(1);
+    if (!exists) throw new Error("User not found");
+    const isSelf = input.userId === admin.id;
+    if (!isSelf) await assertManageableUser(input.userId, admin.id);
+    const [dupe] = await db
+      .select({ id: schema.user.id })
+      .from(schema.user)
+      .where(and(sql`lower(${schema.user.username}) = ${normalized}`, sql`${schema.user.id} <> ${input.userId}`))
+      .limit(1);
+    if (dupe) throw new Error(`@${normalized} is taken`);
+    await db
+      .update(schema.user)
+      .set({ username: normalized, displayUsername: display, updatedAt: new Date() })
+      .where(eq(schema.user.id, input.userId));
+    revalidatePath("/admin");
+    revalidatePath(`/u/${normalized}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Rename failed" };
+  }
+}
+
 // Sets a brand-new password and drops existing sessions, so the user logs in
 // with the new credentials next. Works even if the account somehow has no
 // credential row yet.

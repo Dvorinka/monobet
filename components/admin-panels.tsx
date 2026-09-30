@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, Input, Select, Badge } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer } from "@/lib/actions";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminRenameUser, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer } from "@/lib/actions";
 import { fmtMonos, fmtDate } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { Check, X, CircleCheck, Ban, Pencil, Trash2, KeyRound, MessageSquareOff, MessageSquare, ShieldPlus, ShieldMinus, GripVertical, StickyNote, Scale } from "lucide-react";
@@ -307,14 +307,27 @@ export function UserManager({
               {u.email} · {fmtMonos(u.balanceCents, { lang })} · {fmtDate(u.createdAt, lang)}
             </div>
           </div>
-          {u.id !== selfId && (
-            <div className="flex flex-wrap gap-1.5 sm:justify-end shrink-0">
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={pending}
-                onClick={() => {
-                  const pw = prompt(t.umNewPasswordFor(u.username ?? "?"));
+          <div className="flex flex-wrap gap-1.5 sm:justify-end shrink-0">
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={pending}
+              onClick={() => {
+                const name = prompt(t.umRenamePrompt(u.username ?? "?"), u.username ?? "");
+                if (name === null || name.trim() === "") return;
+                run(() => adminRenameUser({ userId: u.id, username: name }), t.savedToast);
+              }}
+            >
+              <Pencil className="size-3" /> {t.umRename}
+            </Button>
+            {u.id !== selfId && (
+              <>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={pending}
+                  onClick={() => {
+                    const pw = prompt(t.umNewPasswordFor(u.username ?? "?"));
                   if (pw === null) return;
                   if (pw.length < 6) return toast.error(t.authPassShort);
                   run(() => adminResetUserPassword({ userId: u.id, password: pw }), t.savedToast);
@@ -357,18 +370,19 @@ export function UserManager({
               >
                 <Ban className="size-3" /> {u.bannedAt ? t.umUnban : t.umBan}
               </Button>
-              <Button
-                size="xs"
-                variant="no"
-                disabled={pending}
-                onClick={() => {
-                  if (confirm(t.umDeleteConfirm(u.username ?? "?"))) run(() => adminDeleteUser({ userId: u.id }), t.umDeleted);
-                }}
-              >
-                <Trash2 className="size-3" /> {t.umDelete}
-              </Button>
-            </div>
-          )}
+                <Button
+                  size="xs"
+                  variant="no"
+                  disabled={pending}
+                  onClick={() => {
+                    if (confirm(t.umDeleteConfirm(u.username ?? "?"))) run(() => adminDeleteUser({ userId: u.id }), t.umDeleted);
+                  }}
+                >
+                  <Trash2 className="size-3" /> {t.umDelete}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       ))}
     </div>
