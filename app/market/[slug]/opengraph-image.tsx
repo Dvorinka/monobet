@@ -141,7 +141,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ fontSize: 24, color: MUTE }}>
-              {`${fmtMonos(market.volumeCents)} traded · ${market.traderCount} traders`}
+              {`${fmtMonos(market.kind === "group" ? group.reduce((s, o) => s + o.volumeCents, 0) : market.volumeCents)} traded · ${market.kind === "group" ? group.reduce((s, o) => s + o.traderCount, 0) : market.traderCount} traders`}
             </div>
             <div style={{ fontSize: 24, color: MUTE }}>play money only · monobet.tdvorak.dev</div>
           </div>

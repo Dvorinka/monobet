@@ -39,6 +39,7 @@ import { PriceChart } from "@/components/price-chart";
 import { LocalTime } from "@/components/local-time";
 import { LikeButton } from "@/components/like-button";
 import { CopyLink } from "@/components/copy-link";
+import { ShareButton } from "@/components/share-button";
 import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicket } from "@/components/trade-ticket";
 import { MarketTabs } from "@/components/market-tabs";
@@ -283,6 +284,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
                 </span>
               )}
               <CopyLink path={`/market/${market.slug}`} lang={lang} />
+              <ShareButton path={`/market/${market.slug}`} title={market.question} lang={lang} />
             </div>
           </div>
 
@@ -734,6 +736,7 @@ async function GroupMarketView({
                 </span>
               )}
               <CopyLink path={`/market/${market.slug}`} lang={lang} />
+              <ShareButton path={`/market/${market.slug}`} title={market.question} lang={lang} />
           </div>
         }
         left={
