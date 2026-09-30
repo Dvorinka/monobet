@@ -82,6 +82,9 @@ export function ResolutionPanel({
     });
 
   const disputed = disputes > 0;
+  const yesNotes = notes.filter((n) => n.stance === "yes").length;
+  const noNotes = notes.filter((n) => n.stance === "no").length;
+  const neutralNotes = notes.length - yesNotes - noNotes;
   const heading = (
     <h3 className="text-[13px] font-semibold flex items-center gap-1.5 min-w-0">
       <Scale className="size-3.5 shrink-0" />
@@ -101,28 +104,28 @@ export function ResolutionPanel({
   // reads these before settling. Stance marks which outcome the note backs.
   const composer = !!viewerId && (
     <div className="mt-3 border-t border-line-2 pt-3">
-      <div className="flex gap-1.5">
-        <Input
-          value={noteBody}
-          onChange={(e) => setNoteBody(e.target.value)}
-          placeholder={t.notePh}
-          maxLength={500}
-          className="text-[13px]"
-        />
+      <Input
+        value={noteBody}
+        onChange={(e) => setNoteBody(e.target.value)}
+        placeholder={t.notePh}
+        maxLength={500}
+        className="text-[13px]"
+      />
+      <div className="mt-1.5 flex items-center gap-2">
         <Segmented
           value={noteStance}
           onChange={setNoteStance}
+          className="w-32 shrink-0 [&_button]:h-6 [&_button]:text-[11px]"
           options={[
             { value: "none", label: "—" },
-            { value: "yes", label: t.yes },
-            { value: "no", label: t.no },
+            { value: "yes", label: t.yes, tone: "yes" },
+            { value: "no", label: t.no, tone: "no" },
           ]}
         />
-      </div>
-      <div className="mt-1.5 flex justify-end">
         <Button
           size="xs"
           variant="outline"
+          className="ml-auto"
           disabled={pending || noteBody.trim().length < 10}
           onClick={() =>
             run(
@@ -152,7 +155,18 @@ export function ResolutionPanel({
       {notes.length === 0 ? (
         <p className="text-[12px] text-faint mt-1.5">{t.notesEmpty}</p>
       ) : (
-        <div className="mt-2 space-y-2 max-h-64 overflow-y-auto">
+        <>
+          <div className="mt-2 flex items-center gap-2.5 text-[11.5px] font-bold">
+            <span className="text-yes-strong shrink-0">{yesNotes} {t.yes}</span>
+            <div className="h-2 flex-1 rounded-full bg-surface-3 overflow-hidden flex">
+              {yesNotes > 0 && <div className="bg-yes" style={{ width: `${(yesNotes / notes.length) * 100}%` }} />}
+              {neutralNotes > 0 && <div className="bg-line-2" style={{ width: `${(neutralNotes / notes.length) * 100}%` }} />}
+              {noNotes > 0 && <div className="bg-no" style={{ width: `${(noNotes / notes.length) * 100}%` }} />}
+            </div>
+            <span className="text-no-strong shrink-0">{noNotes} {t.no}</span>
+            {neutralNotes > 0 && <span className="text-faint font-medium shrink-0">{neutralNotes} —</span>}
+          </div>
+          <div className="mt-2 space-y-2 max-h-64 overflow-y-auto">
           {notes.map((n) => (
             <div key={n.id} className="rounded-lg border border-line-2 bg-surface-2/50 px-3 py-2">
               <div className="flex items-center gap-2">
@@ -186,7 +200,8 @@ export function ResolutionPanel({
               <p className="text-[12.5px] text-ink-2 mt-1 leading-snug whitespace-pre-wrap">{n.body}</p>
             </div>
           ))}
-        </div>
+          </div>
+        </>
       )}
       {noteGate && (
         <p className="mt-2 text-[11.5px] font-semibold text-warn-strong flex items-center gap-1.5">
@@ -209,10 +224,24 @@ export function ResolutionPanel({
           {t.proposedBy(proposer ?? "?")}
           {reason ? ` — ${reason}` : ""}
         </p>
-        <p className="text-[11.5px] text-faint mt-1.5">
-          {t.voteTally(confirms, disputes)}
-          {disputed && ` · ${t.disputedNote}`}
-        </p>
+        <div className="mt-2.5">
+          <div className="flex items-center gap-2.5 text-[11.5px] font-bold">
+            <span className="text-yes-strong shrink-0">{confirms} {t.confirmVote}</span>
+            <div className="h-2 flex-1 rounded-full bg-surface-3 overflow-hidden flex">
+              {confirms > 0 && (
+                <div className="bg-yes" style={{ width: `${(confirms / Math.max(confirms + disputes, 1)) * 100}%` }} />
+              )}
+              {disputes > 0 && (
+                <div className="bg-no" style={{ width: `${(disputes / Math.max(confirms + disputes, 1)) * 100}%` }} />
+              )}
+            </div>
+            <span className="text-no-strong shrink-0">{disputes} {t.disputeVote}</span>
+          </div>
+          <p className="text-[11.5px] text-faint mt-1">
+            {t.voteTally(confirms, disputes)}
+            {disputed && ` · ${t.disputedNote}`}
+          </p>
+        </div>
         {viewerId && !isProposer && (
           <div className="flex gap-1.5 mt-3">
             <Button
@@ -253,8 +282,8 @@ export function ResolutionPanel({
               value={outcome}
               onChange={(v) => setOutcome(v as "yes" | "no")}
               options={[
-                { value: "yes", label: t.yes },
-                { value: "no", label: t.no },
+                { value: "yes", label: t.yes, tone: "yes" },
+                { value: "no", label: t.no, tone: "no" },
               ]}
             />
           </div>
