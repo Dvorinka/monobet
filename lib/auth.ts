@@ -41,6 +41,7 @@ export const auth = betterAuth({
       debtSince: { type: "date", required: false, input: false },
       wallPrayerAt: { type: "date", required: false, input: false },
       vowBps: { type: "number", required: false, input: false },
+      luckBps: { type: "number", required: false, input: false },
     },
   },
   hooks: {

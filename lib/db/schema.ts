@@ -60,6 +60,9 @@ export const user = pgTable("user", {
   // share of every win (bps) garnished to debt until it's clear.
   wallPrayerAt: timestamp("wall_prayer_at", { withTimezone: true }),
   vowBps: integer("vow_bps").notNull().default(0),
+  // Admin-tuned luck: bps chance to rescue a loss into a win (− = unlucky).
+  // Random games only — skill games (timer, blackjack) ignore it.
+  luckBps: integer("luck_bps").notNull().default(0),
   // Notification prefs — resolve fan-out and closing-soon reminders.
   notifResolve: boolean("notif_resolve").notNull().default(true),
   notifClosing: boolean("notif_closing").notNull().default(true),
@@ -485,3 +488,13 @@ export const marketLike = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.marketId] }), index("market_like_market_idx").on(t.marketId)]
 );
+
+// ---------- casino tuning ----------
+
+// Single-row house config ("house"): rig_bps quietly flips that share of
+// player wins into losses across the random games. Admin-editable.
+export const casinoConfig = pgTable("casino_config", {
+  id: text("id").primaryKey(),
+  rigBps: integer("rig_bps").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
