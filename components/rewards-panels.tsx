@@ -123,12 +123,24 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
   const ready = remaining <= 0;
 
   const AD_VIDEO_COUNT = 18;
-  const startAd = () => {
-    setVid((v) => {
-      let n = Math.floor(Math.random() * AD_VIDEO_COUNT);
-      if (v !== null && n === v) n = (n + 1) % AD_VIDEO_COUNT;
+  // Rotation memory — a creative can't repeat until most of the deck has
+  // played, so consecutive views always land on something different.
+  const pickAd = (): number => {
+    try {
+      const seen: number[] = JSON.parse(localStorage.getItem("mb.adSeen") ?? "[]").filter(
+        (x: unknown): x is number => Number.isInteger(x)
+      );
+      const pool = Array.from({ length: AD_VIDEO_COUNT }, (_, i) => i).filter((i) => !seen.includes(i));
+      const n = pool[Math.floor(Math.random() * pool.length)] ?? Math.floor(Math.random() * AD_VIDEO_COUNT);
+      seen.push(n);
+      localStorage.setItem("mb.adSeen", JSON.stringify(seen.slice(-Math.floor(AD_VIDEO_COUNT * 0.7))));
       return n;
-    });
+    } catch {
+      return Math.floor(Math.random() * AD_VIDEO_COUNT);
+    }
+  };
+  const startAd = () => {
+    setVid(pickAd());
     setAdKey((k) => k + 1);
     setLeft(Math.ceil(AD_WATCH_MS / 1000));
     setOpen(true);

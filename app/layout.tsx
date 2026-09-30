@@ -6,6 +6,7 @@ import { SiteHeader } from "@/components/site-header";
 import { LogoMark } from "@/components/logo";
 import { IntroVideo, TrailerLink } from "@/components/intro-video";
 import { getLang } from "@/lib/lang-server";
+import { getCurrentUser } from "@/lib/session";
 import { getT } from "@/lib/i18n";
 import "./globals.css";
 
@@ -26,7 +27,7 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const lang = await getLang();
+  const [lang, user] = await Promise.all([getLang(), getCurrentUser()]);
   const t = getT(lang);
   return (
     <html lang={lang} className={inter.variable} suppressHydrationWarning>
@@ -81,7 +82,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </div>
         </footer>
-        <IntroVideo lang={lang} />
+        <IntroVideo lang={lang} autoplay={!user} />
         <Toaster
           position="bottom-center"
           toastOptions={{

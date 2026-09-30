@@ -7,15 +7,16 @@ import { getT, type Lang } from "@/lib/i18n";
 const SEEN_KEY = "mb_intro_seen";
 
 // Welcome trailer — auto-opens on a visitor's first page load, closable, and
-// reopenable from the footer link (which fires the "mb:intro" event).
-export function IntroVideo({ lang }: { lang?: Lang }) {
+// reopenable from the footer link (which fires the "mb:intro" event). Signed-in
+// users never get the auto-popup — they already know the site.
+export function IntroVideo({ lang, autoplay = true }: { lang?: Lang; autoplay?: boolean }) {
   const t = getT(lang ?? "en");
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
-        if (!localStorage.getItem(SEEN_KEY)) setOpen(true);
+        if (autoplay && !localStorage.getItem(SEEN_KEY)) setOpen(true);
       } catch {}
     }, 400);
     const onOpen = () => setOpen(true);
@@ -24,7 +25,7 @@ export function IntroVideo({ lang }: { lang?: Lang }) {
       clearTimeout(timer);
       window.removeEventListener("mb:intro", onOpen);
     };
-  }, []);
+  }, [autoplay]);
 
   const close = () => {
     setOpen(false);

@@ -14,11 +14,14 @@ import { Button } from "@/components/ui/primitives";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LangToggle } from "@/components/lang-toggle";
 import { DAILY_COOLDOWN_MS } from "@/lib/rewards";
+import { accruedDebtCents } from "@/lib/loans";
+import { fmtMonosShort } from "@/lib/money";
 
 export async function SiteHeader() {
   const [user, lang] = await Promise.all([getCurrentUser(), getLang()]);
   const t = getT(lang);
   const notifs = user ? await getNotifications(user.id) : [];
+  const debtCents = user ? accruedDebtCents(user.debtCents, user.debtRateBps, user.debtSince) : 0;
 
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line">
@@ -66,6 +69,15 @@ export async function SiteHeader() {
             >
               <AnimatedMoney cents={user.balanceCents} lang={lang} short />
             </Link>
+            {debtCents > 0 && (
+              <Link
+                href="/rewards"
+                className="num inline-flex items-center h-9 px-2.5 rounded-lg bg-no-soft text-no-strong text-[13px] font-bold border border-no/30"
+                title={`${t.owedChip} — repay on Rewards`}
+              >
+                −{fmtMonosShort(debtCents)}
+              </Link>
+            )}
             <NotifBell items={notifs} userId={user.id} lang={lang} />
             <UserMenu name={user.name} username={user.username} role={isAdmin(user) ? "admin" : user.role} image={user.image} lang={lang} />
           </div>

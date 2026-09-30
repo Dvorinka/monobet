@@ -330,6 +330,7 @@ export async function placeTrade(input: {
         if (!Number.isFinite(spend) || spend < 100) throw new Error("Minimum trade is Ɱ 1");
         if (!TRADE_LEVERAGES.includes(leverage)) throw new Error("Bad leverage");
         if (leverage > m.maxLeverage) throw new Error(`Max leverage on this market is ${m.maxLeverage}×`);
+        assertCreditLine(u, leverage);
         const notional = spend * leverage;
         shares = sharesForSpend(qYes, qNo, b, outcome, notional / 100);
         if (shares <= 0) throw new Error("Trade too small");
@@ -1981,6 +1982,13 @@ function checkBet(betCents: number, leverage: number) {
   return { bet, lev };
 }
 
+// The house won't extend credit to a debtor — leverage locks until the debt
+// (with accrued interest) is repaid. Applies to games and leveraged trades.
+function assertCreditLine(u: { debtCents: number; debtRateBps: number; debtSince: Date | null }, lev: number) {
+  if (lev > 1 && accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince) > 0)
+    throw new Error("In debt — the house won't extend credit. Repay first.");
+}
+
 export async function playCoinFlip(input: {
   betCents: number;
   leverage: number;
@@ -1991,6 +1999,7 @@ export async function playCoinFlip(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
+    assertCreditLine(u, lev);
     if (input.pick !== "heads" && input.pick !== "tails") throw new Error("Pick a side");
     let landed: "heads" | "tails" = randomInt(2) === 0 ? "heads" : "tails";
     let won = landed === input.pick;
@@ -2020,6 +2029,7 @@ export async function playDice(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
+    assertCreditLine(u, lev);
     const over = Math.round(input.over);
     if (over < DICE_MIN_OVER || over > DICE_MAX_OVER) throw new Error("Bad target");
     let roll = randomInt(1, 7);
@@ -2084,6 +2094,7 @@ export async function stopTimerRound(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
+    assertCreditLine(u, lev);
     const { t: target, i: issued } = openTimerRound(input.token, u.id);
     const elapsed = Date.now() - issued;
     if (elapsed < 400) throw new Error("Stopped suspiciously fast");
@@ -2112,6 +2123,7 @@ export async function playLimbo(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
+    assertCreditLine(u, lev);
     const target = Number(input.target);
     if (!Number.isFinite(target) || target < LIMBO_MIN || target > LIMBO_MAX) throw new Error("Bad target");
     // Crash point: 0.99/(1−u), clamped — win when the rocket clears the bar.
@@ -2142,6 +2154,7 @@ export async function playWheel(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
+    assertCreditLine(u, lev);
     let index = randomInt(WHEEL_SEGMENTS.length);
     let mult = WHEEL_SEGMENTS[index];
     const dealer = await pickDealer(input.dealerId);
@@ -2170,6 +2183,7 @@ export async function playSlots(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
+    assertCreditLine(u, lev);
     const reels = [slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT))];
     let mult = slotPayout(reels[0], reels[1], reels[2]);
     const dealer = await pickDealer(input.dealerId);
@@ -2647,6 +2661,7 @@ export async function blackjackDeal(input: {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
+    assertCreditLine(u, lev);
     const persona = await pickDealer(input.dealerId);
     const deck = shuffledShoe();
     const player = [deck.pop()!, deck.pop()!];

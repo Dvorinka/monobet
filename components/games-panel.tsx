@@ -113,6 +113,12 @@ function DealerTag({ dealer, won }: { dealer: Persona | null; won?: boolean | nu
 }
 
 
+// Debtors play unleveraged — the display value is pinned to 1x so the ticket
+// preview matches what the server will accept.
+function lockedLev(lev: string, inDebt?: boolean) {
+  return inDebt ? "1" : lev;
+}
+
 // Dealer win FX — some personas celebrate a player win with a full-screen
 // moment (Bonnie's splash, Epstein's plane). Name-keyed via dealerFx.
 function dealerWinFx(dealer: Persona | null | undefined, won: boolean, netCents: number, cb?: (amt: number, fx: "splash" | "plane") => void) {
@@ -128,6 +134,7 @@ function BetControls({
   setLev,
   balanceCents,
   disabled,
+  locked,
   lang,
 }: {
   bet: string;
@@ -136,6 +143,7 @@ function BetControls({
   setLev: (v: string) => void;
   balanceCents: number;
   disabled?: boolean;
+  locked?: boolean;
   lang?: Lang;
 }) {
   const t = getT(lang ?? "en");
@@ -193,7 +201,9 @@ function BetControls({
           options={GAME_LEVERAGES.map((v) => ({ value: String(v), label: `${v}×` }))}
           value={lev}
           onChange={setLev}
+          disabled={locked}
         />
+        {locked && <p className="mt-1.5 text-[11.5px] font-medium text-no-strong">{t.levLocked}</p>}
       </div>
     </div>
   );
@@ -233,9 +243,9 @@ function GameCard({
 
 // ---------- coin flip ----------
 
-type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; onWinFx?: (amt: number, fx: "splash" | "plane") => void };
+type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; inDebt?: boolean; onWinFx?: (amt: number, fx: "splash" | "plane") => void };
 
-function CoinFlipCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
+function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [pick, setPick] = useState<"heads" | "tails">("heads");
@@ -306,7 +316,7 @@ function CoinFlipCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
             value={pick}
             onChange={(v) => setPick(v)}
           />
-          <BetControls bet={bet} setBet={setBet} lev={lev} setLev={setLev} balanceCents={balanceCents} disabled={pending || spinning} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} />
           <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={flip}>
             {spinning ? t.flipping : t.flip}
           </Button>
@@ -337,7 +347,7 @@ function DiceFace({ value, rolling }: { value: number; rolling: boolean }) {
   );
 }
 
-function DiceCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
+function DiceCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [over, setOver] = useState(3);
@@ -399,7 +409,7 @@ function DiceCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
               className="w-full accent-brand cursor-pointer"
             />
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lev} setLev={setLev} balanceCents={balanceCents} disabled={pending || rolling} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || rolling} lang={lang} />
           <Button className="w-full" size="lg" disabled={pending || rolling || !parseFloat(bet)} onClick={roll}>
             {rolling ? t.rolling : t.roll}
           </Button>
@@ -411,7 +421,7 @@ function DiceCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
 
 // ---------- stop the timer ----------
 
-function TimerCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
+function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [target, setTarget] = useState("10");
@@ -507,7 +517,7 @@ function TimerCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
               {t.paysUpTo(timerTopMult(targetMs).toFixed(0))}
             </div>
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lev} setLev={setLev} balanceCents={balanceCents} disabled={pending || phase === "running"} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || phase === "running"} lang={lang} />
           {phase === "running" ? (
             <Button className="w-full" size="lg" variant="no" disabled={pending} onClick={stop}>
               {t.stop}
@@ -525,7 +535,7 @@ function TimerCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
 
 // ---------- limbo ----------
 
-function LimboCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
+function LimboCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [target, setTarget] = useState(2);
@@ -623,7 +633,7 @@ function LimboCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
               className="w-full accent-brand cursor-pointer"
             />
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lev} setLev={setLev} balanceCents={balanceCents} disabled={pending || busy} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || busy} lang={lang} />
           <Button className="w-full" size="lg" disabled={pending || busy || !parseFloat(bet)} onClick={play}>
             {busy ? t.launching : t.launch}
           </Button>
@@ -643,7 +653,7 @@ function wheelColor(m: number, i: number) {
   return i % 2 ? "var(--color-brand-strong)" : "var(--color-brand)";
 }
 
-function WheelCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
+function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -731,7 +741,7 @@ function WheelCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
       }
       controls={
         <>
-          <BetControls bet={bet} setBet={setBet} lev={lev} setLev={setLev} balanceCents={balanceCents} disabled={pending || spinning} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} />
           <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={spin}>
             {spinning ? t.spinning : t.spin}
           </Button>
@@ -743,7 +753,7 @@ function WheelCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
 
 // ---------- slots ----------
 
-function SlotsCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
+function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -847,7 +857,7 @@ function SlotsCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
       }
       controls={
         <>
-          <BetControls bet={bet} setBet={setBet} lev={lev} setLev={setLev} balanceCents={balanceCents} disabled={pending || spinning} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} />
           <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={spin}>
             {spinning ? t.spinning : t.spin}
           </Button>
@@ -896,7 +906,7 @@ function PlayingCard({ v, hidden }: { v?: number; hidden?: boolean }) {
   );
 }
 
-function BlackjackCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
+function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -995,7 +1005,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, onWinFx }: GameProps) {
       controls={
         <>
           {!playing && (
-            <BetControls bet={bet} setBet={setBet} lev={lev} setLev={setLev} balanceCents={balanceCents} disabled={pending} lang={lang} />
+            <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} />
           )}
           {playing ? (
             <div className="flex gap-2">
@@ -1029,49 +1039,49 @@ export const GAME_COMPONENTS = {
 
 export type GameSlug = keyof typeof GAME_COMPONENTS;
 
-// Bonnie Blue win easter egg — milky splash covering the screen for ~2s.
+// Bonnie Blue win easter egg — one big milky blob centered on screen; on the
+// way out the whole sheet of liquid sticks and slides down off the screen.
 function BonnieSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
-  const blobs = [
-    { l: "12%", t: "8%", s: 46, d: "0ms" },
-    { l: "58%", t: "-6%", s: 55, d: "60ms" },
-    { l: "-10%", t: "42%", s: 52, d: "100ms" },
-    { l: "70%", t: "38%", s: 48, d: "40ms" },
-    { l: "30%", t: "62%", s: 58, d: "80ms" },
-    { l: "78%", t: "72%", s: 44, d: "120ms" },
-  ];
   return (
-    <div className="anim-bonnie-veil fixed inset-0 z-[100] grid place-items-center overflow-hidden" role="status" aria-live="polite">
-      {blobs.map((b, i) => (
-        <div
-          key={i}
-          aria-hidden
-          className="anim-bonnie-blob absolute rounded-full bg-white"
-          style={{ left: b.l, top: b.t, width: `${b.s}vmax`, height: `${b.s}vmax`, filter: "blur(24px)", animationDelay: b.d }}
-        />
-      ))}
-      <div className="absolute inset-0 bg-white/60" style={{ animationDelay: "150ms" }} />
-      <div className="anim-win-pop relative text-center px-6">
-        <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-ink/60">{t.bonnieWin}</div>
-        <div className="num text-5xl font-black text-ink mt-1">+{fmtMonos(amountCents, { lang })}</div>
+    <div className="anim-bonnie-sheet fixed inset-0 z-[100] overflow-hidden" role="status" aria-live="polite">
+      <div className="absolute inset-0 grid place-items-center">
+        <div aria-hidden className="anim-bonnie-blob bg-[#fbfbf7] shadow-[0_30px_120px_rgba(0,0,0,0.25)]"
+          style={{ width: "78vmin", height: "78vmin", borderRadius: "47% 53% 51% 49% / 52% 46% 54% 48%" }} />
+      </div>
+      {/* sticky drips that stretch as the sheet slides down */}
+      <div aria-hidden className="absolute inset-x-0 top-full -mt-[8vmin] flex justify-center gap-[6vmin]">
+        {[26, 40, 20, 34, 24].map((h, i) => (
+          <div key={i} className="anim-bonnie-drip w-[4vmin] bg-[#fbfbf7] rounded-b-full" style={{ height: `${h}vmin`, animationDelay: `${i * 45}ms` }} />
+        ))}
+      </div>
+      <div className="relative h-full grid place-items-center">
+        <div className="anim-win-pop text-center px-6">
+          <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-ink/60">{t.bonnieWin}</div>
+          <div className="num text-5xl font-black text-ink mt-1">+{fmtMonos(amountCents, { lang })}</div>
+        </div>
       </div>
     </div>
   );
 }
 
-// J. EPST. win easter egg — a jet crosses the sky toward the island.
+// J. EPST. win easter egg — the jet crosses the night sky, then nose-dives
+// into the island and the flash blooms before the scene fades.
 function PlaneSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   return (
-    <div className="anim-bonnie-veil fixed inset-0 z-[100] grid place-items-center overflow-hidden bg-[#0b1d33]" role="status" aria-live="polite">
+    <div className="anim-plane-veil fixed inset-0 z-[100] overflow-hidden bg-[#0b1d33]" role="status" aria-live="polite">
       <div className="absolute inset-0 bg-gradient-to-b from-[#0b1d33] via-[#123a5c] to-[#1a5a7a]" />
-      <svg aria-hidden viewBox="0 0 720 300" className="anim-plane-fly absolute left-0 top-[22%] w-[30%] text-white/90" fill="currentColor">
-        <path d="M4 46 L56 30 L44 42 L52 52 L30 60 Z M44 42 L96 44 L98 52 L52 52 Z" transform="scale(2.4) translate(0,-8)" />
-      </svg>
       <div aria-hidden className="absolute bottom-0 inset-x-0 h-[30%] bg-gradient-to-t from-[#0d3b2e] to-transparent" />
-      <div className="anim-win-pop relative text-center px-6">
-        <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-white/70">{t.bonnieWin}</div>
-        <div className="num text-5xl font-black text-white mt-1">+{fmtMonos(amountCents, { lang })}</div>
+      <svg aria-hidden viewBox="0 0 240 60" className="anim-plane-crash absolute left-0 top-[24%] w-[26%] min-w-40 text-white/90" fill="currentColor">
+        <path d="M6 22 L60 8 L48 20 L56 30 L34 36 Z M48 20 L112 22 L114 30 L56 30 Z" />
+      </svg>
+      <div aria-hidden className="anim-crash-flash absolute rounded-full" style={{ right: "8%", bottom: "16%", width: "34vmin", height: "34vmin", background: "radial-gradient(closest-side, #fff7d6 0%, #fbbf24 40%, rgba(249,115,22,0.55) 68%, transparent 72%)" }} />
+      <div className="relative h-full grid place-items-center">
+        <div className="anim-win-pop text-center px-6">
+          <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-white/70">{t.bonnieWin}</div>
+          <div className="num text-5xl font-black text-white mt-1">+{fmtMonos(amountCents, { lang })}</div>
+        </div>
       </div>
     </div>
   );
@@ -1082,11 +1092,13 @@ export function GameView({
   balanceCents,
   lang,
   dealers,
+  inDebt,
 }: {
   game: GameSlug;
   balanceCents: number;
   lang?: Lang;
   dealers?: (Persona & { id: string })[];
+  inDebt?: boolean;
 }) {
   const t = getT(lang ?? "en");
   const Game = GAME_COMPONENTS[game];
@@ -1094,7 +1106,7 @@ export function GameView({
   const [splash, setSplash] = useState<{ amt: number; fx: "splash" | "plane" } | null>(null);
   useEffect(() => {
     if (splash == null) return;
-    const id = setTimeout(() => setSplash(null), 2000);
+    const id = setTimeout(() => setSplash(null), 2400);
     return () => clearTimeout(id);
   }, [splash]);
   const chip = (on: boolean) =>
@@ -1119,7 +1131,7 @@ export function GameView({
           </div>
         </div>
       )}
-      <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId}
+      <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt}
         onWinFx={(amt, fx) => setSplash({ amt, fx })} />
       {splash?.fx === "splash" && <BonnieSplash amountCents={splash.amt} lang={lang} />}
       {splash?.fx === "plane" && <PlaneSplash amountCents={splash.amt} lang={lang} />}

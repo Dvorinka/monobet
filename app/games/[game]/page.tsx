@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getCurrentUser } from "@/lib/session";
+import { accruedDebtCents } from "@/lib/loans";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { GameView, type GameSlug } from "@/components/games-panel";
@@ -35,6 +36,7 @@ export default async function GamePage({ params }: { params: Promise<{ game: str
           balanceCents={user.balanceCents}
           lang={lang}
           dealers={dealers.filter((d) => d.active).map((d) => ({ id: d.id, name: d.name, avatar: d.avatar, quipWin: d.quipWin, quipLose: d.quipLose }))}
+          inDebt={accruedDebtCents(user.debtCents, user.debtRateBps, user.debtSince) > 0}
         />
       </div>
       <p className="mt-8 text-[12px] text-faint leading-relaxed">{t.fairNote}</p>
