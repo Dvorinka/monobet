@@ -180,7 +180,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
         <Link href="/" className="hover:text-ink">{t.markets}</Link>
         <span className="mx-1.5">/</span>
         <Link href={`/?cat=${market.category}`} className="hover:text-ink">{market.category}</Link>
-        {parent && (
+        {parent ? (
           <>
             <span className="mx-1.5">/</span>
             <Link href={`/market/${parent.slug}`} className="hover:text-ink truncate max-w-56 inline-block align-bottom">{parent.question}</Link>
@@ -191,17 +191,44 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               </>
             )}
           </>
+        ) : (
+          <>
+            <span className="mx-1.5">/</span>
+            <span className="text-ink-2 truncate max-w-72 inline-block align-bottom">{market.question}</span>
+          </>
         )}
       </div>
 
       <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_340px]">
         {/* left column */}
         <div className="min-w-0">
-          <div className="flex items-start gap-3.5">
+          <div className="flex items-start gap-4">
             <MarketIcon market={market} size="size-12" />
-            <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight leading-tight flex-1">
-              {market.question}
-            </h1>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight leading-tight">
+                {market.question}
+              </h1>
+              <div className="mt-3 flex flex-wrap items-center gap-4 text-[12.5px] text-mute font-medium">
+                <span className="num">{fmtMonos(market.volumeCents, { lang })} {t.volume}</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Users className="size-3.5" /> {market.traderCount} {t.tradersW}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Clock className="size-3.5" />
+                  {market.closesAt ? <>{expired ? t.closedOn : t.closes} <LocalTime d={market.closesAt} lang={lang} /></> : t.noCloseDate}
+                </span>
+                {recurLabel(t, market.recurDays) && (
+                  <span className="inline-flex items-center gap-1.5" title={t.repeatsHint}>
+                    <Repeat className="size-3.5" /> {recurLabel(t, market.recurDays)}
+                  </span>
+                )}
+                {tradable && (
+                  <Badge tone="yes" className="uppercase">
+                    <span className="live-dot" /> {t.live}
+                  </Badge>
+                )}
+              </div>
+            </div>
             {user && (
               <span className="mt-1.5 inline-flex items-center gap-1 shrink-0">
                 <LikeButton marketId={market.id} liked={liked} count={likes.get(market.id) ?? 0} lang={lang} />
@@ -354,17 +381,19 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
             </div>
           )}
 
-          {/* rules + market context, Polymarket-style tabs block */}
-          <div className="mt-8">
-            <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
-              <Scale className="size-4" /> {t.rules} · {t.marketContext}
-            </h2>
-            {market.description ? (
+          {/* rules, then market context — same section structure as group markets */}
+          {market.description && (
+            <div className="mt-8">
+              <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
+                <Scale className="size-4" /> {t.rules}
+              </h2>
               <p className="text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">{market.description}</p>
-            ) : (
-              <p className="text-sm text-faint">{t.resolverNote}.</p>
-            )}
-            <Card className="mt-3 p-4">
+            </div>
+          )}
+
+          <div className="mt-8">
+            <h2 className="text-[15px] font-semibold mb-2">{t.marketContext}</h2>
+            <Card className="p-4">
               {market.context && (
                 <p className="mb-3 pb-3 border-b border-line-2 text-sm text-ink-2 whitespace-pre-wrap leading-relaxed">
                   {market.context}
@@ -386,15 +415,12 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
                     </dd>
                   </div>
                 </div>
-                <div className="flex items-center gap-2.5">
-                  {creator && <Avatar name={creator.name} image={creator.image} className="size-7" />}
-                  <div className="min-w-0">
-                    <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.resolver}</dt>
-                    <dd className="font-medium truncate">
-                      {res.proposer ? `@${res.proposer}` : creator ? `@${creator.username ?? creator.name}` : "—"}
-                      <span className="block text-[11px] font-normal text-faint">{t.resolverNote}</span>
-                    </dd>
-                  </div>
+                <div>
+                  <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.resolver}</dt>
+                  <dd className="font-medium truncate">
+                    {res.proposer ? `@${res.proposer}` : creator ? `@${creator.username ?? creator.name}` : "—"}
+                    <span className="block text-[11px] font-normal text-faint">{t.resolverNote}</span>
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.openedAt}</dt>
@@ -410,34 +436,35 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
             </Card>
           </div>
 
-          {holders.length > 0 && (
-            <div className="mt-8">
-              <h2 className="text-[15px] font-semibold mb-2">{t.topHolders}</h2>
-              <Card className="p-1.5">
-                {holders.slice(0, 8).map((h) => {
-                  const yes = Number(h.yesShares);
-                  const no = Number(h.noShares);
-                  const side = yes >= no;
-                  return (
-                    <div key={h.username ?? h.name} className="flex items-center gap-3 px-3 py-2">
-                      <Avatar name={h.name} image={h.image} className="size-7" />
-                      <Link href={`/u/${h.username ?? ""}`} className="text-[13px] font-medium truncate flex-1 hover:text-brand-strong">
-                        @{h.username ?? h.name}
-                      </Link>
-                      <span className={cn("num text-[12.5px] font-semibold", side ? "text-yes-strong" : "text-no-strong")}>
-                        {fmtShares(side ? yes : no, lang)} {side ? t.yes : t.no}
-                      </span>
-                    </div>
-                  );
-                })}
-              </Card>
-            </div>
-          )}
-
           <div className="mt-8">
             <MarketTabs
               lang={lang}
               activity={<ActivityFeed trades={trades} lang={lang} />}
+              holders={
+                holders.length > 0 ? (
+                  <Card className="p-1.5">
+                    {holders.slice(0, 8).map((h) => {
+                      const yes = Number(h.yesShares);
+                      const no = Number(h.noShares);
+                      const side = yes >= no;
+                      return (
+                        <div key={h.username ?? h.name} className="flex items-center gap-3 px-3 py-2">
+                          <Avatar name={h.name} image={h.image} className="size-7" />
+                          <Link href={`/u/${h.username ?? ""}`} className="text-[13px] font-medium truncate flex-1 hover:text-brand-strong">
+                            @{h.username ?? h.name}
+                          </Link>
+                          <span className={cn("num text-[12.5px] font-semibold", side ? "text-yes-strong" : "text-no-strong")}>
+                            {fmtShares(side ? yes : no, lang)} {side ? t.yes : t.no}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </Card>
+                ) : (
+                  <p className="text-sm text-faint">{t.noTradesYet}</p>
+                )
+              }
+              holderCount={holders.length}
               comments={
                 <Comments
                   marketId={market.id}
