@@ -47,7 +47,7 @@ import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, Shuffle, X } from "lucide-react";
 
-type Net = { netCents: number; won: boolean; stamp: number; feeCents?: number; stakeCents?: number } | null;
+type Net = { netCents: number; won: boolean; stamp: number; feeCents?: number; stakeCents?: number; skimCents?: number } | null;
 
 function useGame(lang?: Lang) {
   const t = getT(lang ?? "en");
@@ -92,7 +92,7 @@ function ResultTag({ net, lang }: { net: Net; lang?: Lang }) {
   const gross = net.netCents + (net.stakeCents ?? 0) + (net.feeCents ?? 0);
   const sub =
     net.won && net.stakeCents
-      ? t.gameProfit(`+${fmtMonos(net.netCents, { lang })}`)
+      ? t.gameProfit(`+${fmtMonos(net.netCents + (net.skimCents ?? 0), { lang })}`)
       : !net.won && gross > 0
         ? t.gameReturned(fmtMonos(gross, { lang }))
         : null;
@@ -108,6 +108,9 @@ function ResultTag({ net, lang }: { net: Net; lang?: Lang }) {
         )}
       </div>
       {sub && <div className="text-[11px] font-semibold text-mute">{sub}</div>}
+      {(net.skimCents ?? 0) > 0 && (
+        <div className="text-[11px] font-semibold text-mute">{t.debtGarnish(fmtMonos(net.skimCents!, { lang }))}</div>
+      )}
     </div>
   );
 }
@@ -311,7 +314,7 @@ function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
         setRot((prev) => Math.ceil((prev + 1) / 360) * 360 + 4 * 360 + (r.landed === "tails" ? 180 : 0));
         setTimeout(() => {
           setSpinning(false);
-          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc });
+          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
           dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
         }, 1150);
       }
@@ -416,7 +419,7 @@ function DiceCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
         setRolling(false);
         if (r?.roll) {
           setFace(r.roll);
-          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc });
+          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
           dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
         }
       }, 650);
@@ -522,7 +525,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       setDisp(r.elapsedMs ?? 0);
       setErr(r.errMs ?? null);
       setDealer(r.dealer ?? null);
-      setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc });
+      setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
       dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
     });
   };
@@ -616,7 +619,7 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
           else {
             setBusy(false);
             setWonLast(!!r.won);
-            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc });
+            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
             dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
           }
         };
@@ -728,7 +731,7 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
         setSpinning(false);
         setLanded(r.mult ?? null);
         // 0.5×/0.6×/0.8× segments return part of the stake — still a loss.
-        setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc });
+        setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
         dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
       }, 3250);
     });
@@ -871,7 +874,7 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
         timers.current.push(
           setTimeout(() => {
             setSpinning(false);
-            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc });
+            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
             dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
           }, 700 + r.reels.length * 350 + 150)
         );
@@ -939,6 +942,7 @@ type BjRound = {
   netCents?: number | null;
   betCents?: number;
   feeCents?: number;
+  skimCents?: number;
   tavCents?: number;
   sides?: Record<string, BjSide> | null;
   doubled?: boolean;
@@ -979,7 +983,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
     if (!s || s.status !== "settled") return;
     const won = s.result === "win" || s.result === "blackjack";
     playSfx(won ? "win" : "lose", 0.5);
-    setNet({ stamp: Date.now(), netCents: s.netCents ?? 0, won, feeCents: s.feeCents, stakeCents: s.betCents });
+    setNet({ stamp: Date.now(), netCents: s.netCents ?? 0, won, feeCents: s.feeCents, stakeCents: s.betCents, skimCents: s.skimCents });
     dealerWinFx(s.persona, won, (s.netCents ?? 0) + (s.betCents ?? 0) + (s.feeCents ?? 0), onWinFx, s.tavCents);
   };
 

@@ -2064,8 +2064,11 @@ export async function takeLoan(input: { token: string; pick: number }): Promise<
       const cur = await lockUser(tx, u.id);
       if (accruedDebtCents(cur.debtCents, cur.debtRateBps, cur.debtSince) > 0)
         throw new Error("Repay your debt first");
+      // The rolled APR books up front — borrow Ɱ1,000 at 23.8% and you owe
+      // Ɱ1,238 the moment the cash lands, so a same-second repay still pays.
+      const owed = Math.round(amount * (1 + rate / 10_000));
       await credit(tx, u.id, amount, "loan", null, `Loan @ ${(rate / 100).toFixed(1)}% APR`);
-      await addDebt(tx, u.id, amount, rate, `Loan taken — ${(rate / 100).toFixed(1)}% APR`);
+      await addDebt(tx, u.id, owed, rate, `Loan taken — ${(rate / 100).toFixed(1)}% APR, ${((owed - amount) / 100).toFixed(2)}Ɱ interest charged up front`);
     });
     revalidatePath("/rewards");
     revalidatePath("/portfolio");
@@ -2483,11 +2486,11 @@ async function settleGame(
   let tav = 0;
   if (won) {
     win = levWinCents(betCents, leverage, mult);
-    // Wall vow — a pledged share of every win's *profit* goes to the debt.
-    skim = Math.min(win, await vowSkim(tx, userId, u.vowBps ?? 0, Math.max(0, win - betCents), label));
+    // A debtor's win pays the house debt first — the profit garnishes it.
+    skim = Math.min(win, await garnishDebt(tx, userId, win - betCents, label));
     const take = win - skim;
     // Sub-1x segments refund part of the stake — the ledger says so plainly.
-    if (take > 0) await credit(tx, userId, take, "game", null, `${label} — ${win > betCents ? "won" : "partial return"} ×${mult}${skim ? " (vow skimmed)" : ""}`);
+    if (take > 0) await credit(tx, userId, take, "game", null, `${label} — ${win > betCents ? "won" : "partial return"} ×${mult}${skim ? " (debt repaid)" : ""}`);
     if (dealer && dealerFx(dealer).blessed) tav = await telAvivBonus(tx, userId);
   }
   return { netCents: win - skim - betCents - fee, feeCents: fee, skimCents: skim, tavCents: tav };
@@ -2538,16 +2541,16 @@ async function maybeBless(userId: string, dealer: Persona): Promise<boolean> {
   return randomInt(100) < blessedChancePct(r?.n ?? 0);
 }
 
-// Garnishes `vowBps` of a win's profit toward accrued debt — the stake is
-// never touched. Returns the skimmed cents.
-async function vowSkim(tx: Tx, userId: string, vowBps: number, profitCents: number, label: string): Promise<number> {
-  if (!vowBps) return 0;
+// Winnings pay the house debt before they reach the balance — every win's
+// profit garnishes accrued debt automatically (the loan card's promise:
+// "rewards and winnings count"). The stake is never touched. Returns the
+// cents withheld.
+async function garnishDebt(tx: Tx, userId: string, profitCents: number, label: string): Promise<number> {
   const u = await lockUser(tx, userId);
   const debt = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince);
-  if (debt <= 0) return 0;
-  const skim = Math.min(Math.round(profitCents * (vowBps / 10_000)), debt);
+  const skim = Math.min(Math.max(0, Math.round(profitCents)), debt);
   if (skim <= 0) return 0;
-  const left = Math.max(0, debt - skim);
+  const left = debt - skim;
   await tx
     .update(schema.user)
     .set({ debtCents: left, debtRateBps: left > 0 ? u.debtRateBps : 0, debtSince: left > 0 ? new Date() : null })
@@ -2558,7 +2561,7 @@ async function vowSkim(tx: Tx, userId: string, vowBps: number, profitCents: numb
     balanceAfterCents: u.balanceCents,
     kind: "repay",
     marketId: null,
-    memo: `${label} — vow garnish ${(skim / 100).toFixed(2)}Ɱ`,
+    memo: `${label} — win repaid ${(skim / 100).toFixed(2)}Ɱ of debt`,
   });
   return skim;
 }
@@ -2583,7 +2586,7 @@ export async function playCoinFlip(input: {
   leverage: number;
   pick: "heads" | "tails";
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; landed?: string; netCents?: number; dealer?: Persona; feeCents?: number; tavCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; landed?: string; netCents?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -2602,11 +2605,11 @@ export async function playCoinFlip(input: {
       landed = input.pick;
       won = true;
     }
-    const { netCents, feeCents, tavCents } = await db.transaction(async (tx) =>
+    const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, COINFLIP_MULT, `Coin flip ${input.pick}→${landed}`, dealer)
     );
     revalidatePath("/games");
-    return { ok: true, won, landed, netCents, dealer, feeCents, tavCents };
+    return { ok: true, won, landed, netCents, dealer, feeCents, skimCents, tavCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Flip failed" };
   }
@@ -2617,7 +2620,7 @@ export async function playDice(input: {
   leverage: number;
   over: number;
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona; feeCents?: number; tavCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -2636,11 +2639,11 @@ export async function playDice(input: {
       roll = over + 1 + randomInt(6 - over); // a winning face, over+1..6
       won = true;
     }
-    const { netCents, feeCents, tavCents } = await db.transaction(async (tx) =>
+    const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, mult, `Dice >${over} → ${roll}`, dealer)
     );
     revalidatePath("/games");
-    return { ok: true, won, roll, netCents, dealer, feeCents, tavCents };
+    return { ok: true, won, roll, netCents, dealer, feeCents, skimCents, tavCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Roll failed" };
   }
@@ -2685,7 +2688,7 @@ export async function stopTimerRound(input: {
   betCents: number;
   leverage: number;
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number; dealer?: Persona; feeCents?: number; tavCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -2702,11 +2705,11 @@ export async function stopTimerRound(input: {
       mult = timerMult(0, target); // blessed reads as a perfect stop
       won = true;
     }
-    const { netCents, feeCents, tavCents } = await db.transaction(async (tx) =>
+    const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, mult, `Timer ${target / 1000}s off by ${err}ms`, dealer)
     );
     revalidatePath("/games");
-    return { ok: true, won, elapsedMs: elapsed, errMs: err, netCents, mult, dealer, feeCents, tavCents };
+    return { ok: true, won, elapsedMs: elapsed, errMs: err, netCents, mult, dealer, feeCents, skimCents, tavCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Stop failed" };
   }
@@ -2717,7 +2720,7 @@ export async function playLimbo(input: {
   leverage: number;
   target: number;
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona; feeCents?: number; tavCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; roll?: number; netCents?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -2737,11 +2740,11 @@ export async function playLimbo(input: {
       roll = Math.min(1000, target * (1 + randomInt(40) / 100)); // clears the bar
       won = true;
     }
-    const { netCents, feeCents, tavCents } = await db.transaction(async (tx) =>
+    const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, target * 0.98, `Limbo ≥${target}x → ${roll.toFixed(2)}x`, dealer)
     );
     revalidatePath("/games");
-    return { ok: true, won, roll: Math.round(roll * 100) / 100, netCents, dealer, feeCents, tavCents };
+    return { ok: true, won, roll: Math.round(roll * 100) / 100, netCents, dealer, feeCents, skimCents, tavCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Limbo failed" };
   }
@@ -2751,7 +2754,7 @@ export async function playWheel(input: {
   betCents: number;
   leverage: number;
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; index?: number; mult?: number; netCents?: number; dealer?: Persona; feeCents?: number; tavCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; index?: number; mult?: number; netCents?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -2769,11 +2772,11 @@ export async function playWheel(input: {
       index = wins[randomInt(wins.length)];
       mult = WHEEL_SEGMENTS[index];
     }
-    const { netCents, feeCents, tavCents } = await db.transaction(async (tx) =>
+    const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, mult > 0, mult, `Wheel → ${mult}x`, dealer)
     );
     revalidatePath("/games");
-    return { ok: true, index, mult, netCents, dealer, feeCents, tavCents };
+    return { ok: true, index, mult, netCents, dealer, feeCents, skimCents, tavCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Spin failed" };
   }
@@ -2784,7 +2787,7 @@ export async function playSlots(input: {
   betCents: number;
   leverage: number;
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; reels?: number[]; mult?: number; netCents?: number; dealer?: Persona; feeCents?: number; tavCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; reels?: number[]; mult?: number; netCents?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -2813,11 +2816,11 @@ export async function playSlots(input: {
       if (mult === 0) { reels[2] = reels[0]; mult = slotPayout(reels[0], reels[1], reels[2]); }
     }
     const label = `Slots ${reels.map((i) => SLOT_SYMBOLS[i]).join(" ")}`;
-    const { netCents, feeCents, tavCents } = await db.transaction(async (tx) =>
+    const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, mult > 0, mult, label, dealer)
     );
     revalidatePath("/games");
-    return { ok: true, reels, mult, netCents, dealer, feeCents, tavCents };
+    return { ok: true, reels, mult, netCents, dealer, feeCents, skimCents, tavCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Spin failed" };
   }
@@ -3218,18 +3221,20 @@ async function settleBlackjack(
   round: { id: string; userId: string; betCents: number; leverage: number; persona: Persona },
   result: "win" | "lose" | "push" | "blackjack" | "surrender",
   dealerName: string
-): Promise<{ net: number; feeCents: number; tav: number }> {
+): Promise<{ net: number; feeCents: number; skim: number; tav: number }> {
   const label = `Blackjack vs ${dealerName}`;
   const fee = levFeeCents(round.betCents, round.leverage);
-  const u = await lockUser(tx, round.userId);
+  // Lock the user row first — garnishDebt/telAvivBonus read it post-lock.
+  await lockUser(tx, round.userId);
   let net: number;
+  let skim = 0;
   let tav = 0;
   if (result === "win" || result === "blackjack") {
     const mult = result === "blackjack" ? BJ_NATURAL_MULT : BJ_WIN_MULT;
     const win = levWinCents(round.betCents, round.leverage, mult);
-    const skim = Math.min(win, await vowSkim(tx, round.userId, u.vowBps ?? 0, Math.max(0, win - round.betCents), label));
+    skim = Math.min(win, await garnishDebt(tx, round.userId, win - round.betCents, label));
     const take = win - skim;
-    if (take > 0) await credit(tx, round.userId, take, "game", null, `${label} — ${result === "blackjack" ? "natural 21" : "won"} ×${mult}${skim ? " (vow skimmed)" : ""}`);
+    if (take > 0) await credit(tx, round.userId, take, "game", null, `${label} — ${result === "blackjack" ? "natural 21" : "won"} ×${mult}${skim ? " (debt repaid)" : ""}`);
     if (dealerFx(round.persona).blessed) tav = await telAvivBonus(tx, round.userId);
     net = win - skim - round.betCents - fee;
   } else if (result === "surrender") {
@@ -3247,7 +3252,7 @@ async function settleBlackjack(
     .update(schema.blackjackRound)
     .set({ status: "settled", result, netCents: net, settledAt: new Date(), loanCents: fee })
     .where(eq(schema.blackjackRound.id, round.id));
-  return { net, feeCents: fee, tav };
+  return { net, feeCents: fee, skim, tav };
 }
 
 type BjSide = { stake: number; winCents: number; label: string | null };
@@ -3265,12 +3270,13 @@ type BjState = {
   netCents?: number | null;
   betCents?: number;
   feeCents?: number;
+  skimCents?: number;
   tavCents?: number;
   sides?: Record<string, BjSide> | null;
   doubled?: boolean;
 };
 
-function bjState(r: { id: string; player: number[]; dealer: number[]; persona: Persona; status: string; result: string | null; netCents: number | null; betCents?: number; feeCents?: number; loanCents?: number; tavCents?: number; sides?: Record<string, BjSide> | null; doubled?: boolean }, hideDealer: boolean): BjState {
+function bjState(r: { id: string; player: number[]; dealer: number[]; persona: Persona; status: string; result: string | null; netCents: number | null; betCents?: number; feeCents?: number; skimCents?: number; loanCents?: number; tavCents?: number; sides?: Record<string, BjSide> | null; doubled?: boolean }, hideDealer: boolean): BjState {
   const p = handTotal(r.player);
   const d = handTotal(r.dealer);
   return {
@@ -3285,6 +3291,7 @@ function bjState(r: { id: string; player: number[]; dealer: number[]; persona: P
     result: r.result,
     netCents: r.netCents,
     betCents: r.betCents,
+    skimCents: r.skimCents ?? 0,
     // The column is still named loan_cents; under margin rules it stores the
     // funding fee paid at deal time.
     feeCents: r.feeCents ?? r.loanCents ?? 0,
@@ -3327,14 +3334,24 @@ export async function blackjackDeal(input: {
       if (ppOn) {
         const w = evalPerfectPairs(player);
         const win = w ? Math.round(bet * w.mult) : 0;
-        if (win) await credit(tx, u.id, win, "game", null, `Perfect Pairs — ${w!.label} ×${w!.mult}`);
-        sides.pp = { stake: bet, winCents: win, label: w?.label ?? null };
+        let paid = win;
+        if (win) {
+          const g = await garnishDebt(tx, u.id, win - bet, "Perfect Pairs");
+          paid = win - g;
+          if (paid > 0) await credit(tx, u.id, paid, "game", null, `Perfect Pairs — ${w!.label} ×${w!.mult}${g ? " (debt repaid)" : ""}`);
+        }
+        sides.pp = { stake: bet, winCents: paid, label: w?.label ?? null };
       }
       if (t3On) {
         const w = evalTwentyOnePlusThree(player, dealer[0]);
         const win = w ? Math.round(bet * w.mult) : 0;
-        if (win) await credit(tx, u.id, win, "game", null, `21+3 — ${w!.label} ×${w!.mult}`);
-        sides.t3 = { stake: bet, winCents: win, label: w?.label ?? null };
+        let paid = win;
+        if (win) {
+          const g = await garnishDebt(tx, u.id, win - bet, "21+3");
+          paid = win - g;
+          if (paid > 0) await credit(tx, u.id, paid, "game", null, `21+3 — ${w!.label} ×${w!.mult}${g ? " (debt repaid)" : ""}`);
+        }
+        sides.t3 = { stake: bet, winCents: paid, label: w?.label ?? null };
       }
       const [round] = await tx
         .insert(schema.blackjackRound)
@@ -3346,8 +3363,8 @@ export async function blackjackDeal(input: {
       const dNat = isNatural(dealer);
       if (pNat || dNat) {
         const result = pNat && dNat ? "push" : pNat ? "blackjack" : "lose";
-        const { net, feeCents, tav } = await settleBlackjack(tx, round, result, persona.name);
-        state = bjState({ ...round, status: "settled", result, netCents: net, feeCents, tavCents: tav }, false);
+        const { net, feeCents, skim, tav } = await settleBlackjack(tx, round, result, persona.name);
+        state = bjState({ ...round, status: "settled", result, netCents: net, feeCents, skimCents: skim, tavCents: tav }, false);
       } else {
         state = bjState(round, true);
       }
@@ -3366,8 +3383,8 @@ async function lockRound(tx: Tx, roundId: string, userId: string) {
   if (!r || r.userId !== userId) throw new Error("Round not found");
   if (r.status !== "playing") throw new Error("Hand already settled");
   if (Date.now() - r.createdAt.getTime() > BJ_ROUND_TTL_MS) {
-    const { net, feeCents, tav } = await settleBlackjack(tx, r, "push", r.persona.name);
-    return { r: { ...r, status: "settled", result: "push", netCents: net, loanCents: feeCents, tavCents: tav }, expired: true };
+    const { net, feeCents, skim, tav } = await settleBlackjack(tx, r, "push", r.persona.name);
+    return { r: { ...r, status: "settled", result: "push", netCents: net, loanCents: feeCents, skimCents: skim, tavCents: tav }, expired: true };
   }
   return { r, expired: false };
 }
@@ -3384,8 +3401,8 @@ export async function blackjackHit(input: { roundId: string }): Promise<{ ok: bo
       const player = [...r.player, card];
       await tx.update(schema.blackjackRound).set({ deck, player }).where(eq(schema.blackjackRound.id, r.id));
       if (handTotal(player).total > 21) {
-        const { net, feeCents, tav } = await settleBlackjack(tx, r, "lose", r.persona.name);
-        state = bjState({ ...r, player, status: "settled", result: "lose", netCents: net, feeCents, tavCents: tav }, false);
+        const { net, feeCents, skim, tav } = await settleBlackjack(tx, r, "lose", r.persona.name);
+        state = bjState({ ...r, player, status: "settled", result: "lose", netCents: net, feeCents, skimCents: skim, tavCents: tav }, false);
       } else {
         state = bjState({ ...r, player }, true);
       }
@@ -3410,9 +3427,9 @@ export async function blackjackStand(input: { roundId: string }): Promise<{ ok: 
       const p = handTotal(r.player).total;
       const d = handTotal(dealer).total;
       const result = d > 21 || p > d ? "win" : p === d ? "push" : "lose";
-      const { net, feeCents, tav } = await settleBlackjack(tx, r, result, r.persona.name);
+      const { net, feeCents, skim, tav } = await settleBlackjack(tx, r, result, r.persona.name);
       await tx.update(schema.blackjackRound).set({ deck, dealer }).where(eq(schema.blackjackRound.id, r.id));
-      state = bjState({ ...r, dealer, status: "settled", result, netCents: net, feeCents, tavCents: tav }, false);
+      state = bjState({ ...r, dealer, status: "settled", result, netCents: net, feeCents, skimCents: skim, tavCents: tav }, false);
     });
     revalidatePath("/games");
     return { ok: true, state };
@@ -3441,8 +3458,8 @@ export async function blackjackDouble(input: { roundId: string }): Promise<{ ok:
       const doubledRound = { ...r, betCents: r.betCents * 2 };
       await tx.update(schema.blackjackRound).set({ deck, player, betCents: doubledRound.betCents, doubled: true }).where(eq(schema.blackjackRound.id, r.id));
       if (handTotal(player).total > 21) {
-        const { net, feeCents, tav } = await settleBlackjack(tx, doubledRound, "lose", r.persona.name);
-        state = bjState({ ...doubledRound, player, status: "settled", result: "lose", netCents: net, feeCents, tavCents: tav }, false);
+        const { net, feeCents, skim, tav } = await settleBlackjack(tx, doubledRound, "lose", r.persona.name);
+        state = bjState({ ...doubledRound, player, status: "settled", result: "lose", netCents: net, feeCents, skimCents: skim, tavCents: tav }, false);
         return;
       }
       const dealer = [...r.dealer];
@@ -3450,9 +3467,9 @@ export async function blackjackDouble(input: { roundId: string }): Promise<{ ok:
       const p = handTotal(player).total;
       const d = handTotal(dealer).total;
       const result = d > 21 || p > d ? "win" : p === d ? "push" : "lose";
-      const { net, feeCents, tav } = await settleBlackjack(tx, doubledRound, result, r.persona.name);
+      const { net, feeCents, skim, tav } = await settleBlackjack(tx, doubledRound, result, r.persona.name);
       await tx.update(schema.blackjackRound).set({ deck, dealer }).where(eq(schema.blackjackRound.id, r.id));
-      state = bjState({ ...doubledRound, player, dealer, status: "settled", result, netCents: net, feeCents, tavCents: tav }, false);
+      state = bjState({ ...doubledRound, player, dealer, status: "settled", result, netCents: net, feeCents, skimCents: skim, tavCents: tav }, false);
     });
     revalidatePath("/games");
     return { ok: true, state };
@@ -3471,8 +3488,8 @@ export async function blackjackSurrender(input: { roundId: string }): Promise<{ 
       const { r, expired } = await lockRound(tx, input.roundId, u.id);
       if (expired) { state = bjState(r, false); return; }
       if (r.player.length !== 2 || r.doubled) throw new Error("Surrender is a first-move option");
-      const { net, feeCents, tav } = await settleBlackjack(tx, r, "surrender", r.persona.name);
-      state = bjState({ ...r, status: "settled", result: "surrender", netCents: net, feeCents, tavCents: tav }, false);
+      const { net, feeCents, skim, tav } = await settleBlackjack(tx, r, "surrender", r.persona.name);
+      state = bjState({ ...r, status: "settled", result: "surrender", netCents: net, feeCents, skimCents: skim, tavCents: tav }, false);
     });
     revalidatePath("/games");
     return { ok: true, state };
