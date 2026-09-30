@@ -144,6 +144,9 @@ export const market = pgTable(
     // Creator-chosen leverage ceiling — options inherit the parent's value.
     maxLeverage: integer("max_leverage").notNull().default(10),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Scheduled open — trades are blocked until opens_at; recurring copies
+    // shift it forward by one period alongside closes_at.
+    opensAt: timestamp("opens_at", { withTimezone: true }),
     closesAt: timestamp("closes_at", { withTimezone: true }),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   },

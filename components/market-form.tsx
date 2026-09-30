@@ -45,6 +45,7 @@ export function MarketForm({
   const [context, setContext] = useState("");
   const [category, setCategory] = useState<string>(categories[0] ?? NEW_CATEGORY);
   const [newCategory, setNewCategory] = useState("");
+  const [opensAt, setOpensAt] = useState("");
   const [closesAt, setClosesAt] = useState("");
   const [recurDays, setRecurDays] = useState("0");
   const [odds, setOdds] = useState(50);
@@ -109,6 +110,7 @@ export function MarketForm({
               imageUrl: marketImage || undefined,
               category,
               newCategory: category === NEW_CATEGORY ? newCategory : undefined,
+              opensAt: opensAt || undefined,
               closesAt: closesAt || undefined,
               initialProb: odds / 100,
               liquidity,
@@ -302,7 +304,7 @@ export function MarketForm({
           />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="text-[13px] font-medium text-mute" htmlFor="c">
               {t.category}
@@ -326,6 +328,20 @@ export function MarketForm({
                 autoFocus
               />
             )}
+          </div>
+          <div>
+            <label className="text-[13px] font-medium text-mute" htmlFor="o">
+              {t.tradingOpens}
+            </label>
+            <Input
+              id="o"
+              type="datetime-local"
+              value={opensAt}
+              onChange={(e) => setOpensAt(e.target.value)}
+              className="mt-1"
+              lang={lang}
+            />
+            <p className="mt-1 text-[11.5px] text-faint">{t.opensHint}</p>
           </div>
           <div>
             <label className="text-[13px] font-medium text-mute" htmlFor="t">

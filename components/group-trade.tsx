@@ -28,6 +28,7 @@ export type GroupOption = {
   proposedOutcome?: string | null;
   proposedById?: string | null;
   resolutionReason?: string | null;
+  opensAt?: Date | string | null;
 };
 
 export type ResolutionState = { confirms: number; disputes: number; myVote: string | null; proposer: string | null };
@@ -113,6 +114,7 @@ export function GroupTrade({
       maxLeverage={maxLeverage}
       lang={lang}
       defaultOutcome={side}
+      opensAt={sel.opensAt}
       title={
         <div className="mb-3 flex items-center gap-2.5">
           <OptionChip label={sel.label} index={sel.index} imageUrl={sel.imageUrl} />

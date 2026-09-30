@@ -6,10 +6,11 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Segmented, Button } from "@/components/ui/primitives";
 import { sharesForSpend, tradeCost, yesPrice } from "@/lib/lmsr";
-import { fmtMonos, fmtCents, fmtShares } from "@/lib/money";
+import { fmtMonos, fmtCents, fmtShares, fmtDate } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { Clock } from "lucide-react";
 import { placeTrade } from "@/lib/actions";
 
 export function TradeTicket({
@@ -26,6 +27,7 @@ export function TradeTicket({
   lang,
   title,
   defaultOutcome,
+  opensAt,
 }: {
   marketId: string;
   qYes: number;
@@ -42,6 +44,8 @@ export function TradeTicket({
   title?: React.ReactNode;
   // Preselected outcome — group rows' YES/NO chips carry ?side= into the ticket.
   defaultOutcome?: "yes" | "no";
+  // Scheduled markets show a clock instead of the trade form until opens_at.
+  opensAt?: Date | string | null;
 }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [outcome, setOutcome] = useState<"yes" | "no">(defaultOutcome ?? "yes");
@@ -69,6 +73,16 @@ export function TradeTicket({
   }, [side, spendCents, sellShares, qYes, qNo, b, outcome, lev]);
 
   if (!live) return null;
+
+  if (opensAt && new Date(opensAt) > new Date()) {
+    return (
+      <div className="rounded-[14px] border border-line bg-surface p-5 text-center">
+        <Clock className="size-5 text-mute mx-auto" />
+        <p className="mt-2 text-sm font-medium text-ink">{t.tradingOpensTitle}</p>
+        <p className="text-[13px] text-mute mt-1">{t.opensAtDate(fmtDate(opensAt, lang))}</p>
+      </div>
+    );
+  }
 
   if (!signedIn) {
     return (

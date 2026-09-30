@@ -185,6 +185,7 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
   // pricing; labels, images and leverage carry over.
   if (parent?.recurDays && parentResolved) {
     const nextClose = new Date((parent.closesAt?.getTime() ?? Date.now()) + parent.recurDays * 24 * 3600 * 1000);
+    const nextOpen = parent.opensAt ? new Date(parent.opensAt.getTime() + parent.recurDays * 24 * 3600 * 1000) : null;
     const [clone] = await tx
       .insert(schema.market)
       .values({
@@ -197,6 +198,7 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
         kind: "group",
         creatorId: parent.creatorId,
         b: parent.b,
+        opensAt: nextOpen,
         closesAt: nextClose,
         recurDays: parent.recurDays,
         maxLeverage: parent.maxLeverage,
@@ -229,6 +231,7 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
           b: parent.b,
           qYes: qForProb(pi, parent.b).toFixed(6),
           qNo: "0",
+          opensAt: nextOpen,
           closesAt: nextClose,
           maxLeverage: parent.maxLeverage,
         })
@@ -302,6 +305,7 @@ export async function placeTrade(input: {
       const m = await lockMarket(tx, marketId);
       if (m.kind === "group") throw new Error("Trade one of this market's options");
       if (m.status !== "live") throw new Error("Market is not live");
+      if (m.opensAt && new Date(m.opensAt) > new Date()) throw new Error("Trading is not open yet");
       if (m.closesAt && new Date(m.closesAt) < new Date()) throw new Error("Market is closed");
       await lockUser(tx, u.id);
 
@@ -708,6 +712,7 @@ export async function proposeMarket(input: {
   category: string;
   newCategory?: string;
   closesAt?: string;
+  opensAt?: string; // trading blocked until then — clones roll it forward
   initialProb?: number;
   liquidity?: number;
   outcomes?: string[];
@@ -733,6 +738,10 @@ export async function proposeMarket(input: {
       : recurDays
         ? new Date(Date.now() + recurDays * 24 * 3600 * 1000)
         : null;
+    // Scheduled open — trades reject until opens_at. Must precede the close.
+    const opensAt = input.opensAt ? new Date(input.opensAt) : null;
+    if (opensAt && Number.isNaN(opensAt.getTime())) throw new Error("Bad open date");
+    if (opensAt && closesAt && opensAt >= closesAt) throw new Error("Open must be before close");
     const maxLeverage = TRADE_LEVERAGES.includes(input.maxLeverage ?? 10) ? input.maxLeverage! : 10;
     const marketImage = input.imageUrl?.trim() || null;
     if (marketImage) {
@@ -777,6 +786,7 @@ export async function proposeMarket(input: {
             kind: "group",
             creatorId: u.id,
             b,
+            opensAt,
             closesAt,
             recurDays,
             maxLeverage,
@@ -806,6 +816,7 @@ export async function proposeMarket(input: {
               b,
               qYes: qForProb(pi, b).toFixed(6),
               qNo: "0",
+              opensAt,
               closesAt,
               maxLeverage,
             })
@@ -828,6 +839,7 @@ export async function proposeMarket(input: {
           b,
           qYes: qForProb(p, b).toFixed(6),
           qNo: "0",
+          opensAt,
           closesAt,
           recurDays,
           maxLeverage,
@@ -889,6 +901,7 @@ export async function updateMarket(input: {
   category: string;
   imageUrl?: string;
   closesAt?: string;
+  opensAt?: string;
   b?: number;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -914,6 +927,7 @@ export async function updateMarket(input: {
         category: input.category,
         imageUrl: input.imageUrl !== undefined ? input.imageUrl.trim() || null : m[0].imageUrl,
         closesAt: input.closesAt ? new Date(input.closesAt) : null,
+        opensAt: input.opensAt ? new Date(input.opensAt) : m[0].opensAt,
         b: admin && input.b && input.b > 0 ? input.b : m[0].b,
       })
       .where(eq(schema.market.id, input.marketId));
@@ -1000,6 +1014,7 @@ async function settleMarketTx(
   // Groups recur from syncGroupStatus once every option has settled.
   if (m.recurDays && !m.parentId && m.kind !== "group") {
     const nextClose = new Date((m.closesAt?.getTime() ?? Date.now()) + m.recurDays * 24 * 3600 * 1000);
+    const nextOpen = m.opensAt ? new Date(m.opensAt.getTime() + m.recurDays * 24 * 3600 * 1000) : null;
     const [clone] = await tx
       .insert(schema.market)
       .values({
@@ -1015,6 +1030,7 @@ async function settleMarketTx(
         recurDays: m.recurDays,
         maxLeverage: m.maxLeverage,
         imageUrl: m.imageUrl,
+        opensAt: nextOpen,
         closesAt: nextClose,
       })
       .returning({ id: schema.market.id });

@@ -258,6 +258,11 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               <span className="inline-flex items-center gap-1.5">
                 {t.openedAt} {fmtDate(market.createdAt, lang)}
               </span>
+              {market.opensAt && market.opensAt > new Date() && (
+                <span className="inline-flex items-center gap-1.5 text-amber-600">
+                  <Clock className="size-3.5" /> {t.opensAtDate(fmtDate(market.opensAt, lang))}
+                </span>
+              )}
               {recurLabel(t, market.recurDays) && (
                 <span className="inline-flex items-center gap-1.5" title={t.repeatsHint}>
                   <Repeat className="size-3.5" /> {recurLabel(t, market.recurDays)}
@@ -282,6 +287,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               heldNo={heldNo}
               maxLeverage={market.maxLeverage}
               lang={lang}
+              opensAt={market.opensAt}
             />
           </div>
 
@@ -427,6 +433,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               heldNo={heldNo}
               maxLeverage={market.maxLeverage}
               lang={lang}
+              opensAt={market.opensAt}
             />
           </div>
 
@@ -629,6 +636,7 @@ async function GroupMarketView({
           proposedOutcome: o.proposedOutcome,
           proposedById: o.proposedById,
           resolutionReason: o.resolutionReason,
+          opensAt: o.opensAt,
         }))}
         sparks={Object.fromEntries(optionSparks)}
         positions={myPositions}
@@ -671,6 +679,11 @@ async function GroupMarketView({
               <span className="inline-flex items-center gap-1.5">
                 {t.openedAt} {fmtDate(market.createdAt, lang)}
               </span>
+              {market.opensAt && market.opensAt > new Date() && (
+                <span className="inline-flex items-center gap-1.5 text-amber-600">
+                  <Clock className="size-3.5" /> {t.opensAtDate(fmtDate(market.opensAt, lang))}
+                </span>
+              )}
               {recurLabel(t, market.recurDays) && (
                 <span className="inline-flex items-center gap-1.5" title={t.repeatsHint}>
                   <Repeat className="size-3.5" /> {recurLabel(t, market.recurDays)}
