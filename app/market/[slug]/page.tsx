@@ -654,21 +654,12 @@ async function GroupMarketView({
         isResolver={canManage}
         adminGate={!isAdmin(user)}
         parentClosed={!!market.closesAt && market.closesAt <= new Date()}
-        chart={
-          <div className="rounded-[14px] border border-line bg-surface p-4">
-            {series.length > 0 ? (
-              <MultiPriceChart
-                series={series}
-                // eslint-disable-next-line react-hooks/purity -- server component renders once per request
-                now={Date.now()}
-                live={anyLive}
-                lang={lang}
-              />
-            ) : (
-              <div className="h-40 grid place-items-center text-[13px] text-faint">{t.noTradesYet}</div>
-            )}
-            {/* stats strip — same as binary markets */}
-            <div className="mt-3 pt-3 border-t border-line-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-mute font-medium">
+        chartSeries={series}
+        // eslint-disable-next-line react-hooks/purity -- server component renders once per request
+        chartNow={Date.now()}
+        chartLive={anyLive}
+        chartFooter={
+          <div className="mt-3 pt-3 border-t border-line-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-mute font-medium">
               <span className="num font-semibold text-ink-2">{fmtMonos(volume, { lang })} {t.volume}</span>
               <span className="inline-flex items-center gap-1.5">
                 <Users className="size-3.5" /> {traders} {t.tradersW}
@@ -691,7 +682,6 @@ async function GroupMarketView({
                 </span>
               )}
               <CopyLink path={`/market/${market.slug}`} lang={lang} />
-            </div>
           </div>
         }
         left={

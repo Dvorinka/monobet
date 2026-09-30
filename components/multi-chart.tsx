@@ -86,11 +86,15 @@ export function MultiPriceChart({
   now,
   live,
   lang,
+  focusKey,
 }: {
   series: Series[];
   now: number;
   live?: boolean;
   lang?: Lang;
+  // The option selected in the list below — its line stays bold while the
+  // rest fade to faint colored ghosts.
+  focusKey?: string | null;
 }) {
   const t = getT(lang ?? "en");
   const locale = LOCALES[lang ?? "en"];
@@ -153,13 +157,19 @@ export function MultiPriceChart({
     <div>
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          {data.map((s) => (
-            <span key={s.key} className="inline-flex items-center gap-1.5 text-[12px] font-semibold">
-              <span className="size-2 rounded-full" style={{ background: s.color }} />
-              <span className="text-ink-2 max-w-36 truncate">{s.label}</span>
-              <span className="num text-ink">{Math.round(s.pts[s.pts.length - 1].p * 100)}%</span>
-            </span>
-          ))}
+          {data.map((s) => {
+            const focused = !focusKey || s.key === focusKey;
+            return (
+              <span
+                key={s.key}
+                className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold transition-opacity", !focused && "opacity-45")}
+              >
+                <span className="size-2 rounded-full" style={{ background: s.color }} />
+                <span className="text-ink-2 max-w-36 truncate">{s.label}</span>
+                <span className="num text-ink">{Math.round(s.pts[s.pts.length - 1].p * 100)}%</span>
+              </span>
+            );
+          })}
           {live && (
             <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mute">
               <span className="live-dot" />
@@ -204,15 +214,27 @@ export function MultiPriceChart({
             {data.map((s) => {
               const p = paths.get(s.key);
               if (!p) return null;
+              const focused = !focusKey || s.key === focusKey;
               if (s.pts.length === 1)
-                return <circle key={s.key} cx={x(new Date(s.pts[0].t).getTime())} cy={y(s.pts[0].p)} r="4" fill={s.color} />;
+                return (
+                  <circle
+                    key={s.key}
+                    cx={x(new Date(s.pts[0].t).getTime())}
+                    cy={y(s.pts[0].p)}
+                    r={focused ? 4 : 2.5}
+                    fill={s.color}
+                    opacity={focused ? 1 : 0.18}
+                  />
+                );
               return (
                 <path
                   key={s.key}
                   d={p.line}
                   fill="none"
                   stroke={s.color}
-                  strokeWidth="2"
+                  strokeWidth={focused ? 2.5 : 1.2}
+                  opacity={focused ? 1 : 0.16}
+                  strokeDasharray={focused ? undefined : "1 3"}
                   strokeLinejoin="round"
                   strokeLinecap="round"
                   pathLength={1}
@@ -222,8 +244,20 @@ export function MultiPriceChart({
             })}
             {live &&
               data.map((s) => {
+                const focused = !focusKey || s.key === focusKey;
                 const last = s.pts[s.pts.length - 1];
-                return <circle key={s.key} cx={x(new Date(last.t).getTime())} cy={y(last.p)} r="3" fill={s.color} stroke="var(--color-surface)" strokeWidth="1.5" />;
+                return (
+                  <circle
+                    key={s.key}
+                    cx={x(new Date(last.t).getTime())}
+                    cy={y(last.p)}
+                    r={focused ? 3 : 2}
+                    fill={s.color}
+                    stroke="var(--color-surface)"
+                    strokeWidth="1.5"
+                    opacity={focused ? 1 : 0.25}
+                  />
+                );
               })}
           </g>
 

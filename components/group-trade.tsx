@@ -7,6 +7,7 @@ import { OptionChip } from "@/components/market-icon";
 import { Sparkline } from "@/components/sparkline";
 import { TradeTicket } from "@/components/trade-ticket";
 import { ResolutionPanel, type NoteView } from "@/components/resolution-panel";
+import { MultiPriceChart, type Series } from "@/components/multi-chart";
 import { yesPrice } from "@/lib/lmsr";
 import { fmtMonos } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
@@ -54,7 +55,10 @@ export function GroupTrade({
   isResolver,
   adminGate,
   parentClosed,
-  chart,
+  chartSeries,
+  chartNow,
+  chartLive,
+  chartFooter,
   left,
   rail,
 }: {
@@ -77,7 +81,13 @@ export function GroupTrade({
   isResolver?: boolean;
   adminGate?: boolean;
   parentClosed?: boolean;
-  chart?: React.ReactNode;
+  // The chart renders inside this client component so the selected option's
+  // line can be spotlighted while the rest fade — function props can't cross
+  // the server boundary, so the page passes plain data instead.
+  chartSeries?: Series[];
+  chartNow?: number;
+  chartLive?: boolean;
+  chartFooter?: React.ReactNode;
   left?: React.ReactNode;
   rail?: React.ReactNode;
 }) {
@@ -130,7 +140,22 @@ export function GroupTrade({
   return (
     <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_340px]">
       <div className="min-w-0">
-        {chart}
+        {chartSeries && (
+          <div className="rounded-[14px] border border-line bg-surface p-4">
+            {chartSeries.length > 0 ? (
+              <MultiPriceChart
+                series={chartSeries}
+                now={chartNow ?? Date.now()}
+                live={chartLive}
+                focusKey={sel?.id ?? null}
+                lang={lang}
+              />
+            ) : (
+              <div className="h-40 grid place-items-center text-[13px] text-faint">{t.noTradesYet}</div>
+            )}
+            {chartFooter}
+          </div>
+        )}
 
         <div className="mt-8 rounded-[14px] border border-line bg-surface overflow-hidden">
           <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_90px_72px_56px_auto] items-center gap-3 px-4 py-2.5 border-b border-line text-[11px] font-semibold uppercase tracking-wide text-faint">
