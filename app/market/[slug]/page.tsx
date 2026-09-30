@@ -146,6 +146,10 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
   const heldYes = Number(position?.yesShares ?? 0);
   const heldNo = Number(position?.noShares ?? 0);
   const posValue = Math.round((heldYes * py + heldNo * (1 - py)) * 100);
+  // A live market past its close is closed for trading — status stays "live"
+  // in the DB until a resolver settles it, so expiry is derived here.
+  const expired = market.status === "live" && !!market.closesAt && market.closesAt <= new Date();
+  const tradable = market.status === "live" && !expired;
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-5">
@@ -186,6 +190,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
                 {t.resolved} {(market.outcome === "yes" ? t.yes : t.no).toUpperCase()}
               </Badge>
             )}
+            {expired && <Badge tone="warn" className="mt-1.5">{t.closedAwaiting}</Badge>}
             {market.status === "cancelled" && <Badge tone="mute" className="mt-1.5">{t.cancelled}</Badge>}
             {market.status === "pending" && <Badge tone="warn" className="mt-1.5">{t.pendingApproval}</Badge>}
             {market.status === "rejected" && <Badge tone="no" className="mt-1.5">{t.rejected}</Badge>}
@@ -231,7 +236,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               }))}
               // eslint-disable-next-line react-hooks/purity -- server component renders once per request
               now={Date.now()}
-              live={market.status === "live"}
+              live={tradable}
               lang={lang}
             />
             <div className="mt-3 pt-3 border-t border-line-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-mute font-medium">
@@ -241,7 +246,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="size-3.5" />
-                {market.closesAt ? `${t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
+                {market.closesAt ? `${expired ? t.closedOn : t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
               </span>
               <span className="inline-flex items-center gap-1.5">
                 {t.openedAt} {fmtDate(market.createdAt, lang)}
@@ -268,7 +273,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               qYes={Number(market.qYes)}
               qNo={Number(market.qNo)}
               b={market.b}
-              live={market.status === "live"}
+              live={tradable}
               signedIn={!!user}
               userBalanceCents={user?.balanceCents ?? null}
               heldYes={heldYes}
@@ -435,7 +440,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               qYes={Number(market.qYes)}
               qNo={Number(market.qNo)}
               b={market.b}
-              live={market.status === "live"}
+              live={tradable}
               signedIn={!!user}
               userBalanceCents={user?.balanceCents ?? null}
               heldYes={heldYes}
@@ -566,7 +571,9 @@ async function GroupMarketView({
   }
   const volume = options.reduce((s, o) => s + o.volumeCents, 0);
   const traders = options.reduce((s, o) => s + o.traderCount, 0);
-  const anyLive = live.length > 0;
+  // A live group past its close is done taking bets; it just awaits resolution.
+  const expired = !!market.closesAt && market.closesAt <= new Date();
+  const anyLive = live.length > 0 && !expired;
   const canDelete = !!user && (isAdmin(user) || (market.creatorId === user.id && betCount === 0));
   // Multi-line chart: every option with a price history, colored by sort order
   // — resolved options stay as flat lines pinned at 0%/100%.
@@ -581,7 +588,7 @@ async function GroupMarketView({
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-5">
-      {anyLive && <LiveRefresher intervalMs={8000} />}
+      {market.status === "live" && <LiveRefresher intervalMs={8000} />}
       <div className="text-[12.5px] text-mute font-medium">
         <Link href="/" className="hover:text-ink">{t.markets}</Link>
         <span className="mx-1.5">/</span>
@@ -608,18 +615,20 @@ async function GroupMarketView({
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Clock className="size-3.5" />
-              {market.closesAt ? `${t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
+              {market.closesAt ? `${expired ? t.closedOn : t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
             </span>
             {recurLabel(t, market.recurDays) && (
               <span className="inline-flex items-center gap-1.5" title={t.repeatsHint}>
                 <Repeat className="size-3.5" /> {recurLabel(t, market.recurDays)}
               </span>
             )}
-            {anyLive && (
+            {anyLive ? (
               <Badge tone="yes" className="uppercase">
                 <span className="live-dot" /> {t.live}
               </Badge>
-            )}
+            ) : expired && market.status === "live" ? (
+              <Badge tone="warn">{t.closedAwaiting}</Badge>
+            ) : null}
           </div>
         </div>
         {canDelete && (
@@ -684,7 +693,7 @@ async function GroupMarketView({
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="size-3.5" />
-                {market.closesAt ? `${t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
+                {market.closesAt ? `${expired ? t.closedOn : t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
               </span>
               <span className="inline-flex items-center gap-1.5">
                 {t.openedAt} {fmtDate(market.createdAt, lang)}

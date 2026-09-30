@@ -50,6 +50,8 @@ export function MarketCard({
   const py = marketYesPrice(market);
   const resolved = market.status === "resolved";
   const cancelled = market.status === "cancelled" || market.status === "rejected";
+  // Live markets past closesAt stop taking bets — they're just awaiting resolution.
+  const expired = market.status === "live" && !!market.closesAt && market.closesAt <= new Date();
 
   return (
     <Link href={`/market/${market.slug}`} className={CARD} style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}>
@@ -73,6 +75,8 @@ export function MarketCard({
               <Badge tone="mute">{t.cancelled}</Badge>
             ) : market.status === "pending" ? (
               <Badge tone="warn">{t.pendingApproval}</Badge>
+            ) : expired ? (
+              <Badge tone="warn">{t.closedAwaiting}</Badge>
             ) : (
               <AnimatedPct value={py} className={py >= 0.5 ? "text-yes" : "text-ink"} />
             )}
@@ -81,7 +85,7 @@ export function MarketCard({
         </div>
       </div>
 
-      {market.status === "live" && (
+      {market.status === "live" && !expired && (
         <div className="mt-3 grid grid-cols-2 gap-2">
           <span className="grid place-items-center h-8.5 rounded-md bg-yes-soft text-yes-strong text-[13px] font-semibold">
             {t.buyYes} {fmtMonos(Math.round(py * 100), { lang })}
@@ -120,6 +124,7 @@ export function MarketCard({
 // to its own binary market; resolved options collapse under "View resolved".
 function GroupCard({ market, options, index, lang, watching, liked, likes = 0, trending }: { market: MarketRow; options: MarketRow[]; index: number; lang?: Lang; watching?: boolean; liked?: boolean; likes?: number; trending?: boolean }) {
   const t = getT(lang ?? "en");
+  const parentExpired = !!market.closesAt && market.closesAt <= new Date();
   const live = options.filter((o) => o.status === "live");
   const closed = options.filter((o) => o.status !== "live");
   const volume = options.reduce((s, o) => s + o.volumeCents, 0);
@@ -146,7 +151,7 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
 
       <div className="mt-3 -mx-1 divide-y divide-line-2">
         {live.slice(0, 4).map((o) => (
-          <OptionRow key={o.id} option={o} parentSlug={market.slug} index={idxOf.get(o.id) ?? 0} lang={lang} />
+          <OptionRow key={o.id} option={o} parentSlug={market.slug} index={idxOf.get(o.id) ?? 0} lang={lang} expired={parentExpired} />
         ))}
         {live.length > 4 && (
           <Link href={`/market/${market.slug}`} className="block px-1 pt-2 text-[12px] font-semibold text-brand-strong hover:underline">
@@ -188,7 +193,7 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
   );
 }
 
-function OptionRow({ option: o, parentSlug, index, lang }: { option: MarketRow; parentSlug: string; index: number; lang?: Lang }) {
+function OptionRow({ option: o, parentSlug, index, lang, expired }: { option: MarketRow; parentSlug: string; index: number; lang?: Lang; expired?: boolean }) {
   const t = getT(lang ?? "en");
   const py = marketYesPrice(o);
   const resolved = o.status === "resolved";
@@ -212,6 +217,10 @@ function OptionRow({ option: o, parentSlug, index, lang }: { option: MarketRow; 
         </Badge>
       ) : o.status === "cancelled" ? (
         <Badge tone="mute" className="shrink-0">{t.cancelled}</Badge>
+      ) : expired ? (
+        <span className={cn("num w-10 text-right text-[14px] font-bold shrink-0", py >= 0.5 ? "text-yes" : "text-ink")}>
+          {Math.round(py * 100)}%
+        </span>
       ) : (
         <>
           <span className={cn("num w-10 text-right text-[14px] font-bold shrink-0", py >= 0.5 ? "text-yes" : "text-ink")}>

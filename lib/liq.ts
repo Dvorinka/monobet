@@ -26,3 +26,17 @@ export function liquidationValueCents(
 export function shouldLiquidate(valueCents: number, debtCents: number): boolean {
   return valueCents <= debtCents * LIQ_CUSHION;
 }
+
+// --- Game leverage (eToro-style, no debt) ---
+// A leveraged bet posts the stake as margin: a win pays stake + (mult-1) ×
+// notional, a loss forfeits the stake — never more. The leveraged top-up is
+// bought with a one-off funding fee (like a broker's spread), charged up front.
+export const LEV_FEE_BPS = 200; // 2% of the borrowed notional per play
+export function levFeeCents(betCents: number, leverage: number): number {
+  if (leverage <= 1) return 0;
+  return Math.round(betCents * (leverage - 1) * (LEV_FEE_BPS / 10_000));
+}
+// Win payout under margin rules: stake back plus amplified profit.
+export function levWinCents(betCents: number, leverage: number, mult: number): number {
+  return Math.round(betCents * (1 + (mult - 1) * leverage));
+}

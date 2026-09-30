@@ -18,6 +18,7 @@ import {
   blackjackDouble,
   blackjackSurrender,
 } from "@/lib/actions";
+import { levFeeCents } from "@/lib/liq";
 import {
   GAME_LEVERAGES,
   diceMult,
@@ -42,7 +43,7 @@ import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, Shuffle, X } from "lucide-react";
 
-type Net = { netCents: number; won: boolean; stamp: number; loanCents?: number } | null;
+type Net = { netCents: number; won: boolean; stamp: number; feeCents?: number } | null;
 
 function useGame(lang?: Lang) {
   const t = getT(lang ?? "en");
@@ -92,9 +93,9 @@ function ResultTag({ net, lang }: { net: Net; lang?: Lang }) {
     >
       {net.won ? `+${fmtMonos(net.netCents, { lang })}` : `−${fmtMonos(-net.netCents, { lang })}`}
       <span className="ml-1.5 text-[11px] font-semibold text-mute">{net.won ? t.win : t.lose}</span>
-      {(net.loanCents ?? 0) > 0 && (
+      {(net.feeCents ?? 0) > 0 && (
         <span className="ml-1.5 rounded-full border border-no/40 bg-no-soft px-1.5 py-0.5 text-[10px] font-bold text-no-strong align-middle">
-          {t.gameLoanChip(fmtMonos(net.loanCents!, { lang }))}
+          {t.gameFeeChip(fmtMonos(net.feeCents!, { lang }))}
         </span>
       )}
     </div>
@@ -149,7 +150,10 @@ function BetControls({
   lang?: Lang;
 }) {
   const t = getT(lang ?? "en");
-  const wager = Math.round(parseFloat(bet || "0") * 100) * Number(lev);
+  const betCents = Math.round(parseFloat(bet || "0") * 100);
+  const levN = Number(lev);
+  const fee = levFeeCents(betCents, levN);
+  const atRisk = betCents + fee;
   return (
     <div className="space-y-2">
       <div className="relative">
@@ -197,7 +201,7 @@ function BetControls({
       <div>
         <div className="flex items-center justify-between text-[12px] font-medium text-mute mb-1">
           <span>{t.leverage}</span>
-          <span className="num">{t.atRisk} {fmtMonos(wager, { lang })}</span>
+          <span className="num">{t.atRisk} {fmtMonos(atRisk, { lang })}</span>
         </div>
         <Segmented
           options={GAME_LEVERAGES.map((v) => ({ value: String(v), label: `${v}×` }))}
@@ -205,6 +209,9 @@ function BetControls({
           onChange={setLev}
           disabled={locked}
         />
+        {levN > 1 && !locked && (
+          <p className="mt-1.5 text-[11.5px] text-faint">{t.levFeeNote(fmtMonos(fee, { lang }))}</p>
+        )}
         {locked && <p className="mt-1.5 text-[11.5px] font-medium text-no-strong">{t.levLocked}</p>}
       </div>
     </div>
@@ -270,7 +277,7 @@ function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
         setRot((prev) => Math.ceil((prev + 1) / 360) * 360 + 4 * 360 + (r.landed === "tails" ? 180 : 0));
         setTimeout(() => {
           setSpinning(false);
-          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, loanCents: r.loanCents });
+          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents });
           dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx);
         }, 1150);
       }
@@ -373,7 +380,7 @@ function DiceCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
         setRolling(false);
         if (r?.roll) {
           setFace(r.roll);
-          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, loanCents: r.loanCents });
+          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents });
           dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx);
         }
       }, 650);
@@ -478,7 +485,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       setDisp(r.elapsedMs ?? 0);
       setErr(r.errMs ?? null);
       setDealer(r.dealer ?? null);
-      setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, loanCents: r.loanCents });
+      setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents });
       dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx);
     });
   };
@@ -571,7 +578,7 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
           else {
             setBusy(false);
             setWonLast(!!r.won);
-            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, loanCents: r.loanCents });
+            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents });
             dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx);
           }
         };
@@ -680,7 +687,7 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       setTimeout(() => {
         setSpinning(false);
         setLanded(r.mult ?? null);
-        setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.mult && r.mult > 0, loanCents: r.loanCents });
+        setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.mult && r.mult > 0, feeCents: r.feeCents });
         dealerWinFx(r.dealer, !!r.mult && r.mult > 0, r.netCents ?? 0, onWinFx);
       }, 3250);
     });
@@ -821,7 +828,7 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
         timers.current.push(
           setTimeout(() => {
             setSpinning(false);
-            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, loanCents: r.loanCents });
+            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents });
             dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, r.netCents ?? 0, onWinFx);
           }, 700 + r.reels.length * 350 + 150)
         );
@@ -886,7 +893,7 @@ type BjRound = {
   status: string;
   result?: string | null;
   netCents?: number | null;
-  loanCents?: number;
+  feeCents?: number;
   sides?: Record<string, BjSide> | null;
   doubled?: boolean;
 };
@@ -926,7 +933,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
     if (!s || s.status !== "settled") return;
     const won = s.result === "win" || s.result === "blackjack";
     playSfx(won ? "win" : "lose", 0.5);
-    setNet({ stamp: Date.now(), netCents: s.netCents ?? 0, won, loanCents: s.loanCents });
+    setNet({ stamp: Date.now(), netCents: s.netCents ?? 0, won, feeCents: s.feeCents });
     dealerWinFx(s.persona, won, s.netCents ?? 0, onWinFx);
   };
 

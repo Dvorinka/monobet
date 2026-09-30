@@ -380,7 +380,7 @@ export const blackjackRound = pgTable(
     status: text("status").notNull().default("playing"), // playing | settled
     result: text("result"), // win | lose | push | blackjack | surrender
     netCents: integer("net_cents"),
-    loanCents: integer("loan_cents").notNull().default(0), // house loan parked by a levered loss
+    loanCents: integer("loan_cents").notNull().default(0), // leverage funding fee paid at deal (legacy name)
     // Side bets settled at deal time — stake, payout, and the hand label hit.
     sides: jsonb("sides").$type<Record<string, { stake: number; winCents: number; label: string | null }>>(),
     doubled: boolean("doubled").notNull().default(false),

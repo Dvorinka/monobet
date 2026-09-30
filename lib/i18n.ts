@@ -73,6 +73,8 @@ const en = {
   rejected: "Rejected",
   won: "won",
   live: "Live",
+  closedAwaiting: "Closed — awaiting outcome",
+  closedOn: "Closed",
 
   // market page
   volume: "volume",
@@ -487,7 +489,8 @@ const en = {
   wallPrayers: "Prayers at the wall",
   wallForgiven: "forgiven",
   wallSilentShort: "silence",
-  gameLoanChip: (amt: string) => `house loan ${amt} → debt`,
+  gameFeeChip: (amt: string) => `leverage fee ${amt}`,
+  levFeeNote: (amt: string) => `Leverage fee ${amt} burned on every play`,
   levLocked: "In debt — the house won't extend credit. Repay first.",
   owedChip: "You owe",
   loanTierYours: "yours",
@@ -806,6 +809,8 @@ const cs: Dict = {
   rejected: "Zamítnuto",
   won: "vyhrálo",
   live: "Živě",
+  closedAwaiting: "Konec sázek — čeká na výsledek",
+  closedOn: "Uzavřelo se",
 
   volume: "objem",
   tradersW: "obchodníků",
@@ -1207,7 +1212,8 @@ const cs: Dict = {
   wallPrayers: "Prosby u zdi",
   wallForgiven: "prominuto",
   wallSilentShort: "ticho",
-  gameLoanChip: (amt: string) => `půjčka od casina ${amt} → dluh`,
+  gameFeeChip: (amt: string) => `poplatek za páku ${amt}`,
+  levFeeNote: (amt: string) => `Poplatek za páku ${amt} se strhne z každé hry`,
   levLocked: "Dlužíte — dům vám nepůjčí. Nejprve splaťte.",
   owedChip: "Dlužíte",
   loanTierYours: "vaše",

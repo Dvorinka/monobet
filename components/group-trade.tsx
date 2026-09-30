@@ -126,7 +126,7 @@ export function GroupTrade({
       qYes={sel.qYes}
       qNo={sel.qNo}
       b={sel.b}
-      live
+      live={!(parentClosed ?? false)}
       signedIn={signedIn}
       userBalanceCents={balanceCents}
       heldYes={selPos?.yes ?? 0}
@@ -209,6 +209,7 @@ export function GroupTrade({
                   <span className={cn("num text-right text-[15px] font-bold", py >= 0.5 ? "text-yes" : "text-ink")}>
                     {Math.round(py * 100)}%
                   </span>
+                  {!parentClosed && (
                   <span className="hidden sm:grid grid-cols-2 gap-1.5">
                     <button
                       type="button"
@@ -231,6 +232,7 @@ export function GroupTrade({
                       {t.no} {fmtMonos(Math.round((1 - py) * 100), { lang })}
                     </button>
                   </span>
+                  )}
                 </div>
               );
             })}

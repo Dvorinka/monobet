@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loanFor, LIQ_CUSHION, liquidationValueCents, shouldLiquidate } from "./liq";
+import { loanFor, LIQ_CUSHION, liquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "./liq";
 import { tradeCost, sharesForSpend } from "./lmsr";
 
 const B = 300;
@@ -55,5 +55,20 @@ describe("shouldLiquidate", () => {
     const debt = 1000;
     expect(shouldLiquidate(Math.floor(debt * LIQ_CUSHION), debt)).toBe(true);
     expect(shouldLiquidate(Math.ceil(debt * LIQ_CUSHION) + 1, debt)).toBe(false);
+  });
+});
+
+describe("game margin (levFeeCents / levWinCents)", () => {
+  it("charges 2% of the borrowed notional, nothing at 1x", () => {
+    expect(levFeeCents(10_000, 1)).toBe(0);
+    expect(levFeeCents(10_000, 5)).toBe(Math.round(10_000 * 4 * 0.02)); // Ɱ8
+    expect(levFeeCents(10_000, 100)).toBe(Math.round(10_000 * 99 * 0.02));
+  });
+
+  it("amplifies profit by leverage but always returns the stake", () => {
+    // Ɱ100 at 5x into a 2.4x limbo: stake back + 1.4 profit x 5.
+    expect(levWinCents(10_000, 5, 2.4)).toBe(Math.round(10_000 * (1 + 1.4 * 5)));
+    // Unleveraged reduces to the plain multiplier.
+    expect(levWinCents(10_000, 1, 2.4)).toBe(Math.round(10_000 * 2.4));
   });
 });
