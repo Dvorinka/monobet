@@ -39,6 +39,7 @@ export function MarketForm({
   const [rangeMax, setRangeMax] = useState("100");
   const [rangeStep, setRangeStep] = useState("10");
   const [rangeCustom, setRangeCustom] = useState(false);
+  const [rangePoints, setRangePoints] = useState(false); // exact values vs lo–hi bands
   const [rangeText, setRangeText] = useState("");
   const [description, setDescription] = useState("");
   const [context, setContext] = useState("");
@@ -62,15 +63,21 @@ export function MarketForm({
     if (marketType !== "range" || !Number.isFinite(rangeLo) || !Number.isFinite(rangeHi) || !Number.isFinite(rangeSt))
       return [] as string[];
     if (rangeSt <= 0 || rangeHi <= rangeLo) return [] as string[];
+    const fmt = (x: number) => String(Math.round(x * 100) / 100);
+    // Points mode: discrete values lo, lo+st, …, hi — labels are bare numbers.
+    if (rangePoints) {
+      const n = Math.floor((rangeHi - rangeLo) / rangeSt) + 1;
+      if (n < 2 || n > 12) return [] as string[];
+      return Array.from({ length: n }, (_, i) => fmt(rangeLo + i * rangeSt));
+    }
     const n = Math.ceil((rangeHi - rangeLo) / rangeSt);
     if (n < 2 || n > 12) return [] as string[];
-    const fmt = (x: number) => String(Math.round(x * 100) / 100);
     return Array.from({ length: n }, (_, i) => {
       const lo = rangeLo + i * rangeSt;
       const hi = Math.min(rangeHi, lo + rangeSt);
       return `${fmt(lo)} – ${fmt(hi)}`;
     });
-  }, [marketType, rangeLo, rangeHi, rangeSt]);
+  }, [marketType, rangeLo, rangeHi, rangeSt, rangePoints]);
 
   const rangeLines = rangeText.split("\n").map((o) => o.trim()).filter(Boolean);
   // Options are structured rows — server accepts "label | image-url" lines.
@@ -179,10 +186,20 @@ export function MarketForm({
               </button>
             </div>
             {!rangeCustom && (
-              <div className="mt-1.5 grid grid-cols-3 gap-2">
-                <Input value={rangeMin} onChange={(e) => setRangeMin(e.target.value)} placeholder={t.rangeMin} inputMode="decimal" />
-                <Input value={rangeMax} onChange={(e) => setRangeMax(e.target.value)} placeholder={t.rangeMax} inputMode="decimal" />
-                <Input value={rangeStep} onChange={(e) => setRangeStep(e.target.value)} placeholder={t.rangeStep} inputMode="decimal" />
+              <div className="mt-1.5 space-y-2">
+                <Segmented
+                  options={[
+                    { value: "bands", label: t.rangeBands },
+                    { value: "points", label: t.rangePoints },
+                  ]}
+                  value={rangePoints ? "points" : "bands"}
+                  onChange={(v) => setRangePoints(v === "points")}
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <Input value={rangeMin} onChange={(e) => setRangeMin(e.target.value)} placeholder={t.rangeMin} inputMode="decimal" />
+                  <Input value={rangeMax} onChange={(e) => setRangeMax(e.target.value)} placeholder={t.rangeMax} inputMode="decimal" />
+                  <Input value={rangeStep} onChange={(e) => setRangeStep(e.target.value)} placeholder={t.rangeStep} inputMode="decimal" />
+                </div>
               </div>
             )}
             {rangeCustom ? (
@@ -195,7 +212,9 @@ export function MarketForm({
             ) : (
               <p className="mt-1 text-[11.5px] text-faint">
                 {rangeBuckets.length >= 2
-                  ? t.rangePreview(rangeBuckets.length)
+                  ? rangePoints
+                    ? t.rangePreviewPts(rangeBuckets.length)
+                    : t.rangePreview(rangeBuckets.length)
                   : t.rangeInvalid}
               </p>
             )}
