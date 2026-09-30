@@ -280,9 +280,21 @@ export function MarketForm({
         )}
 
         <div>
-          <label className="text-[13px] font-medium text-mute" htmlFor="d">
-            {t.resolutionRules}
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-[13px] font-medium text-mute" htmlFor="d">
+              {t.resolutionRules}
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                if (description.trim() && !confirm(t.rulesTplOverwrite)) return;
+                setDescription(t.rulesTpl(multi));
+              }}
+              className="text-[12px] font-semibold text-brand hover:text-brand-strong cursor-pointer"
+            >
+              {t.rulesTplBtn}
+            </button>
+          </div>
           <Textarea
             id="d"
             value={description}
