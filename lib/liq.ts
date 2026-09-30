@@ -1,5 +1,5 @@
 // Leverage accounting — pure math shared by the trade actions.
-import { tradeCost } from "./lmsr";
+import { multiCost, tradeCost } from "./lmsr";
 
 // Principal of the loan a buy takes at `leverage`: collateral × (L-1).
 export const loanFor = (spendCents: number, leverage: number) => spendCents * (leverage - 1);
@@ -25,6 +25,19 @@ export function liquidationValueCents(
 
 export function shouldLiquidate(valueCents: number, debtCents: number): boolean {
   return valueCents <= debtCents * LIQ_CUSHION;
+}
+
+// Cents the group book pays to close `yesShares`/`noShares` on option `i`:
+// YES removes its coordinate, NO removes the i-th bundle from every sibling.
+export function groupLiquidationValueCents(
+  coords: number[],
+  b: number,
+  i: number,
+  yesShares: number,
+  noShares: number
+): number {
+  const after = coords.map((q, j) => q - (j === i ? yesShares : noShares));
+  return Math.round((multiCost(coords, b) - multiCost(after, b)) * 100);
 }
 
 // --- Game leverage (eToro-style, no debt) ---

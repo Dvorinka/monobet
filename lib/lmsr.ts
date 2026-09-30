@@ -48,3 +48,78 @@ export function sharesForSpend(
   }
   return lo;
 }
+
+// ---- Multi-outcome (group) book ----
+// Sibling options share one LMSR surface. A YES share on option i pays only
+// when i wins; a NO share on option i is the complement bundle — one share of
+// every other outcome — so option i's outstanding NO count qNo_i lifts every
+// sibling's coordinate. Live option j's coordinate:
+//   coord_j = qYes_j + Σ_{k≠j} qNo_k
+// Prices are the softmax over live coordinates, so they always sum to 1.
+// Resolved/cancelled options drop out of the live set; their coordinates stop
+// counting, which renormalizes the survivors automatically.
+
+export type GroupOptionState = { qYes: number; qNo: number };
+
+export function multiCoords(opts: GroupOptionState[]): number[] {
+  const noTotal = opts.reduce((s, o) => s + o.qNo, 0);
+  return opts.map((o) => o.qYes + noTotal - o.qNo);
+}
+
+export function multiCost(coords: number[], b: number): number {
+  const m = Math.max(...coords);
+  return m + b * Math.log(coords.reduce((s, q) => s + Math.exp((q - m) / b), 0));
+}
+
+export function multiPrices(coords: number[], b: number): number[] {
+  const m = Math.max(...coords);
+  const ex = coords.map((q) => Math.exp((q - m) / b));
+  const sum = ex.reduce((a, e) => a + e, 0);
+  return ex.map((e) => e / sum);
+}
+
+// Coordinate delta of a trade on option `i`: YES moves only its own
+// coordinate; NO (the complement bundle) moves every sibling's.
+function multiAfter(coords: number[], i: number, outcome: "yes" | "no", shares: number): number[] {
+  return coords.map((q, j) =>
+    outcome === "yes" ? q + (j === i ? shares : 0) : q + (j === i ? 0 : shares)
+  );
+}
+
+// Cost in marks of `shares` of `outcome` on option `i` (negative on the way
+// out → a refund).
+export function multiTradeCost(
+  coords: number[],
+  b: number,
+  i: number,
+  outcome: "yes" | "no",
+  shares: number
+): number {
+  return multiCost(multiAfter(coords, i, outcome, shares), b) - multiCost(coords, b);
+}
+
+// Shares obtainable for `spend` marks on option `i` — same monotonic search
+// as the binary book.
+export function multiSharesForSpend(
+  coords: number[],
+  b: number,
+  i: number,
+  outcome: "yes" | "no",
+  spend: number
+): number {
+  let lo = 0;
+  let hi = spend * 2 + b * 4;
+  while (multiTradeCost(coords, b, i, outcome, hi) < spend) hi *= 2;
+  for (let it = 0; it < 64; it++) {
+    const mid = (lo + hi) / 2;
+    if (multiTradeCost(coords, b, i, outcome, mid) <= spend) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
+// Coordinate seed so a fresh book opens at probability `p` for that option
+// (softmax of b·ln p over options ⇒ normalized opening prices).
+export function multiQForProb(p: number, b: number): number {
+  return b * Math.log(Math.min(0.999, Math.max(0.0001, p)));
+}

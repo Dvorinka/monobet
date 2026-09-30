@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Segmented, Button } from "@/components/ui/primitives";
-import { sharesForSpend, tradeCost, yesPrice } from "@/lib/lmsr";
+import { sharesForSpend, tradeCost, yesPrice, multiPrices, multiTradeCost, multiSharesForSpend } from "@/lib/lmsr";
 import { fmtMonos, fmtCents, fmtShares, fmtDate } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
@@ -28,6 +28,8 @@ export function TradeTicket({
   title,
   defaultOutcome,
   opensAt,
+  sharedQ,
+  sharedIndex,
 }: {
   marketId: string;
   qYes: number;
@@ -46,6 +48,10 @@ export function TradeTicket({
   defaultOutcome?: "yes" | "no";
   // Scheduled markets show a clock instead of the trade form until opens_at.
   opensAt?: Date | string | null;
+  // Group options price off the shared book: live-sibling coordinates plus
+  // this option's index in them. Absent → standalone binary market.
+  sharedQ?: number[];
+  sharedIndex?: number;
 }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [outcome, setOutcome] = useState<"yes" | "no">(defaultOutcome ?? "yes");
@@ -55,7 +61,8 @@ export function TradeTicket({
   const router = useRouter();
   const t = getT(lang ?? "en");
 
-  const py = yesPrice(qYes, qNo, b);
+  const shared = sharedQ != null && sharedIndex != null && sharedIndex >= 0;
+  const py = shared ? multiPrices(sharedQ, b)[sharedIndex] ?? 0 : yesPrice(qYes, qNo, b);
   const held = outcome === "yes" ? heldYes : heldNo;
   const spendCents = Math.round(parseFloat(amount || "0") * 100);
   const sellShares = parseFloat(amount || "0");
@@ -64,14 +71,18 @@ export function TradeTicket({
   const est = useMemo(() => {
     if (side === "buy") {
       if (spendCents < 100) return null;
-      const sh = sharesForSpend(qYes, qNo, b, outcome, (spendCents * lev) / 100);
+      const sh = shared
+        ? multiSharesForSpend(sharedQ, b, sharedIndex!, outcome, (spendCents * lev) / 100)
+        : sharesForSpend(qYes, qNo, b, outcome, (spendCents * lev) / 100);
       return { shares: sh, avg: (spendCents * lev) / 100 / sh, toWin: sh * 100 };
     }
     if (sellShares <= 0) return null;
     // tradeCost of a negative delta is negative — negate for the refund.
-    const refund = -tradeCost(qYes, qNo, b, outcome, -sellShares);
+    const refund = -(shared
+      ? multiTradeCost(sharedQ, b, sharedIndex!, outcome, -sellShares)
+      : tradeCost(qYes, qNo, b, outcome, -sellShares));
     return { shares: sellShares, avg: refund / sellShares, toWin: Math.round(refund * 100) };
-  }, [side, spendCents, sellShares, qYes, qNo, b, outcome, lev]);
+  }, [side, spendCents, sellShares, qYes, qNo, b, outcome, lev, shared, sharedQ, sharedIndex]);
 
   if (!live) return null;
 

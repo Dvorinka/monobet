@@ -94,7 +94,8 @@ function nearestIndex(points: Pt[], t: number): number {
 }
 
 // Polymarket-style multi-outcome chart: one colored line per option on a
-// shared time axis, crosshair + legend of latest percentages.
+// shared time axis, crosshair + legend of latest percentages. The legend is
+// clickable — picking a label selects the option in the list below.
 export function MultiPriceChart({
   series,
   now,
@@ -102,6 +103,7 @@ export function MultiPriceChart({
   lang,
   focusKey,
   trades,
+  onSelectKey,
 }: {
   series: Series[];
   now: number;
@@ -111,6 +113,7 @@ export function MultiPriceChart({
   // rest fade to faint colored ghosts.
   focusKey?: string | null;
   trades?: ChartMarker[];
+  onSelectKey?: (key: string) => void;
 }) {
   const t = getT(lang ?? "en");
   const locale = LOCALES[lang ?? "en"];
@@ -183,15 +186,25 @@ export function MultiPriceChart({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {data.map((s) => {
             const focused = !focusKey || s.key === focusKey;
+            // On hover the chips follow the crosshair — Polymarket-style.
+            const hp = hoverPts?.find((h) => h.s.key === s.key);
+            const pct = Math.round((hp ? hp.p.p : s.pts[s.pts.length - 1].p) * 100);
             return (
-              <span
+              <button
                 key={s.key}
-                className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold transition-opacity", !focused && "opacity-45")}
+                type="button"
+                onClick={() => onSelectKey?.(s.key)}
+                aria-pressed={focused}
+                className={cn(
+                  "inline-flex items-center gap-1.5 -my-0.5 rounded-md px-1 py-0.5 text-[12px] font-semibold transition-opacity",
+                  onSelectKey && "cursor-pointer hover:bg-surface-2",
+                  !focused && "opacity-45"
+                )}
               >
                 <span className="size-2 rounded-full" style={{ background: s.color }} />
                 <span className="text-ink-2 max-w-36 truncate">{s.label}</span>
-                <span className="num text-ink">{Math.round(s.pts[s.pts.length - 1].p * 100)}%</span>
-              </span>
+                <span className="num text-ink">{pct}%</span>
+              </button>
             );
           })}
           {live && (
@@ -284,6 +297,37 @@ export function MultiPriceChart({
                   />
                 );
               })}
+            {/* Fat invisible hit-areas — clicking a line selects the option,
+                same as its table row or legend chip. Sits under the markers. */}
+            {onSelectKey &&
+              data.map((s) => {
+                const p = paths.get(s.key);
+                if (!p) return null;
+                if (s.pts.length === 1)
+                  return (
+                    <circle
+                      key={`hit-${s.key}`}
+                      cx={x(new Date(s.pts[0].t).getTime())}
+                      cy={y(s.pts[0].p)}
+                      r={12}
+                      fill="transparent"
+                      className="cursor-pointer"
+                      onClick={() => onSelectKey(s.key)}
+                    />
+                  );
+                return (
+                  <path
+                    key={`hit-${s.key}`}
+                    d={p.line}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={14}
+                    pointerEvents="stroke"
+                    className="cursor-pointer"
+                    onClick={() => onSelectKey(s.key)}
+                  />
+                );
+              })}
           </g>
 
           {markers.map((m, i) => {
@@ -315,6 +359,63 @@ export function MultiPriceChart({
               {hoverPts.map(({ s, p }) => (
                 <circle pointerEvents="none" key={s.key} cx={x(new Date(p.t).getTime())} cy={y(p.p)} r="4" fill={s.color} stroke="var(--color-surface)" strokeWidth="2" />
               ))}
+              {/* Polymarket-style hover: a small % tag rides each line's dot —
+                  no floating panel covering the chart. Labels nudge apart when
+                  lines bunch up; the timestamp sits in the dead band under the
+                  plot, out of the lines' way. */}
+              {(() => {
+                const items = hoverPts
+                  .map(({ s, p }) => ({
+                    key: s.key,
+                    color: s.color,
+                    y: y(p.p),
+                    pct: Math.round(p.p * 100),
+                    focused: !focusKey || s.key === focusKey,
+                  }))
+                  .sort((a, b) => a.y - b.y);
+                const GAP = 12;
+                const lo = PAD_T + 4;
+                const hi = H - PAD_B - 4;
+                for (let i = 1; i < items.length; i++) items[i].y = Math.max(items[i].y, items[i - 1].y + GAP);
+                if (items.length && items[items.length - 1].y > hi) {
+                  items[items.length - 1].y = hi;
+                  for (let i = items.length - 2; i >= 0; i--) items[i].y = Math.min(items[i].y, items[i + 1].y - GAP);
+                }
+                if (items.length && items[0].y < lo) {
+                  items[0].y = lo;
+                  for (let i = 1; i < items.length; i++) items[i].y = Math.max(items[i].y, items[i - 1].y + GAP);
+                }
+                const right = hoverX > W - PAD_R - 64;
+                return items.map((it) => (
+                  <text
+                    key={it.key}
+                    x={right ? hoverX - 9 : hoverX + 9}
+                    y={it.y + 3.5}
+                    textAnchor={right ? "end" : "start"}
+                    fontSize="11"
+                    fontWeight="700"
+                    fill={it.color}
+                    opacity={it.focused ? 1 : 0.3}
+                    className="num"
+                    pointerEvents="none"
+                    style={{ paintOrder: "stroke", stroke: "var(--color-surface)", strokeWidth: 3.5, strokeLinejoin: "round" }}
+                  >
+                    {it.pct}%
+                  </text>
+                ));
+              })()}
+              <text
+                x={Math.min(W - PAD_R - 28, Math.max(PAD_L + 28, hoverX))}
+                y={H - 6}
+                textAnchor="middle"
+                fontSize="10.5"
+                fontWeight="600"
+                fill="var(--color-mute)"
+                className="num"
+                pointerEvents="none"
+              >
+                {new Date(hoverPts[0].p.t).toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              </text>
             </g>
           )}
         </svg>
@@ -324,7 +425,10 @@ export function MultiPriceChart({
             className="pointer-events-none absolute z-10 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-ink shadow-lg"
             style={{
               left: `${Math.min(88, Math.max(12, (x(new Date(markers[mark].t).getTime()) / W) * 100))}%`,
-              top: "0", transform: "translateX(-50%)",
+              // Pinned above its dot, like the binary chart's marker tooltip;
+              // flips to the side when the marker sits near the top.
+              top: `${(y(markers[mark].p) / H) * 100}%`,
+              transform: y(markers[mark].p) > 52 ? "translate(-50%, -115%)" : "translate(-50%, 28%)",
             }}
           >
             <div className="flex items-center gap-1.5 text-[11.5px] whitespace-nowrap">
@@ -339,26 +443,6 @@ export function MultiPriceChart({
             <div className="num mt-0.5 text-[10px] font-medium text-mute whitespace-nowrap">
               {new Date(markers[mark].t).toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
               {" · "}{Math.round(markers[mark].p * 100)}%
-            </div>
-          </div>
-        )}
-
-        {mark === null && hoverPts && (
-          <div
-            className="pointer-events-none absolute z-10 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-ink shadow-lg"
-            style={{ left: `${(hoverX / W) * 100}%`, top: "0", transform: "translateX(-50%)" }}
-          >
-            <div className="space-y-0.5">
-              {hoverPts.map(({ s, p }) => (
-                <div key={s.key} className="flex items-center gap-1.5 text-[11.5px] whitespace-nowrap">
-                  <span className="size-1.5 rounded-full" style={{ background: s.color }} />
-                  <span className="text-mute max-w-32 truncate">{s.label}</span>
-                  <span className="num font-bold ml-auto pl-2">{Math.round(p.p * 100)}%</span>
-                </div>
-              ))}
-            </div>
-            <div className="num mt-1 pt-1 border-t border-line-2 text-[10px] font-medium text-mute whitespace-nowrap">
-              {new Date(hoverPts[0].p.t).toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
             </div>
           </div>
         )}

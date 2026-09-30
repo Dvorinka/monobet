@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { lmsrCost, yesPrice, qForProb, tradeCost, sharesForSpend } from "./lmsr";
+import {
+  lmsrCost,
+  yesPrice,
+  qForProb,
+  tradeCost,
+  sharesForSpend,
+  multiCoords,
+  multiPrices,
+  multiTradeCost,
+  multiSharesForSpend,
+  multiQForProb,
+} from "./lmsr";
 
 const B = 300;
 const eps = 1e-9;
@@ -83,5 +94,82 @@ describe("sharesForSpend", () => {
 
   it("returns ~0 for negligible spend", () => {
     expect(sharesForSpend(0, 0, B, "yes", 1e-6)).toBeLessThan(0.01);
+  });
+});
+
+describe("multi-outcome book", () => {
+  // Six-option group seeded uniform — the book the user hit.
+  const seeded = (ps: number[]) => ps.map((p) => ({ qYes: multiQForProb(p, B), qNo: 0 }));
+
+  it("prices always sum to 1", () => {
+    for (const opts of [seeded([1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6]), seeded([0.7, 0.1, 0.2]), seeded([0.99, 0.01])]) {
+      const ps = multiPrices(multiCoords(opts), B);
+      expect(ps.reduce((a, p) => a + p, 0)).toBeCloseTo(1, 12);
+    }
+  });
+
+  it("opens at the seeded probabilities", () => {
+    const target = [0.5, 0.3, 0.2];
+    const ps = multiPrices(multiCoords(seeded(target)), B);
+    ps.forEach((p, i) => expect(p).toBeCloseTo(target[i], 9));
+  });
+
+  it("fresh book without seeds is uniform", () => {
+    const ps = multiPrices(multiCoords([{ qYes: 0, qNo: 0 }, { qYes: 0, qNo: 0 }, { qYes: 0, qNo: 0 }]), B);
+    ps.forEach((p) => expect(p).toBeCloseTo(1 / 3, 12));
+  });
+
+  it("buying YES lifts that option's price and lowers siblings'", () => {
+    const opts = seeded([0.5, 0.3, 0.2]);
+    const before = multiPrices(multiCoords(opts), B);
+    const s = multiSharesForSpend(multiCoords(opts), B, 0, "yes", 10);
+    opts[0].qYes += s;
+    const after = multiPrices(multiCoords(opts), B);
+    expect(after[0]).toBeGreaterThan(before[0]);
+    expect(after[1]).toBeLessThan(before[1]);
+    expect(after[2]).toBeLessThan(before[2]);
+  });
+
+  it("buying NO lifts siblings and lowers the option", () => {
+    const opts = seeded([0.5, 0.3, 0.2]);
+    const before = multiPrices(multiCoords(opts), B);
+    const s = multiSharesForSpend(multiCoords(opts), B, 0, "no", 10);
+    opts[0].qNo += s;
+    const after = multiPrices(multiCoords(opts), B);
+    expect(after[0]).toBeLessThan(before[0]);
+    expect(after[1]).toBeGreaterThan(before[1]);
+    expect(after[2]).toBeGreaterThan(before[2]);
+  });
+
+  it("small NO buy costs ~(1 - p) per share, small YES ~p", () => {
+    const opts = seeded([0.25, 0.25, 0.25, 0.25]);
+    const coords = multiCoords(opts);
+    expect(multiTradeCost(coords, B, 0, "yes", 0.01)).toBeCloseTo(0.0025, 5);
+    expect(multiTradeCost(coords, B, 0, "no", 0.01)).toBeCloseTo(0.0075, 5);
+  });
+
+  it("round-trips: buy then sell returns less than spent", () => {
+    const opts = seeded([0.4, 0.35, 0.25]);
+    const coords = multiCoords(opts);
+    const s = multiSharesForSpend(coords, B, 1, "yes", 25);
+    const refund = multiTradeCost(coords, B, 1, "yes", -s);
+    expect(refund).toBeLessThan(0);
+    expect(-refund).toBeLessThan(25 + 1e-6);
+  });
+
+  it("dropout renormalizes the survivors", () => {
+    const opts = seeded([0.5, 0.3, 0.2]);
+    const survivors = opts.slice(1);
+    const ps = multiPrices(multiCoords(survivors), B);
+    expect(ps[0] / ps[1]).toBeCloseTo(0.3 / 0.2, 9);
+    expect(ps.reduce((a, p) => a + p, 0)).toBeCloseTo(1, 12);
+  });
+
+  it("spend search is tight like the binary book", () => {
+    const coords = multiCoords(seeded([0.5, 0.3, 0.2]));
+    const s = multiSharesForSpend(coords, B, 2, "no", 25);
+    const cost = multiTradeCost(coords, B, 2, "no", s);
+    expect(cost).toBeLessThanOrEqual(25);
+    expect(25 - cost).toBeLessThan(0.01);
   });
 });
