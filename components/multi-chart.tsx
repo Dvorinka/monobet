@@ -56,19 +56,12 @@ const PAD_R = 12;
 const PAD_T = 14;
 const PAD_B = 26;
 
-// Same midpoint-quadratic smoothing as the single-market chart.
+// Straight segments — prices step between trades; smoothing would invent
+// swings that never happened. Same convention as the single-market chart.
 function smoothPath(coords: readonly (readonly [number, number])[]): string {
   if (coords.length < 2) return "";
-  if (coords.length === 2) return `M${coords[0][0]},${coords[0][1]} L${coords[1][0]},${coords[1][1]}`;
-  let d = `M${coords[0][0].toFixed(1)},${coords[0][1].toFixed(1)}`;
-  for (let i = 1; i < coords.length - 1; i++) {
-    const [x1, y1] = coords[i];
-    const [x2, y2] = coords[i + 1];
-    d += ` Q${x1.toFixed(1)},${y1.toFixed(1)} ${((x1 + x2) / 2).toFixed(1)},${((y1 + y2) / 2).toFixed(1)}`;
-  }
-  const [lx, ly] = coords[coords.length - 1];
-  d += ` L${lx.toFixed(1)},${ly.toFixed(1)}`;
-  return d;
+  return `M${coords[0][0].toFixed(1)},${coords[0][1].toFixed(1)}` +
+    coords.slice(1).map(([x, y]) => ` L${x.toFixed(1)},${y.toFixed(1)}`).join("");
 }
 
 function fmtTick(t: number, span: number, locale: string): string {
