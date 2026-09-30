@@ -291,14 +291,14 @@ export function PriceChart({ points, now, live, lang, trades }: { points: Pt[]; 
 
         {mark === null && hoverPt && (
           <div
-            className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-ink shadow-lg"
+            className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-lg border border-[#2c352d] bg-[#141a16] px-2.5 py-1.5 text-[#f2f6f2] shadow-lg"
             style={{ left: `${(hoverX / W) * 100}%`, top: `${(hoverY / H) * 100 - 3}%` }}
           >
             <div className="num text-[12.5px] font-bold leading-none">
               {Math.round(hoverPt.p * 100)}%
             </div>
-            <div className="num mt-0.5 text-[10px] font-medium text-mute whitespace-nowrap">
-              {new Date(hoverPt.t).toLocaleString("en-US", {
+            <div className="num mt-0.5 text-[10px] font-medium text-[#9aa79b] whitespace-nowrap">
+              {new Date(hoverPt.t).toLocaleString(locale, {
                 month: "short",
                 day: "numeric",
                 hour: "numeric",
