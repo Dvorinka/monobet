@@ -1198,6 +1198,9 @@ export async function updateMarket(input: {
   closesAt?: string;
   opensAt?: string;
   b?: number;
+  recurDays?: number | null;
+  maxLeverage?: number;
+  options?: { id: string; label: string; imageUrl?: string }[];
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
@@ -1233,6 +1236,34 @@ export async function updateMarket(input: {
     // lock it once the book has trades.
     if (bChanged && bets > 0) throw new Error("Liquidity is locked once bets are placed");
 
+    // Recurrence + leverage are caps read per-trade/per-resolve — safe to edit
+    // on a live book. Options inherit both from their parent.
+    const recurDays = isOpt || input.recurDays === undefined
+      ? m[0].recurDays
+      : [1, 7, 14, 30].includes(input.recurDays ?? 0)
+        ? input.recurDays
+        : null;
+    const maxLeverage =
+      input.maxLeverage !== undefined && TRADE_LEVERAGES.includes(input.maxLeverage)
+        ? input.maxLeverage
+        : m[0].maxLeverage;
+
+    // Option renames/image swaps are display-only — positions and the book key
+    // on the option's id, not its label. Each entry must name a real child.
+    const optionEdits =
+      m[0].kind === "group" && input.options?.length
+        ? input.options.map((o) => ({
+            id: o.id,
+            label: o.label.trim().slice(0, 60),
+            imageUrl: o.imageUrl?.trim() ?? "",
+          }))
+        : [];
+    for (const o of optionEdits) {
+      if (!o.label) throw new Error("Option label can't be empty");
+      if (o.imageUrl && !/^(https?:\/\/|\/)\S+$/.test(o.imageUrl) && !/^data:image\/(jpeg|png|webp);base64,|^data:image\/svg\+xml[;,]/.test(o.imageUrl))
+        throw new Error("Bad option image URL");
+    }
+
     await db.transaction(async (tx) => {
       // Category must resolve to a real row — match case-insensitively, else
       // create it the same way the propose form does (it's a user feature).
@@ -1257,17 +1288,26 @@ export async function updateMarket(input: {
           imageUrl: input.imageUrl !== undefined ? input.imageUrl.trim() || null : m[0].imageUrl,
           closesAt,
           opensAt,
+          recurDays,
+          maxLeverage,
           b: bChanged ? input.b! : m[0].b,
         })
         .where(eq(schema.market.id, input.marketId));
-      // Group children inherit the parent's category and schedule in the same
-      // transaction — a divergent option would keep trading under the old
-      // window (its own closesAt is what placeTrade checks).
+      // Group children inherit the parent's category, schedule, leverage cap,
+      // and book depth in the same transaction — a divergent option would keep
+      // trading under the old window (its own closesAt is what placeTrade
+      // checks) or price off a different b than its siblings' shared book.
       if (m[0].kind === "group") {
         await tx
           .update(schema.market)
-          .set({ category, closesAt, opensAt })
+          .set({ category, closesAt, opensAt, maxLeverage, b: bChanged ? input.b! : m[0].b })
           .where(eq(schema.market.parentId, input.marketId));
+        for (const o of optionEdits) {
+          await tx
+            .update(schema.market)
+            .set({ label: o.label, imageUrl: o.imageUrl || null })
+            .where(and(eq(schema.market.id, o.id), eq(schema.market.parentId, input.marketId)));
+        }
       }
     });
     revalidatePath(`/market/${m[0].slug}`);

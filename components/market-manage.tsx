@@ -10,15 +10,21 @@ import { MarketIcon } from "@/components/market-icon";
 import { CategoryModal } from "@/components/category-modal";
 import { resolveMarket, cancelMarket, updateMarket } from "@/lib/actions";
 import { fmtMonos } from "@/lib/money";
+import { optionColor } from "@/lib/option-style";
 import { getT, type Lang } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
 // Owner/admin controls on a market page — resolve (this happened / did not
-// happen), cancel-and-refund, and an edit form. Question locks once bets
-// exist; the server enforces it too.
+// happen), cancel-and-refund, and an edit form mirroring the creation form.
+// Locked once bets exist: the question (changes what people bet on) and the
+// liquidity depth b (reprices every open position). Market type and starting
+// odds are creation-only — the book can't be restructured or reseeded.
 export function MarketManagePanel({
   market,
+  options,
   categories,
   betCount,
+  isAdmin,
   lang,
 }: {
   market: {
@@ -32,9 +38,14 @@ export function MarketManagePanel({
     opensAt?: string | Date | null;
     status: string;
     kind: string;
+    b: number;
+    recurDays: number | null;
+    maxLeverage: number;
   };
+  options?: { id: string; label: string; imageUrl: string | null }[];
   categories: string[];
   betCount: number;
+  isAdmin?: boolean;
   lang?: Lang;
 }) {
   const t = getT(lang ?? "en");
@@ -54,10 +65,21 @@ export function MarketManagePanel({
     new Date(new Date(d).getTime() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   const [opensAt, setOpensAt] = useState(market.opensAt ? toLocalInput(market.opensAt) : "");
   const [closesAt, setClosesAt] = useState(market.closesAt ? toLocalInput(market.closesAt) : "");
+  const [opts, setOpts] = useState((options ?? []).map((o) => ({ ...o, imageUrl: o.imageUrl ?? "" })));
+  const [recurDays, setRecurDays] = useState(String(market.recurDays ?? 0));
+  const [maxLeverage, setMaxLeverage] = useState(market.maxLeverage);
+  const [liquidity, setLiquidity] = useState(market.b);
   const [reason, setReason] = useState("");
 
   const questionLocked = betCount > 0;
   const live = market.status === "live";
+  const isGroup = market.kind === "group";
+  const typeLabel = market.kind === "binary" ? t.typeBinary : t.typeMulti;
+  const LIQUIDITY = [
+    { b: 100, label: t.liqThin, hint: t.liqThinHint },
+    { b: 300, label: t.liqStandard, hint: t.liqStandardHint },
+    { b: 900, label: t.liqDeep, hint: t.liqDeepHint },
+  ] as const;
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string; paidOut?: number }>, ok: string) =>
     start(async () => {
@@ -133,6 +155,10 @@ export function MarketManagePanel({
                   // Empty string clears the field on purpose.
                   opensAt: opensAt ? new Date(opensAt).toISOString() : "",
                   closesAt: closesAt ? new Date(closesAt).toISOString() : "",
+                  recurDays: Number(recurDays),
+                  maxLeverage,
+                  b: liquidity,
+                  options: isGroup ? opts.map((o) => ({ id: o.id, label: o.label, imageUrl: o.imageUrl })) : undefined,
                 }),
               t.savedToast
             );
@@ -161,6 +187,16 @@ export function MarketManagePanel({
 
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+              {t.marketType}
+            </label>
+            <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-ink-2">
+              <Lock className="size-3 text-faint" /> {typeLabel}
+              <span className="text-[10.5px] font-normal text-faint">— {t.typeFixed}</span>
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
               {t.question}
             </label>
             <Input
@@ -176,6 +212,33 @@ export function MarketManagePanel({
               </p>
             )}
           </div>
+
+          {isGroup && opts.length > 0 && (
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+                {t.optionsLabel}
+              </label>
+              <div className="space-y-1.5">
+                {opts.map((o, i) => (
+                  <div key={o.id} className="flex items-center gap-1.5">
+                    <span className="size-2.5 rounded-full shrink-0" style={{ background: optionColor(i) }} />
+                    <Input
+                      value={o.label}
+                      onChange={(e) => setOpts((s) => s.map((r, j) => (j === i ? { ...r, label: e.target.value } : r)))}
+                      maxLength={60}
+                      className="h-9 text-[13px] flex-1"
+                    />
+                    <ImageCell
+                      image={o.imageUrl}
+                      onImage={(v) => setOpts((s) => s.map((r, j) => (j === i ? { ...r, imageUrl: v } : r)))}
+                      imageHint={t.optionImageHint}
+                      onBadImage={() => toast.error(t.imageBad)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
@@ -232,7 +295,67 @@ export function MarketManagePanel({
               </label>
               <Input type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} />
             </div>
+            {market.kind !== "option" && (
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+                  {t.repeats}
+                </label>
+                <Select value={recurDays} onChange={(e) => setRecurDays(e.target.value)}>
+                  <option value="0">{t.recurNever}</option>
+                  <option value="1">{t.recurDaily}</option>
+                  <option value="7">{t.recurWeekly}</option>
+                  <option value="14">{t.recurBiweekly}</option>
+                  <option value="30">{t.recurMonthly}</option>
+                </Select>
+              </div>
+            )}
           </div>
+
+          {market.kind !== "option" && (
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+                {t.maxLev}
+              </label>
+              <Select value={String(maxLeverage)} onChange={(e) => setMaxLeverage(Number(e.target.value))}>
+                {[1, 2, 3, 5, 10, 20].map((v) => (
+                  <option key={v} value={v}>
+                    {v === 1 ? `${t.maxLevNone} (1×)` : `${v}×`}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
+
+          {isAdmin && (
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+                {t.liquidity}
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {LIQUIDITY.map((l) => (
+                  <button
+                    key={l.b}
+                    type="button"
+                    disabled={questionLocked}
+                    onClick={() => setLiquidity(l.b)}
+                    className={cn(
+                      "rounded-lg border px-2 py-1.5 text-left transition-colors",
+                      liquidity === l.b ? "border-brand bg-brand-soft" : "border-line hover:border-faint/60",
+                      questionLocked ? "opacity-45 cursor-not-allowed" : "cursor-pointer"
+                    )}
+                  >
+                    <div className="text-[12px] font-bold">{l.label}</div>
+                    <div className="mt-0.5 text-[10px] leading-tight text-mute">{l.hint}</div>
+                  </button>
+                ))}
+              </div>
+              {questionLocked && (
+                <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-faint">
+                  <Lock className="size-3" /> {t.liqLocked}
+                </p>
+              )}
+            </div>
+          )}
 
           <Button size="sm" className="w-full" disabled={pending || question.trim().length < 10}>
             {pending ? "…" : t.save}

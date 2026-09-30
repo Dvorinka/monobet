@@ -500,7 +500,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
           )}
 
           {canManage && market.status !== "resolved" && (
-            <MarketManagePanel market={market} categories={categories} betCount={betCount} lang={lang} />
+            <MarketManagePanel market={market} categories={categories} betCount={betCount} isAdmin={isAdmin(user)} lang={lang} />
           )}
 
           {related.length > 0 && (
@@ -926,7 +926,14 @@ async function GroupMarketView({
             )}
 
             {canManage && market.status !== "resolved" && (
-              <MarketManagePanel market={market} categories={categories} betCount={betCount} lang={lang} />
+              <MarketManagePanel
+                market={market}
+                options={options.map((o) => ({ id: o.id, label: o.label ?? o.question, imageUrl: o.imageUrl }))}
+                categories={categories}
+                betCount={betCount}
+                isAdmin={isAdmin(user)}
+                lang={lang}
+              />
             )}
           </>
         }
