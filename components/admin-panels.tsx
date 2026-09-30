@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, Input, Select, Badge } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminRenameUser, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer } from "@/lib/actions";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminRenameUser, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer, setCasinoRig, setUserLuck } from "@/lib/actions";
 import { fmtMonos, fmtDate } from "@/lib/money";
+import { cn } from "@/lib/utils";
 import { getT, type Lang } from "@/lib/i18n";
 import { Check, X, CircleCheck, Ban, Pencil, Trash2, KeyRound, MessageSquareOff, MessageSquare, ShieldPlus, ShieldMinus, GripVertical, StickyNote, Scale } from "lucide-react";
 import { ImageCell, IconPicker } from "@/components/image-cell";
@@ -220,6 +221,152 @@ export function GrantPanel({ users, lang }: { users: { id: string; username: str
       </Button>
       <p className="text-[11.5px] text-faint">{t.grantNote}</p>
     </form>
+  );
+}
+
+// House P&L + casino tuning — admin "inside info": what the bank wins, and
+// knobs for global riggedness and per-user luck on the random games.
+type HouseStats = {
+  games: { game: string; rounds: number; wageredCents: number; paidCents: number; profitCents: number }[];
+  wageredCents: number;
+  paidCents: number;
+  profitCents: number;
+  profit24hCents: number;
+  profit7dCents: number;
+  rigBps: number;
+};
+
+const HOUSE_GAME_NAMES: Record<string, string> = {
+  Coin: "Coin flip",
+  Dice: "Dice",
+  Limbo: "Limbo",
+  Wheel: "Wheel",
+  Slots: "Slots",
+  Timer: "Timer",
+  Blackjack: "Blackjack",
+};
+
+export function HousePanel({
+  stats,
+  users,
+  lang,
+}: {
+  stats: HouseStats;
+  users: { id: string; username: string | null; luckBps: number }[];
+  lang?: Lang;
+}) {
+  const t = getT(lang ?? "en");
+  const { pending, run } = useAction(lang);
+  const [rigPct, setRigPct] = useState((stats.rigBps / 100).toFixed(0));
+  const [luckUser, setLuckUser] = useState(users[0]?.id ?? "");
+  const [luckPct, setLuckPct] = useState("");
+  const luckyUsers = users.filter((u) => u.luckBps !== 0);
+  const hold = stats.wageredCents > 0 ? (stats.profitCents / stats.wageredCents) * 100 : 0;
+
+  return (
+    <div className="p-4 space-y-5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {[
+          { label: t.house24h, v: stats.profit24hCents },
+          { label: t.house7d, v: stats.profit7dCents },
+          { label: t.houseAll, v: stats.profitCents },
+        ].map((s) => (
+          <div key={s.label} className="rounded-xl border border-line bg-surface-2 px-3 py-2.5">
+            <div className="text-[11px] font-semibold text-faint">{s.label}</div>
+            <div className={cn("num text-[17px] font-bold", s.v >= 0 ? "text-yes-strong" : "text-no-strong")}>
+              {s.v >= 0 ? "+" : "−"}{fmtMonos(Math.abs(s.v), { lang })}
+            </div>
+          </div>
+        ))}
+        <div className="rounded-xl border border-line bg-surface-2 px-3 py-2.5">
+          <div className="text-[11px] font-semibold text-faint">{t.houseHold}</div>
+          <div className="num text-[17px] font-bold text-ink">{hold.toFixed(1)}%</div>
+        </div>
+      </div>
+
+      {stats.games.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12.5px]">
+            <thead>
+              <tr className="text-left text-[11px] font-semibold text-faint border-b border-line">
+                <th className="pb-1.5 pr-3">{t.houseGame}</th>
+                <th className="pb-1.5 pr-3 text-right">{t.houseRounds}</th>
+                <th className="pb-1.5 pr-3 text-right">{t.houseWagered}</th>
+                <th className="pb-1.5 pr-3 text-right">{t.housePaid}</th>
+                <th className="pb-1.5 pr-3 text-right">{t.houseProfit}</th>
+                <th className="pb-1.5 text-right">{t.houseHold}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...stats.games]
+                .sort((a, b) => b.profitCents - a.profitCents)
+                .map((g) => (
+                  <tr key={g.game} className="border-b border-line/60 last:border-0">
+                    <td className="py-1.5 pr-3 font-semibold text-ink">{HOUSE_GAME_NAMES[g.game] ?? g.game}</td>
+                    <td className="py-1.5 pr-3 text-right num text-mute">{g.rounds.toLocaleString()}</td>
+                    <td className="py-1.5 pr-3 text-right num text-mute">{fmtMonos(g.wageredCents, { lang })}</td>
+                    <td className="py-1.5 pr-3 text-right num text-mute">{fmtMonos(g.paidCents, { lang })}</td>
+                    <td className={cn("py-1.5 pr-3 text-right num font-bold", g.profitCents >= 0 ? "text-yes-strong" : "text-no-strong")}>
+                      {g.profitCents >= 0 ? "+" : "−"}{fmtMonos(Math.abs(g.profitCents), { lang })}
+                    </td>
+                    <td className="py-1.5 text-right num text-mute">
+                      {g.wageredCents > 0 ? `${((g.profitCents / g.wageredCents) * 100).toFixed(1)}%` : "—"}
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <form
+          className="rounded-xl border border-line bg-surface-2 p-3 space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(() => setCasinoRig({ rigBps: Math.round(parseFloat(rigPct || "0") * 100) }), t.savedToast);
+          }}
+        >
+          <div className="text-[12px] font-bold text-ink">{t.houseRigTitle}</div>
+          <div className="flex gap-2">
+            <Input type="number" min={0} max={50} step="1" value={rigPct} onChange={(e) => setRigPct(e.target.value)} />
+            <Button size="sm" disabled={pending}>{t.save}</Button>
+          </div>
+          <p className="text-[11px] text-faint">{t.houseRigNote}</p>
+        </form>
+
+        <form
+          className="rounded-xl border border-line bg-surface-2 p-3 space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(() => setUserLuck({ userId: luckUser, luckBps: Math.round(parseFloat(luckPct || "0") * 100) }), t.savedToast);
+          }}
+        >
+          <div className="text-[12px] font-bold text-ink">{t.userLuckTitle}</div>
+          <div className="flex gap-2">
+            <Select value={luckUser} onChange={(e) => setLuckUser(e.target.value)}>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  @{u.username ?? u.id.slice(0, 8)}{u.luckBps !== 0 ? ` (${(u.luckBps / 100).toFixed(0)}%)` : ""}
+                </option>
+              ))}
+            </Select>
+            <Input type="number" min={-50} max={50} step="1" placeholder="%" value={luckPct} onChange={(e) => setLuckPct(e.target.value)} className="w-20 shrink-0" />
+            <Button size="sm" disabled={pending || !luckUser}>{t.save}</Button>
+          </div>
+          <p className="text-[11px] text-faint">{t.userLuckNote}</p>
+          {luckyUsers.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-0.5">
+              {luckyUsers.map((u) => (
+                <Badge key={u.id} tone={u.luckBps > 0 ? "yes" : "no"}>
+                  @{u.username ?? u.id.slice(0, 8)} {(u.luckBps / 100).toFixed(0)}%
+                </Badge>
+              ))}
+            </div>
+          )}
+        </form>
+      </div>
+    </div>
   );
 }
 

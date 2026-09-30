@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { getCurrentUser, isAdmin } from "@/lib/session";
-import { getPendingMarkets, listMarkets, getAllUsers, listCategories, listCategoryRows, getDisputedDuels, getNoteCounts, listDealers } from "@/lib/queries";
-import { PendingList, LiveMarketList, GrantPanel, CategoriesPanel, UsersPanel, UserManager, DuelAdminPanel, DealersPanel } from "@/components/admin-panels";
+import { getPendingMarkets, listMarkets, getAllUsers, listCategories, listCategoryRows, getDisputedDuels, getNoteCounts, listDealers, getHouseStats } from "@/lib/queries";
+import { PendingList, LiveMarketList, GrantPanel, CategoriesPanel, UsersPanel, UserManager, DuelAdminPanel, DealersPanel, HousePanel } from "@/components/admin-panels";
 import { MarketForm } from "@/components/market-form";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Card } from "@/components/ui/primitives";
-import { ShieldCheck, Inbox, Radio, Users, PlusCircle, Tags, UserPlus, Swords, Spade } from "lucide-react";
+import { ShieldCheck, Inbox, Radio, Users, PlusCircle, Tags, UserPlus, Swords, Spade, Landmark } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Admin" };
@@ -18,7 +18,7 @@ export default async function AdminPage() {
   if (!isAdmin(user)) redirect("/");
   const t = getT(lang);
 
-  const [pending, live, users, categories, categoryRows, disputed, dealers, noteCounts] = await Promise.all([
+  const [pending, live, users, categories, categoryRows, disputed, dealers, house, noteCounts] = await Promise.all([
     getPendingMarkets(),
     listMarkets({ includeOptions: true }),
     getAllUsers(),
@@ -26,6 +26,7 @@ export default async function AdminPage() {
     listCategoryRows(),
     getDisputedDuels(),
     listDealers(),
+    getHouseStats(),
   ]).then(async (r) => {
     // Note counts need the market ids first — one extra batched query.
     const counts = await getNoteCounts((r[1] as { id: string }[]).map((m) => m.id));
@@ -55,6 +56,17 @@ export default async function AdminPage() {
                 createdAt: m.createdAt,
                 username,
               }))}
+            />
+          </Card>
+        </section>
+
+        <section className="lg:col-span-2">
+          <SectionTitle icon={<Landmark className="size-4" />} title={t.houseTitle} />
+          <Card className="overflow-hidden">
+            <HousePanel
+              lang={lang}
+              stats={house}
+              users={users.map((u) => ({ id: u.id, username: u.username, luckBps: u.luckBps }))}
             />
           </Card>
         </section>

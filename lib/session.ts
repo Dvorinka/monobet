@@ -24,6 +24,7 @@ export type CurrentUser = {
   debtSince: Date | null;
   wallPrayerAt: Date | null;
   vowBps: number;
+  luckBps: number;
 };
 
 export function isAdmin(u: Pick<CurrentUser, "role" | "email"> | null | undefined): boolean {
@@ -54,6 +55,7 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     debtSince?: Date | null;
     wallPrayerAt?: Date | null;
     vowBps?: number;
+    luckBps?: number;
   };
   // Banned accounts keep a session cookie until it expires; treat them as
   // signed out everywhere so requireUser blocks them.
@@ -90,6 +92,7 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     debtSince: u.debtSince ?? null,
     wallPrayerAt: u.wallPrayerAt ?? null,
     vowBps: u.vowBps ?? 0,
+    luckBps: u.luckBps ?? 0,
   };
 });
 

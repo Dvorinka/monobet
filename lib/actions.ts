@@ -869,6 +869,37 @@ export async function grantBalance(input: {
   }
 }
 
+// ---------- casino tuning ----------
+
+export async function setCasinoRig(input: { rigBps: number }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const bps = Math.round(Number(input.rigBps));
+    if (!Number.isFinite(bps) || bps < 0 || bps > 5000) throw new Error("0–50% only");
+    await db
+      .insert(schema.casinoConfig)
+      .values({ id: "house", rigBps: bps })
+      .onConflictDoUpdate({ target: schema.casinoConfig.id, set: { rigBps: bps, updatedAt: new Date() } });
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Save failed" };
+  }
+}
+
+export async function setUserLuck(input: { userId: string; luckBps: number }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const bps = Math.round(Number(input.luckBps));
+    if (!Number.isFinite(bps) || bps < -5000 || bps > 5000) throw new Error("-50% to +50% only");
+    await db.update(schema.user).set({ luckBps: bps }).where(eq(schema.user.id, input.userId));
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Save failed" };
+  }
+}
+
 // ---------- markets ----------
 
 // Everyone can open a live market. The creator sets the starting odds and
@@ -2533,6 +2564,21 @@ async function telAvivBonus(tx: Tx, userId: string): Promise<number> {
 
 // Bibi's blessing — a losing round under his table flips to a win. The odds
 // grow with prayers left at the Wall of Debts, counted server-side.
+// Admin casino tuning — a single config row ("house"). rigBps flips that
+// share of player wins into losses across the random games; a user's
+// luckBps (negative = unlucky) applies after all dealer effects resolve.
+async function casinoRigBps(): Promise<number> {
+  const [row] = await db.select({ rigBps: schema.casinoConfig.rigBps }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house"));
+  return row?.rigBps ?? 0;
+}
+
+// Player-luck roll: positive bps rescues a loss, negative spoils a win.
+function luckRoll(won: boolean, luckBps: number): "win" | "lose" | null {
+  if (!won && luckBps > 0 && randomInt(10_000) < luckBps) return "win";
+  if (won && luckBps < 0 && randomInt(10_000) < -luckBps) return "lose";
+  return null;
+}
+
 async function maybeBless(userId: string, dealer: Persona): Promise<boolean> {
   if (!dealerFx(dealer).blessed) return false;
   const [r] = await db
@@ -2606,6 +2652,19 @@ export async function playCoinFlip(input: {
       landed = input.pick;
       won = true;
     }
+    // House tuning: admin rig spoils wins, per-user luck rescues (or spoils).
+    if (won && randomInt(10_000) < (await casinoRigBps())) {
+      landed = landed === "heads" ? "tails" : "heads";
+      won = false;
+    }
+    const luck = luckRoll(won, u.luckBps);
+    if (luck === "win") {
+      landed = input.pick;
+      won = true;
+    } else if (luck === "lose") {
+      landed = landed === "heads" ? "tails" : "heads";
+      won = false;
+    }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, COINFLIP_MULT, `Coin flip ${input.pick}→${landed}`, dealer)
     );
@@ -2639,6 +2698,18 @@ export async function playDice(input: {
     if (!won && (await maybeBless(u.id, dealer))) {
       roll = over + 1 + randomInt(6 - over); // a winning face, over+1..6
       won = true;
+    }
+    if (won && randomInt(10_000) < (await casinoRigBps())) {
+      roll = randomInt(1, over);
+      won = false;
+    }
+    const luck = luckRoll(won, u.luckBps);
+    if (luck === "win") {
+      roll = over + 1 + randomInt(6 - over);
+      won = true;
+    } else if (luck === "lose") {
+      roll = randomInt(1, over);
+      won = false;
     }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, mult, `Dice >${over} → ${roll}`, dealer)
@@ -2748,6 +2819,18 @@ export async function playLimbo(input: {
       roll = Math.min(1000, target * (1 + randomInt(40) / 100)); // clears the bar
       won = true;
     }
+    if (won && randomInt(10_000) < (await casinoRigBps())) {
+      roll = Math.max(1, target * (0.3 + randomInt(60) / 100));
+      won = false;
+    }
+    const luck = luckRoll(won, u.luckBps);
+    if (luck === "win") {
+      roll = Math.min(1000, target * (1 + randomInt(40) / 100));
+      won = true;
+    } else if (luck === "lose") {
+      roll = Math.max(1, target * (0.3 + randomInt(60) / 100));
+      won = false;
+    }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, won, target * 0.98, `Limbo ≥${target}x → ${roll.toFixed(2)}x`, dealer)
     );
@@ -2779,6 +2862,21 @@ export async function playWheel(input: {
       const wins = WHEEL_SEGMENTS.map((m, i) => (m > 0 ? i : -1)).filter((i) => i >= 0);
       index = wins[randomInt(wins.length)];
       mult = WHEEL_SEGMENTS[index];
+    }
+    if (mult > 0 && randomInt(10_000) < (await casinoRigBps())) {
+      const zeros = WHEEL_SEGMENTS.map((m, i) => (m === 0 ? i : -1)).filter((i) => i >= 0);
+      index = zeros[randomInt(zeros.length)];
+      mult = 0;
+    }
+    const luck = luckRoll(mult > 0, u.luckBps);
+    if (luck === "win") {
+      const wins = WHEEL_SEGMENTS.map((m, i) => (m > 0 ? i : -1)).filter((i) => i >= 0);
+      index = wins[randomInt(wins.length)];
+      mult = WHEEL_SEGMENTS[index];
+    } else if (luck === "lose") {
+      const zeros = WHEEL_SEGMENTS.map((m, i) => (m === 0 ? i : -1)).filter((i) => i >= 0);
+      index = zeros[randomInt(zeros.length)];
+      mult = 0;
     }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
       settleGame(tx, u.id, bet, lev, mult > 0, mult, `Wheel → ${mult}x`, dealer)
@@ -2816,6 +2914,25 @@ export async function playSlots(input: {
     }
     if (mult === 0 && (await maybeBless(u.id, dealer))) {
       // Re-deal until a paying spin; worst case, force the pair home.
+      for (let i = 0; i < 40 && mult === 0; i++) {
+        reels[0] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));
+        reels[1] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));
+        reels[2] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));
+        mult = slotPayout(reels[0], reels[1], reels[2]);
+      }
+      if (mult === 0) { reels[2] = reels[0]; mult = slotPayout(reels[0], reels[1], reels[2]); }
+    }
+    const riggedHouse = randomInt(10_000) < (await casinoRigBps());
+    const luck = luckRoll(mult > 0, u.luckBps);
+    if ((mult > 1 && riggedHouse) || luck === "lose") {
+      for (let i = 0; i < 40 && mult > 0; i++) {
+        reels[0] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));
+        reels[1] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));
+        reels[2] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));
+        mult = slotPayout(reels[0], reels[1], reels[2]);
+      }
+      if (mult > 0) { reels[2] = (reels[0] + 1) % SLOT_SYMBOLS.length; mult = slotPayout(reels[0], reels[1], reels[2]); }
+    } else if (mult === 0 && luck === "win") {
       for (let i = 0; i < 40 && mult === 0; i++) {
         reels[0] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));
         reels[1] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));

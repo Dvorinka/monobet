@@ -408,9 +408,48 @@ export async function getAllUsers() {
       bannedAt: schema.user.bannedAt,
       commentsBanned: schema.user.commentsBanned,
       createdAt: schema.user.createdAt,
+      luckBps: schema.user.luckBps,
     })
     .from(schema.user)
     .orderBy(asc(schema.user.createdAt));
+}
+
+// Admin "inside info" — what the house banked. Game rows are signed: the
+// wager row is negative, the payout row positive, so profit = −Σamount.
+// Game label is the first word of the memo ("Slots ★ ◆ ◆", "Dice >3 → 5").
+export async function getHouseStats() {
+  const [perGame, windows, cfg] = await Promise.all([
+    db
+      .select({
+        game: sql<string>`split_part(${schema.ledger.memo}, ' ', 1)`,
+        rounds: sql<number>`count(*) filter (where ${schema.ledger.amountCents} < 0)::int`,
+        wageredCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}) filter (where ${schema.ledger.amountCents} < 0), 0)::bigint`,
+        paidCents: sql<number>`coalesce(sum(${schema.ledger.amountCents}) filter (where ${schema.ledger.amountCents} > 0), 0)::bigint`,
+      })
+      .from(schema.ledger)
+      .where(eq(schema.ledger.kind, "game"))
+      .groupBy(sql`1`),
+    db
+      .select({
+        wageredCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}) filter (where ${schema.ledger.amountCents} < 0), 0)::bigint`,
+        paidCents: sql<number>`coalesce(sum(${schema.ledger.amountCents}) filter (where ${schema.ledger.amountCents} > 0), 0)::bigint`,
+        profit24h: sql<number>`coalesce(-sum(${schema.ledger.amountCents}) filter (where ${schema.ledger.createdAt} > now() - interval '24 hours'), 0)::bigint`,
+        profit7d: sql<number>`coalesce(-sum(${schema.ledger.amountCents}) filter (where ${schema.ledger.createdAt} > now() - interval '7 days'), 0)::bigint`,
+      })
+      .from(schema.ledger)
+      .where(eq(schema.ledger.kind, "game")),
+    db.select({ rigBps: schema.casinoConfig.rigBps }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house")),
+  ]);
+  const w = windows[0] ?? { wageredCents: 0, paidCents: 0, profit24h: 0, profit7d: 0 };
+  return {
+    games: perGame.map((r) => ({ ...r, profitCents: r.wageredCents - r.paidCents })),
+    wageredCents: w.wageredCents,
+    paidCents: w.paidCents,
+    profitCents: w.wageredCents - w.paidCents,
+    profit24hCents: w.profit24h,
+    profit7dCents: w.profit7d,
+    rigBps: cfg[0]?.rigBps ?? 0,
+  };
 }
 
 // Timestamped price history for every option of a group — feeds the
