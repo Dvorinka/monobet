@@ -75,7 +75,7 @@ export function diceWinChance(over: number) {
 
 // Stop-the-timer: digits hide after this long; hit windows pay by precision.
 // Longer targets pay more — holding a hidden count for 30s is harder.
-export const TIMER_TARGETS = [5000, 10000, 15000, 30000] as const;
+export const TIMER_TARGETS = [2000, 3000, 5000, 10000, 15000, 30000] as const;
 export const TIMER_REVEAL_MS = 2000;
 export const TIMER_TIERS = [
   { errMs: 150, mult: 6 },
@@ -83,6 +83,8 @@ export const TIMER_TIERS = [
   { errMs: 700, mult: 1.4 },
 ] as const;
 export const TIMER_TARGET_MULT: Record<number, number> = {
+  2000: 0.6,
+  3000: 0.8,
   5000: 1,
   10000: 1.5,
   15000: 2,
