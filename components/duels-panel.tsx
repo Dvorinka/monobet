@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Swords, Check, X, Trophy, AlertTriangle, Dices, RefreshCw, CircleDot, Clover } from "lucide-react";
+import { Swords, Check, X, Trophy, AlertTriangle, Dices, RefreshCw, CircleDot, Clover, ArrowDownToDot } from "lucide-react";
 import { Button, Card, Input, Badge, Select, Segmented } from "@/components/ui/primitives";
 import { createDuel, respondDuel, cancelDuel, proposeDuelWinner, duelPlay } from "@/lib/actions";
 import { fmtMonos } from "@/lib/money";
@@ -42,6 +42,7 @@ const KIND_ICONS: Record<string, React.ReactNode> = {
   roll: <Dices className="size-3.5" />,
   wheel: <CircleDot className="size-3.5" />,
   slots: <RefreshCw className="size-3.5" />,
+  plinko: <ArrowDownToDot className="size-3.5" />,
 };
 
 // Head-to-head bets between two users — both stakes escrow on accept, the
@@ -74,6 +75,7 @@ export function DuelsPanel({
     roll: t.duelKindRoll,
     wheel: t.duelKindWheel,
     slots: t.duelKindSlots,
+    plinko: t.duelKindPlinko,
   };
   const kindDesc: Record<DuelKind, string> = {
     claim: t.duelKindClaimDesc,
@@ -81,6 +83,7 @@ export function DuelsPanel({
     roll: t.duelKindRollDesc,
     wheel: t.duelKindWheelDesc,
     slots: t.duelKindSlotsDesc,
+    plinko: t.duelKindPlinkoDesc,
   };
   const moveLabel = (mv: string | number | undefined) => {
     if (mv === undefined) return "—";

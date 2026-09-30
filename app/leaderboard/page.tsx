@@ -13,6 +13,14 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Leaderboard" };
 
 const MEDALS = ["text-amber-500", "text-slate-400", "text-amber-700"];
+const PODIUM_BARS = ["bg-amber-500/80", "bg-slate-400/80", "bg-amber-700/80"];
+// Rank titles — the ladder reads like the pit sees it.
+function rankTitle(rank: number, t: ReturnType<typeof getT>) {
+  if (rank === 1) return t.lbWhale;
+  if (rank <= 3) return t.lbShark;
+  if (rank <= 10) return t.lbRegular;
+  return t.lbMinnow;
+}
 
 export default async function LeaderboardPage() {
   const [season, rows, user, lang, history, squads] = await Promise.all([
@@ -45,6 +53,29 @@ export default async function LeaderboardPage() {
         <Badge tone="warn" className="text-[11px]">{fmtDate(season.endsAt, lang)}</Badge>
       </Card>
 
+      {rows.length > 0 && (
+        <div className="mt-6 grid grid-cols-3 items-end gap-2.5">
+          {[rows[1], rows[0], rows[2]].map((r, i) => {
+            if (!r) return <div key={i} />;
+            const rank = i === 0 ? 2 : i === 1 ? 1 : 3;
+            const barH = rank === 1 ? "h-20" : rank === 2 ? "h-12" : "h-9";
+            return (
+              <div key={r.id} className="flex flex-col items-center gap-1.5 min-w-0">
+                <Avatar name={r.username ?? r.name} image={r.image} className={cn(rank === 1 ? "size-12" : "size-9", "ring-2 ring-surface shadow")} />
+                <Link href={`/u/${r.username ?? r.name}`} className="max-w-full truncate text-[12.5px] font-semibold hover:underline underline-offset-2">
+                  @{r.username ?? r.name}
+                </Link>
+                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-faint">{rankTitle(rank, t)}</span>
+                <span className="num text-[13px] font-bold">{fmtMonos(r.netWorthCents, { lang })}</span>
+                <div className={cn("w-full rounded-t-lg grid place-items-start justify-center pt-1.5", barH, PODIUM_BARS[rank - 1])}>
+                  <span className="text-[13px] font-black text-white/90">{rank}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <Card className="mt-4 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -70,6 +101,7 @@ export default async function LeaderboardPage() {
                     <span className="font-medium">
                       @{r.username ?? r.name}
                       {user?.id === r.id && <span className="text-yes-strong text-[11px] font-semibold ml-1.5">{t.lbYou}</span>}
+                      <span className="block text-[10.5px] font-semibold uppercase tracking-wide text-faint">{rankTitle(i + 1, t)}</span>
                     </span>
                   </Link>
                 </td>

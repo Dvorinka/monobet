@@ -9,8 +9,9 @@ import { AnimatedMoney } from "@/components/animated-number";
 import { getLang } from "@/lib/lang-server";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Wallet, TrendingUp, Landmark, ListOrdered } from "lucide-react";
+import { Wallet, TrendingUp, Landmark, ListOrdered, ChartLine } from "lucide-react";
 import { AvatarUpload } from "@/components/avatar-upload";
+import { BalanceChart } from "@/components/balance-chart";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Portfolio" };
@@ -23,11 +24,19 @@ export default async function PortfolioPage() {
   const [positions, trades, ledger] = await Promise.all([
     getUserPositions(user.id),
     getUserTrades(user.id),
-    getUserLedger(user.id, 30),
+    getUserLedger(user.id, 300),
   ]);
 
   const portfolioCents = positions.reduce((s, p) => s + p.valueCents, 0);
   const netWorth = user.balanceCents + portfolioCents;
+  // Balance history — ledger rows arrive newest-first; the chart wants time
+  // ascending, and the live balance is the last step.
+  const balanceSeries = ledger
+    .slice()
+    .reverse()
+    .map((l) => ({ t: l.createdAt, balanceCents: l.balanceAfterCents }));
+  if (balanceSeries.length === 0 || balanceSeries[balanceSeries.length - 1].balanceCents !== user.balanceCents)
+    balanceSeries.push({ t: new Date(), balanceCents: user.balanceCents });
 
   return (
     <div className="mx-auto max-w-6xl px-4 pt-8">
@@ -44,6 +53,16 @@ export default async function PortfolioPage() {
         <Stat icon={<TrendingUp className="size-4" />} label={t.positionsValue} value={<AnimatedMoney cents={portfolioCents} lang={lang} />} />
         <Stat icon={<Landmark className="size-4" />} label={t.netWorth} value={<AnimatedMoney cents={netWorth} lang={lang} />} highlight />
       </div>
+
+      {balanceSeries.length > 1 && (
+        <Card className="mt-4 p-4">
+          <div className="flex items-center gap-1.5 text-[12px] font-medium text-mute mb-1">
+            <ChartLine className="size-4" />
+            {t.pfBalanceHistory}
+          </div>
+          <BalanceChart points={balanceSeries} lang={lang} />
+        </Card>
+      )}
 
       <section className="mt-10">
         <h2 className="text-[16px] font-semibold mb-3">{t.positions}</h2>
@@ -136,7 +155,7 @@ export default async function PortfolioPage() {
         <section>
           <h2 className="text-[16px] font-semibold mb-3">{t.cashFlow}</h2>
           <Card className="p-1.5">
-            {ledger.map((l) => (
+            {ledger.slice(0, 30).map((l) => (
               <div key={l.id} className="flex items-center gap-3 px-3 py-2.5 text-[13px]">
                 <KindBadge kind={l.kind} lang={lang} />
                 <span className="truncate text-mute flex-1">{l.memo || l.kind}</span>

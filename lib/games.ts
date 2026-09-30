@@ -118,10 +118,32 @@ export function limboWinChance(target: number) {
 export const WHEEL_SEGMENTS = [0, 1.5, 0.5, 0, 2.5, 0, 0.8, 0, 5, 0, 1.2, 0.6] as const;
 export const WHEEL_STEP = 360 / WHEEL_SEGMENTS.length;
 
+// Plinko — a ball falls through 12 rows of pins, each bounce 50/50 left/right,
+// and lands in one of 13 pockets. Edges pay the most; the table is symmetric
+// and unimodal, so "nudge toward the middle" always lowers the payout (rig)
+// and "nudge outward" always raises it (bless/luck). RTP ≈ 95.9%.
+export const PLINKO_ROWS = 12;
+export const PLINKO_MULT = [40, 11, 3.7, 1.8, 0.9, 0.6, 0.5, 0.6, 0.9, 1.8, 3.7, 11, 40] as const;
+export const PLINKO_CENTER = PLINKO_ROWS / 2;
+export function plinkoBucket(path: number[]) {
+  return path.reduce((a, step) => a + (step ? 1 : 0), 0);
+}
+// Rebuild a valid path for a given pocket — used when rig/luck moves the
+// landing, so the replayed animation still matches the settled outcome.
+export function plinkoPathForBucket(bucket: number, rand: (n: number) => number) {
+  const order = Array.from({ length: PLINKO_ROWS }, (_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = rand(i + 1);
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const rights = new Set(order.slice(0, bucket));
+  return Array.from({ length: PLINKO_ROWS }, (_, i) => (rights.has(i) ? 1 : 0));
+}
+
 // Duels — claim is the classic agreed bet; the rest are server-resolved
 // minigames where both sides make one move and the better result takes the
 // pot. Game rounds are free; only the locked stake is real money.
-export const DUEL_KINDS = ["claim", "rps", "roll", "wheel", "slots"] as const;
+export const DUEL_KINDS = ["claim", "rps", "roll", "wheel", "slots", "plinko"] as const;
 export type DuelKind = (typeof DUEL_KINDS)[number];
 export const RPS_MOVES = ["rock", "paper", "scissors"] as const;
 export type RpsMove = (typeof RPS_MOVES)[number];
@@ -135,6 +157,7 @@ export const DUEL_NAMES: Record<DuelKind, string> = {
   roll: "High roll",
   wheel: "Wheel spin",
   slots: "Slots draw",
+  plinko: "Plinko drop",
 };
 
 // Slots: three reels drawn from a weighted 5-symbol strip (18 slots).

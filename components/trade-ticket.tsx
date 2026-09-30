@@ -189,6 +189,15 @@ export function TradeTicket({
             value={leverage}
             onChange={setLeverage}
           />
+          {lev > 1 && spendCents > 0 && (
+            <p className="num mt-1.5 text-[11.5px] font-medium text-ink-2">
+              {t.levBreakdown(
+                fmtMonos(spendCents, { lang }),
+                fmtMonos(spendCents * (lev - 1), { lang }),
+                fmtMonos(spendCents * lev, { lang })
+              )}
+            </p>
+          )}
           {lev > 1 && <p className="mt-1.5 text-[11px] text-faint">{t.liqNote}</p>}
         </div>
       )}
@@ -212,7 +221,7 @@ export function TradeTicket({
             <Row k={t.loanLabel} v={fmtMonos(spendCents * (lev - 1), { lang })} />
           )}
           {side === "buy" ? (
-            <Row k={t.toWin} v={fmtMonos(est.toWin, { lang })} accent />
+            <Row k={t.paysIfRight} v={fmtMonos(est.toWin, { lang })} accent />
           ) : (
             <Row k={t.youReceive} v={fmtMonos(est.toWin, { lang })} accent />
           )}

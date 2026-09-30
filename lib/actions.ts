@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, ne, and, sql, desc, asc, isNull, inArray } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, type DuelKind, type RpsMove, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, type DuelKind, type RpsMove, type Persona } from "@/lib/games";
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -2972,6 +2972,55 @@ export async function playSlots(input: {
   }
 }
 
+// Plinko — the server picks every left/right bounce and returns the path, so
+// the client's animation replays the settled drop rather than illustrating
+// one. Rig spoils by nudging the pocket toward the middle, bless/luck nudge
+// it outward — the table's unimodal, so direction maps cleanly to outcome.
+export async function playPlinko(input: {
+  betCents: number;
+  leverage: number;
+  dealerId?: string;
+}): Promise<{ ok: boolean; error?: string; path?: number[]; bucket?: number; mult?: number; netCents?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
+  try {
+    const u = await requireUser();
+    await assertNotSpam(u.id, "game");
+    const { bet, lev } = checkBet(input.betCents, input.leverage);
+    let path = Array.from({ length: PLINKO_ROWS }, () => (randomInt(2) === 1 ? 1 : 0));
+    let bucket = plinkoBucket(path);
+    let mult = PLINKO_MULT[bucket];
+    // Walk toward the middle until the pocket stops paying, walk outward until
+    // it does — bounded so a nudge always terminates at the board's edge.
+    const spoil = (k: number) => {
+      while (k !== PLINKO_CENTER && PLINKO_MULT[k] > 1) k += k < PLINKO_CENTER ? 1 : -1;
+      return k;
+    };
+    const rescue = (k: number) => {
+      while (k > 0 && k < PLINKO_ROWS && PLINKO_MULT[k] <= 1)
+        k += k < PLINKO_CENTER ? -1 : k > PLINKO_CENTER ? 1 : randomInt(2) ? -1 : 1;
+      return k;
+    };
+    const move = (k: number) => {
+      bucket = k;
+      path = plinkoPathForBucket(k, randomInt);
+      mult = PLINKO_MULT[k];
+    };
+    const dealer = await pickDealer(input.dealerId);
+    if (dealerFx(dealer).rigged && mult > 1 && randomInt(100) < RIG_PCT) move(spoil(bucket));
+    if (mult <= 1 && (await maybeBless(u.id, dealer))) move(rescue(bucket));
+    if (mult > 1 && randomInt(10_000) < (await casinoRigBps())) move(spoil(bucket));
+    const luck = luckRoll(mult > 1, u.luckBps);
+    if (luck === "win") move(rescue(bucket));
+    else if (luck === "lose") move(spoil(bucket));
+    const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
+      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Plinko → pocket ${bucket} ×${mult}`, dealer)
+    );
+    revalidatePath("/games");
+    return { ok: true, path, bucket, mult, netCents, dealer, feeCents, skimCents, tavCents };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Drop failed" };
+  }
+}
+
 // ---------- referral ----------
 
 // Referee gets Ɱ100 once; the referrer gets Ɱ200 per friend who joins.
@@ -3199,6 +3248,8 @@ export async function duelPlay(input: {
       } else if (c.kind === "slots") {
         const draw = [slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT))];
         mv = slotPayout(draw[0], draw[1], draw[2]);
+      } else if (c.kind === "plinko") {
+        mv = PLINKO_MULT[plinkoBucket(Array.from({ length: PLINKO_ROWS }, () => randomInt(2)))];
       } else throw new Error("Unknown duel kind");
       moves[u.id] = mv;
       const other = u.id === c.creatorId ? c.opponentId : c.creatorId;

@@ -12,6 +12,7 @@ import {
   playLimbo,
   playWheel,
   playSlots,
+  playPlinko,
   blackjackDeal,
   blackjackHit,
   blackjackStand,
@@ -33,6 +34,8 @@ import {
   limboWinChance,
   WHEEL_SEGMENTS,
   WHEEL_STEP,
+  PLINKO_ROWS,
+  PLINKO_MULT,
   SLOT_SYMBOLS,
   SLOT_TRIPLE,
   BJ_NATURAL_MULT,
@@ -45,7 +48,7 @@ import { type DealerFx, type Persona } from "@/lib/games";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, Shuffle, X } from "lucide-react";
+import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, Shuffle, CircleDot, X } from "lucide-react";
 
 type Net = { netCents: number; won: boolean; stamp: number; feeCents?: number; stakeCents?: number; skimCents?: number } | null;
 
@@ -1205,6 +1208,134 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
   );
 }
 
+// ---------- plinko ----------
+
+// Board geometry — 12 peg rows as a triangle, pockets underneath. The ball's
+// x at row r is (rights so far − r/2) peg-spacings off center, so a path of
+// 0/1 steps maps onto a visible zigzag that ends over pocket `bucket`.
+const PK_TOP = 24;
+const PK_ROW = 19;
+const pkX = (k: number, r: number) => 140 + (k - r / 2) * 20;
+const pkY = (r: number) => (r >= PLINKO_ROWS ? 260 : PK_TOP + r * PK_ROW);
+
+function PlinkoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+  const t = getT(lang ?? "en");
+  const { pending, run } = useGame(lang);
+  const [bet, setBet] = useState("10");
+  const [lev, setLev] = useState("1");
+  const [path, setPath] = useState<number[] | null>(null);
+  const [step, setStep] = useState(0);
+  const [bucket, setBucket] = useState<number | null>(null);
+  const [net, setNet] = useState<Net>(null);
+  const [dealer, setDealer] = useState<Persona | null>(null);
+
+  const dropping = path != null && step <= PLINKO_ROWS;
+  useEffect(() => {
+    if (!dropping) return;
+    const id = setTimeout(() => setStep((s) => s + 1), 95);
+    return () => clearTimeout(id);
+  }, [dropping, step]);
+
+  const rights = path ? path.slice(0, Math.min(step, PLINKO_ROWS)).reduce((a, b) => a + b, 0) : 0;
+  const ballX = pkX(rights, Math.min(step, PLINKO_ROWS));
+  const ballY = pkY(step);
+
+  const drop = () => {
+    const bc = Math.round(parseFloat(bet || "0") * 100);
+    run(() => playPlinko({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })).then((r) => {
+      if (!r?.path || r.bucket == null) return;
+      playSfx("roll", 0.4);
+      setNet(null);
+      setDealer(r.dealer ?? null);
+      setBucket(r.bucket);
+      setStep(0);
+      setPath(r.path);
+      setTimeout(() => {
+        const won = (r.mult ?? 0) > 1;
+        setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+        dealerWinFx(r.dealer, won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
+      }, (PLINKO_ROWS + 1) * 95 + 200);
+    });
+  };
+
+  return (
+    <GameCard
+      icon={<CircleDot className="size-4.5" />}
+      title={t.gPlinko}
+      sub={t.gPlinkoSub}
+      stage={
+        <div className="flex flex-col items-center gap-2">
+          <svg viewBox="0 0 280 300" className="w-full max-w-[280px]" role="img" aria-label="Plinko">
+            {/* pegs */}
+            {Array.from({ length: PLINKO_ROWS }, (_, r) =>
+              Array.from({ length: r + 1 }, (_, j) => (
+                <circle key={`${r}-${j}`} cx={pkX(j, r)} cy={PK_TOP + r * PK_ROW} r={2.4} fill="var(--color-faint)" />
+              ))
+            )}
+            {/* pockets */}
+            {PLINKO_MULT.map((m, k) => {
+              const hit = !dropping && bucket === k;
+              const big = m >= 10;
+              const pays = m > 1;
+              return (
+                <g key={k}>
+                  <rect
+                    x={pkX(k, PLINKO_ROWS) - 9.5}
+                    y={248}
+                    width={19}
+                    height={44}
+                    rx={5}
+                    fill={big ? "var(--color-brand)" : pays ? "var(--color-yes-soft)" : "var(--color-surface-3)"}
+                    stroke={hit ? "var(--color-ink)" : "transparent"}
+                    strokeWidth={hit ? 2 : 0}
+                    style={hit ? { filter: "drop-shadow(0 0 6px var(--color-brand))" } : undefined}
+                  />
+                  <text
+                    x={pkX(k, PLINKO_ROWS)}
+                    y={286}
+                    textAnchor="middle"
+                    fontSize={7.5}
+                    fontWeight={700}
+                    fill={big ? "var(--color-brand-on)" : pays ? "var(--color-yes-strong)" : "var(--color-mute)"}
+                    className="num"
+                  >
+                    ×{m}
+                  </text>
+                </g>
+              );
+            })}
+            {/* ball — CSS transform on an SVG g animates between rows */}
+            <g style={{ transform: `translate(${ballX}px, ${ballY}px)`, transition: "transform 95ms cubic-bezier(.35,.75,.45,1)" }}>
+              <circle r={6.5} fill="var(--color-ink)" />
+              <circle r={2.5} cy={-2} cx={-1.5} fill="var(--color-surface)" opacity={0.5} />
+            </g>
+          </svg>
+          <ResultTag net={dropping ? null : net} lang={lang} />
+          <DealerTag dealer={dealer} won={dropping ? null : net?.won} />
+        </div>
+      }
+      controls={
+        <>
+          <BetControls
+            bet={bet}
+            setBet={setBet}
+            lev={lockedLev(lev, inDebt)}
+            setLev={setLev}
+            balanceCents={balanceCents}
+            locked={inDebt}
+            disabled={pending || dropping}
+            lang={lang}
+            winPreview={{ mult: PLINKO_MULT[0], max: true }}
+          />
+          <Button className="w-full" size="lg" disabled={pending || dropping || !parseFloat(bet)} onClick={drop}>
+            {dropping ? t.plinkoDropping : t.plinkoDrop}
+          </Button>
+        </>
+      }
+    />
+  );
+}
+
 export const GAME_COMPONENTS = {
   coinflip: CoinFlipCard,
   dice: DiceCard,
@@ -1213,6 +1344,7 @@ export const GAME_COMPONENTS = {
   wheel: WheelCard,
   slots: SlotsCard,
   blackjack: BlackjackCard,
+  plinko: PlinkoCard,
 } as const;
 
 export type GameSlug = keyof typeof GAME_COMPONENTS;
