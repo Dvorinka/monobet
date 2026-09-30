@@ -7,7 +7,8 @@ export const AD_AMOUNT = 5_000; // Ɱ50
 export const AD_COOLDOWN_MS = 30 * 60 * 1000;
 export const AD_WATCH_MS = 12_000;
 
-// One-time bonuses. `check` milestones are verified server-side; links are honor-system.
+// One-time bonuses. `check` milestones are verified server-side; link bonuses
+// open their href in the same click that claims — the visit IS the claim.
 export const BONUSES = [
   { key: "portfolio", amountCents: 10_000, href: "https://www.tdvorak.dev/", check: null },
   { key: "instagram", amountCents: 10_000, href: "https://www.instagram.com/tdvorak.dev/", check: null },
@@ -15,6 +16,15 @@ export const BONUSES = [
   { key: "first_bet", amountCents: 10_000, href: null, check: "bet" },
   { key: "first_market", amountCents: 15_000, href: "/propose", check: "market" },
   { key: "first_comment", amountCents: 5_000, href: "/", check: "comment" },
+  { key: "first_game", amountCents: 5_000, href: "/games", check: "game" },
+  { key: "first_win", amountCents: 15_000, href: "/games", check: "win" },
+  { key: "avatar", amountCents: 5_000, href: null, check: "avatar" },
+  { key: "watchlist", amountCents: 2_500, href: "/markets", check: "watchlist" },
+  { key: "heart", amountCents: 2_500, href: "/markets", check: "like" },
+  { key: "duel", amountCents: 7_500, href: "/duels", check: "duel" },
+  { key: "squad", amountCents: 5_000, href: null, check: "squad" },
+  { key: "ten_trades", amountCents: 20_000, href: "/markets", check: "tenTrades" },
+  { key: "streak7", amountCents: 25_000, href: null, check: "streak7" },
 ] as const;
 
 export type BonusKey = (typeof BONUSES)[number]["key"];

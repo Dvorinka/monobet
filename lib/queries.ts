@@ -462,19 +462,50 @@ export async function getRelatedMarkets(marketId: string, category: string, limi
 // Rewards state for /rewards: recurring cooldowns, claimed bonuses, and
 // milestone eligibility in one round trip per user.
 export async function getRewardsState(userId: string) {
-  const claims = await db
-    .select({ kind: schema.rewardClaim.kind, createdAt: schema.rewardClaim.createdAt })
-    .from(schema.rewardClaim)
-    .where(eq(schema.rewardClaim.userId, userId))
-    .orderBy(desc(schema.rewardClaim.createdAt));
-  const [bet] = await db.select({ id: schema.trade.id }).from(schema.trade).where(eq(schema.trade.userId, userId)).limit(1);
-  const [mk] = await db.select({ id: schema.market.id }).from(schema.market).where(eq(schema.market.creatorId, userId)).limit(1);
-  const [cm] = await db.select({ id: schema.comment.id }).from(schema.comment).where(eq(schema.comment.userId, userId)).limit(1);
+  const [claims, [me], [cnts]] = await Promise.all([
+    db
+      .select({ kind: schema.rewardClaim.kind, createdAt: schema.rewardClaim.createdAt })
+      .from(schema.rewardClaim)
+      .where(eq(schema.rewardClaim.userId, userId))
+      .orderBy(desc(schema.rewardClaim.createdAt)),
+    db
+      .select({ image: schema.user.image, squadId: schema.user.squadId, claimStreak: schema.user.claimStreak })
+      .from(schema.user)
+      .where(eq(schema.user.id, userId))
+      .limit(1),
+    db
+      .select({
+        trades: sql<number>`(select count(*)::int from ${schema.trade} where ${schema.trade.userId} = ${userId})`,
+        markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.creatorId} = ${userId})`,
+        comments: sql<number>`(select count(*)::int from ${schema.comment} where ${schema.comment.userId} = ${userId})`,
+        games: sql<number>`(select count(*)::int from ${schema.ledger} where ${schema.ledger.userId} = ${userId} and kind = 'game')`,
+        gameWins: sql<number>`(select count(*)::int from ${schema.ledger} where ${schema.ledger.userId} = ${userId} and kind = 'game' and amount_cents > 0)`,
+        watching: sql<number>`(select count(*)::int from ${schema.watchlist} where ${schema.watchlist.userId} = ${userId})`,
+        likes: sql<number>`(select count(*)::int from ${schema.marketLike} where ${schema.marketLike.userId} = ${userId})`,
+        duels: sql<number>`(select count(*)::int from ${schema.challenge} where ${schema.challenge.creatorId} = ${userId} or ${schema.challenge.opponentId} = ${userId})`,
+      })
+      .from(schema.user)
+      .where(eq(schema.user.id, userId)),
+  ]);
+  const c = cnts ?? { trades: 0, markets: 0, comments: 0, games: 0, gameWins: 0, watching: 0, likes: 0, duels: 0 };
   return {
-    claimed: new Set(claims.map((c) => c.kind)),
-    lastWeekly: claims.find((c) => c.kind === "weekly")?.createdAt ?? null,
-    lastAd: claims.find((c) => c.kind === "ad")?.createdAt ?? null,
-    eligible: { bet: !!bet, market: !!mk, comment: !!cm },
+    claimed: new Set(claims.map((c2) => c2.kind)),
+    lastWeekly: claims.find((c2) => c2.kind === "weekly")?.createdAt ?? null,
+    lastAd: claims.find((c2) => c2.kind === "ad")?.createdAt ?? null,
+    eligible: {
+      bet: c.trades > 0,
+      market: c.markets > 0,
+      comment: c.comments > 0,
+      game: c.games > 0,
+      win: c.gameWins > 0,
+      avatar: !!me?.image,
+      watchlist: c.watching > 0,
+      like: c.likes > 0,
+      duel: c.duels > 0,
+      squad: !!me?.squadId,
+      tenTrades: c.trades >= 10,
+      streak7: (me?.claimStreak ?? 0) >= 7,
+    },
   };
 }
 

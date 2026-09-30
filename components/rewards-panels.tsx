@@ -471,6 +471,15 @@ export function RewardsPanels({
     first_bet: { title: t.bonusFirstBet, desc: t.bonusFirstBetDesc },
     first_market: { title: t.bonusFirstMarket, desc: t.bonusFirstMarketDesc },
     first_comment: { title: t.bonusFirstComment, desc: t.bonusFirstCommentDesc },
+    first_game: { title: t.bonusFirstGame, desc: t.bonusFirstGameDesc },
+    first_win: { title: t.bonusFirstWin, desc: t.bonusFirstWinDesc },
+    avatar: { title: t.bonusAvatar, desc: t.bonusAvatarDesc },
+    watchlist: { title: t.bonusWatchlist, desc: t.bonusWatchlistDesc },
+    heart: { title: t.bonusHeart, desc: t.bonusHeartDesc },
+    duel: { title: t.bonusDuel, desc: t.bonusDuelDesc },
+    squad: { title: t.bonusSquad, desc: t.bonusSquadDesc },
+    ten_trades: { title: t.bonusTenTrades, desc: t.bonusTenTradesDesc },
+    streak7: { title: t.bonusStreak7, desc: t.bonusStreak7Desc },
   };
 
   return (
@@ -516,6 +525,7 @@ export function RewardsPanels({
           {bonuses.map((b) => {
             const txt = bonusText[b.key];
             const done = b.claimed;
+            const pureLink = !!b.href?.startsWith("http");
             return (
               <div
                 key={b.key}
@@ -539,11 +549,9 @@ export function RewardsPanels({
                   <CheckCircle2 className="size-5 text-yes shrink-0" />
                 ) : (
                   <div className="flex gap-1.5 shrink-0">
-                    {b.href && (
+                    {b.href && !pureLink && (
                       <a
                         href={b.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
                         className="size-8 rounded-lg bg-surface-2 text-mute hover:text-ink inline-flex items-center justify-center transition-colors"
                         title={t.visit}
                       >
@@ -554,6 +562,7 @@ export function RewardsPanels({
                       disabled={pending || !b.eligible}
                       onClick={() =>
                         start(async () => {
+                          if (pureLink) window.open(b.href!, "_blank", "noopener,noreferrer");
                           const r = await claimBonus(b.key);
                           if (r.ok) {
                             playSfx("claim", 0.5);
@@ -563,9 +572,9 @@ export function RewardsPanels({
                         })
                       }
                       className="h-8 px-3 rounded-lg bg-brand text-brand-on text-[12.5px] font-semibold hover:bg-brand-strong transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 inline-flex items-center gap-1"
-                      title={b.eligible ? t.claimNow : txt.desc}
+                      title={b.eligible ? (pureLink ? t.visitClaim : t.claimNow) : txt.desc}
                     >
-                      {b.eligible ? t.claimNow : <Lock className="size-3.5" />}
+                      {b.eligible ? (pureLink ? <><ExternalLink className="size-3.5" />{t.visitClaim}</> : t.claimNow) : <Lock className="size-3.5" />}
                     </button>
                   </div>
                 )}

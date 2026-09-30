@@ -525,6 +525,59 @@ export async function claimAdReward() {
   return claimRecurring("ad", AD_COOLDOWN_MS, AD_AMOUNT, "Ad reward");
 }
 
+// Milestone checks for claimBonus — each maps to real rows in the DB.
+async function bonusMet(tx: Tx, cur: typeof schema.user.$inferSelect, check: string): Promise<boolean> {
+  const one = async (q: Promise<unknown[]>) => (await q).length > 0;
+  switch (check) {
+    case "bet":
+      return one(tx.select({ id: schema.trade.id }).from(schema.trade).where(eq(schema.trade.userId, cur.id)).limit(1));
+    case "market":
+      return one(tx.select({ id: schema.market.id }).from(schema.market).where(eq(schema.market.creatorId, cur.id)).limit(1));
+    case "comment":
+      return one(tx.select({ id: schema.comment.id }).from(schema.comment).where(eq(schema.comment.userId, cur.id)).limit(1));
+    case "game":
+      return one(tx.select({ id: schema.ledger.id }).from(schema.ledger).where(and(eq(schema.ledger.userId, cur.id), eq(schema.ledger.kind, "game"))).limit(1));
+    case "win":
+      return one(tx.select({ id: schema.ledger.id }).from(schema.ledger).where(and(eq(schema.ledger.userId, cur.id), eq(schema.ledger.kind, "game"), sql`${schema.ledger.amountCents} > 0`)).limit(1));
+    case "avatar":
+      return !!cur.image;
+    case "watchlist":
+      return one(tx.select({ userId: schema.watchlist.userId }).from(schema.watchlist).where(eq(schema.watchlist.userId, cur.id)).limit(1));
+    case "like":
+      return one(tx.select({ userId: schema.marketLike.userId }).from(schema.marketLike).where(eq(schema.marketLike.userId, cur.id)).limit(1));
+    case "duel":
+      return one(tx.select({ id: schema.challenge.id }).from(schema.challenge).where(sql`${schema.challenge.creatorId} = ${cur.id} or ${schema.challenge.opponentId} = ${cur.id}`).limit(1));
+    case "squad":
+      return !!cur.squadId;
+    case "tenTrades": {
+      const [r] = await tx.select({ n: sql<number>`count(*)::int` }).from(schema.trade).where(eq(schema.trade.userId, cur.id));
+      return (r?.n ?? 0) >= 10;
+    }
+    case "streak7":
+      return cur.claimStreak >= 7;
+    default:
+      return false;
+  }
+}
+
+function bonusFail(check: string): string {
+  const msgs: Record<string, string> = {
+    bet: "Place a bet first",
+    market: "Create a market first",
+    comment: "Post a comment first",
+    game: "Play a casino game first",
+    win: "Win a game first",
+    avatar: "Set an avatar first",
+    watchlist: "Watchlist a market first",
+    like: "Like a market first",
+    duel: "Enter a duel first",
+    squad: "Join a squad first",
+    tenTrades: "Place ten trades first",
+    streak7: "Keep a seven-day claim streak first",
+  };
+  return msgs[check] ?? "Not eligible yet";
+}
+
 export async function claimBonus(key: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
@@ -532,7 +585,7 @@ export async function claimBonus(key: string): Promise<{ ok: boolean; error?: st
     if (!bonus) throw new Error("Unknown reward");
 
     await db.transaction(async (tx) => {
-      await lockUser(tx, u.id);
+      const cur = await lockUser(tx, u.id);
       const [existing] = await tx
         .select({ id: schema.rewardClaim.id })
         .from(schema.rewardClaim)
@@ -541,16 +594,7 @@ export async function claimBonus(key: string): Promise<{ ok: boolean; error?: st
       if (existing) throw new Error("Already claimed");
 
       // Milestone bonuses are verified against real activity.
-      if (bonus.check === "bet") {
-        const [t] = await tx.select({ id: schema.trade.id }).from(schema.trade).where(eq(schema.trade.userId, u.id)).limit(1);
-        if (!t) throw new Error("Place a bet first");
-      } else if (bonus.check === "market") {
-        const [m] = await tx.select({ id: schema.market.id }).from(schema.market).where(eq(schema.market.creatorId, u.id)).limit(1);
-        if (!m) throw new Error("Create a market first");
-      } else if (bonus.check === "comment") {
-        const [c] = await tx.select({ id: schema.comment.id }).from(schema.comment).where(eq(schema.comment.userId, u.id)).limit(1);
-        if (!c) throw new Error("Post a comment first");
-      }
+      if (bonus.check && !(await bonusMet(tx, cur, bonus.check))) throw new Error(bonusFail(bonus.check));
 
       try {
         await tx.insert(schema.rewardClaim).values({ userId: u.id, kind: `bonus:${key}`, amountCents: bonus.amountCents });
