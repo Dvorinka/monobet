@@ -262,7 +262,8 @@ export function ResolutionPanel({
             </Button>
           </div>
         )}
-        {composer}
+        {/* The proposer already declared outcome + reason — no second note box. */}
+        {!isProposer && composer}
       </Card>
     );
   }
@@ -305,7 +306,9 @@ export function ResolutionPanel({
           </div>
         </>
       )}
-      {composer}
+      {/* Whoever can declare the outcome uses the reason field above — one
+          Ano/Ne and one text box, not two. */}
+      {!canPropose && composer}
     </Card>
   );
 }

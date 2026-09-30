@@ -38,7 +38,7 @@ import {
 } from "@/lib/games";
 import { fmtMonos } from "@/lib/money";
 import { DealerAvatar } from "@/components/dealer-avatar";
-import { type Persona } from "@/lib/games";
+import { type DealerFx, type Persona } from "@/lib/games";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -123,9 +123,12 @@ function lockedLev(lev: string, inDebt?: boolean) {
   return inDebt ? "1" : lev;
 }
 
+type WinFx = NonNullable<DealerFx["winFx"]>;
+
 // Dealer win FX — some personas celebrate a player win with a full-screen
-// moment (Bonnie's splash, Epstein's plane). Name-keyed via dealerFx.
-function dealerWinFx(dealer: Persona | null | undefined, won: boolean, netCents: number, cb?: (amt: number, fx: "splash" | "plane") => void) {
+// moment (Bonnie's splash, Epstein's plane, Clavicular's parade). Name-keyed
+// via dealerFx.
+function dealerWinFx(dealer: Persona | null | undefined, won: boolean, netCents: number, cb?: (amt: number, fx: WinFx) => void) {
   const fx = dealerFx(dealer).winFx;
   if (won && netCents > 0 && fx) cb?.(netCents, fx);
 }
@@ -262,7 +265,7 @@ function GameCard({
 
 // ---------- coin flip ----------
 
-type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; inDebt?: boolean; onWinFx?: (amt: number, fx: "splash" | "plane") => void };
+type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; inDebt?: boolean; onWinFx?: (amt: number, fx: WinFx) => void };
 
 function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
@@ -1255,6 +1258,54 @@ function PlaneSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }
   );
 }
 
+// Clavicular win easter egg — a pride parade floods the screen: the flag
+// ripples stripe-by-stripe like cloth while confetti rains over the payout.
+const PRIDE_STRIPES = ["#e40303", "#ff8c00", "#ffed00", "#008026", "#24408e", "#732982"] as const;
+const CONFETTI_COLORS = [...PRIDE_STRIPES, "#ff69b4", "#5bcffa", "#ffffff"] as const;
+// Fixed seeds — deterministic, no per-render randomness.
+const CONFETTI = Array.from({ length: 42 }, (_, i) => ({
+  x: (i * 37 + 11) % 100,
+  d: (i * 97) % 900,
+  s: 5 + ((i * 13) % 7),
+  c: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+  drift: ((i * 29) % 40) - 20,
+}));
+
+function PrideSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }) {
+  const t = getT(lang ?? "en");
+  return (
+    <div className="anim-pride-veil fixed inset-0 z-[100] overflow-hidden pointer-events-none" role="status" aria-live="polite">
+      <div aria-hidden className="absolute -inset-x-[12%] -inset-y-[8%] flex flex-col" style={{ transform: "rotate(-3deg)" }}>
+        {PRIDE_STRIPES.map((c, i) => (
+          <div key={c} className="anim-pride-stripe flex-1" style={{ background: c, animationDelay: `${i * 110}ms` }} />
+        ))}
+      </div>
+      <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(120% 90% at 50% 46%, transparent 40%, rgba(20,7,31,.5) 100%)" }} />
+      {CONFETTI.map((c, i) => (
+        <div
+          key={i}
+          aria-hidden
+          className="anim-confetti absolute -top-3 rounded-[1px]"
+          style={{
+            left: `${c.x}%`,
+            width: c.s,
+            height: Math.round(c.s * 1.7),
+            background: c.c,
+            animationDelay: `${c.d}ms`,
+            ["--drift" as string]: `${c.drift}px`,
+          }}
+        />
+      ))}
+      <div className="relative h-full grid place-items-center">
+        <div className="anim-win-pop text-center px-6 [text-shadow:0_2px_18px_rgba(0,0,0,.65)]">
+          <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-white/85">{t.bonnieWin}</div>
+          <div className="num text-5xl font-black text-white mt-1">+{fmtMonos(amountCents, { lang })}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function GameView({
   game,
   balanceCents,
@@ -1271,7 +1322,7 @@ export function GameView({
   const t = getT(lang ?? "en");
   const Game = GAME_COMPONENTS[game];
   const [dealerId, setDealerId] = useState<string>();
-  const [splash, setSplash] = useState<{ amt: number; fx: "splash" | "plane" } | null>(null);
+  const [splash, setSplash] = useState<{ amt: number; fx: WinFx } | null>(null);
   useEffect(() => {
     if (splash == null) return;
     const id = setTimeout(() => setSplash(null), 2600);
@@ -1303,6 +1354,7 @@ export function GameView({
         onWinFx={(amt, fx) => setSplash({ amt, fx })} />
       {splash?.fx === "splash" && <BonnieSplash amountCents={splash.amt} lang={lang} />}
       {splash?.fx === "plane" && <PlaneSplash amountCents={splash.amt} lang={lang} />}
+      {splash?.fx === "pride" && <PrideSplash amountCents={splash.amt} lang={lang} />}
     </div>
   );
 }
