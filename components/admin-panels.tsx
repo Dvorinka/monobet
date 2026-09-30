@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, Input, Select, Badge } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminResetUserPassword, adminSettleDuel, adminDeleteUser } from "@/lib/actions";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer } from "@/lib/actions";
 import { fmtMonos, fmtDate } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
-import { Check, X, CircleCheck, Ban, Pencil, Trash2, KeyRound, MessageSquareOff, MessageSquare, ShieldPlus, ShieldMinus, GripVertical } from "lucide-react";
+import { Check, X, CircleCheck, Ban, Pencil, Trash2, KeyRound, MessageSquareOff, MessageSquare, ShieldPlus, ShieldMinus, GripVertical, StickyNote, Scale } from "lucide-react";
 
 function useAction(lang?: Lang) {
   const [pending, start] = useTransition();
@@ -37,8 +37,8 @@ export function PendingList({
   return (
     <div className="divide-y divide-line-2">
       {items.map((m) => (
-        <div key={m.id} className="px-4 py-3.5 flex items-center gap-3">
-          <div className="flex-1 min-w-0">
+        <div key={m.id} className="px-4 py-3.5 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
+          <div className="flex-1 min-w-0 w-full">
             <Link href={`/market/${m.slug}`} className="text-sm font-medium hover:underline underline-offset-2 line-clamp-1">
               {m.question}
             </Link>
@@ -46,23 +46,25 @@ export function PendingList({
               {m.category} · {t.pendingBy} @{m.username ?? "?"} · {fmtDate(m.createdAt, lang)}
             </div>
           </div>
-          <Button size="sm" variant="yes" disabled={pending} onClick={() => run(() => approveMarket(m.id), t.approvedToast)}>
-            <Check className="size-3.5" /> {t.approve}
-          </Button>
-          <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => rejectMarket(m.id), t.rejectedToast)}>
-            <X className="size-3.5" /> {t.reject}
-          </Button>
-          <Button
-            size="sm"
-            variant="no"
-            disabled={pending}
-            title={t.deleteMarket}
-            onClick={() => {
-              if (confirm(t.deleteMarketConfirm(m.question))) run(() => deleteMarket(m.id), t.marketDeleted);
-            }}
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
+          <div className="flex gap-1.5 flex-wrap">
+            <Button size="sm" variant="yes" disabled={pending} onClick={() => run(() => approveMarket(m.id), t.approvedToast)}>
+              <Check className="size-3.5" /> {t.approve}
+            </Button>
+            <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => rejectMarket(m.id), t.rejectedToast)}>
+              <X className="size-3.5" /> {t.reject}
+            </Button>
+            <Button
+              size="sm"
+              variant="no"
+              disabled={pending}
+              title={t.deleteMarket}
+              onClick={() => {
+                if (confirm(t.deleteMarketConfirm(m.question))) run(() => deleteMarket(m.id), t.marketDeleted);
+              }}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </div>
         </div>
       ))}
     </div>
@@ -73,7 +75,7 @@ export function LiveMarketList({
   items,
   lang,
 }: {
-  items: { id: string; slug: string; question: string; label?: string | null; parentId?: string | null; category: string; volumeCents: number; traderCount: number; closesAt: Date | null; kind?: string }[];
+  items: { id: string; slug: string; question: string; label?: string | null; parentId?: string | null; category: string; volumeCents: number; traderCount: number; closesAt: Date | null; kind?: string; noteCount?: number; proposedOutcome?: string | null; status?: string }[];
   lang?: Lang;
 }) {
   const { pending, run } = useAction(lang);
@@ -139,6 +141,18 @@ export function LiveMarketList({
                   {fmtMonos(m.volumeCents, { lang })} {t.vol.toLowerCase()} · {m.traderCount} {t.tradersW} · {t.closes.toLowerCase()} {fmtDate(m.closesAt, lang)}
                   {kids.length > 0 && ` · ${kids.length} ${t.options}`}
                 </div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {(m.noteCount ?? 0) > 0 && (
+                    <Badge tone={(m.noteCount ?? 0) > 5 ? "warn" : "mute"}>
+                      <StickyNote className="size-3" /> {t.notesCount(m.noteCount ?? 0)}
+                    </Badge>
+                  )}
+                  {m.proposedOutcome && (
+                    <Badge tone="ink">
+                      <Scale className="size-3" /> {t.proposalHeading((m.proposedOutcome === "yes" ? t.yes : t.no).toUpperCase())}
+                    </Badge>
+                  )}
+                </div>
               </div>
             </div>
             {btns(m)}
@@ -188,7 +202,7 @@ export function GrantPanel({ users, lang }: { users: { id: string; username: str
         setMemo("");
       }}
     >
-      <div className="grid grid-cols-[1fr_120px] gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px] gap-3">
         <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
           {users.map((u) => (
             <option key={u.id} value={u.id}>
@@ -229,7 +243,7 @@ export function UsersPanel({ lang }: { lang?: Lang }) {
         setAdmin(false);
       }}
     >
-      <div className="grid grid-cols-[1fr_140px] gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-3">
         <Input placeholder={t.createUserPh} value={username} onChange={(e) => setUsername(e.target.value)} required />
         <Input type="password" placeholder={t.password} value={password} onChange={(e) => setPassword(e.target.value)} required />
       </div>
@@ -279,8 +293,8 @@ export function UserManager({
   return (
     <div className="divide-y divide-line-2">
       {users.map((u) => (
-        <div key={u.id} className="px-4 py-3 flex items-center gap-3">
-          <div className="flex-1 min-w-0">
+        <div key={u.id} className="px-4 py-3 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
+          <div className="flex-1 min-w-0 w-full">
             <div className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
               <span className="truncate">@{u.username ?? u.id.slice(0, 8)}</span>
               {u.id === selfId && <Badge tone="ink">{t.umYou}</Badge>}
@@ -292,7 +306,7 @@ export function UserManager({
             </div>
           </div>
           {u.id !== selfId && (
-            <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
+            <div className="flex flex-wrap gap-1.5 sm:justify-end shrink-0">
               <Button
                 size="xs"
                 variant="outline"
@@ -543,7 +557,7 @@ export function DuelAdminPanel({
               @{d.creatorName} vs @{d.opponentName} · {fmtMonos(d.stakeCents * 2, { lang })}
             </div>
           </div>
-          <div className="flex gap-1.5 shrink-0">
+          <div className="flex gap-1.5 shrink-0 flex-wrap">
             <Button size="xs" variant="yes" disabled={pending} onClick={() => run(() => adminSettleDuel({ id: d.id, winnerId: d.creatorId }), t.duelSettledToast)}>
               @{d.creatorName}
             </Button>
@@ -557,5 +571,177 @@ export function DuelAdminPanel({
         </div>
       ))}
     </div>
+  );
+}
+
+// Blackjack dealer personas — name + emoji + outcome quips; a random active
+// one fronts each hand. Edited inline; inactive dealers stop dealing.
+export function DealersPanel({
+  dealers,
+  lang,
+}: {
+  dealers: { id: string; name: string; avatar: string; quipWin: string; quipLose: string; active: boolean }[];
+  lang?: Lang;
+}) {
+  const t = getT(lang ?? "en");
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [name, setName] = useState("");
+  const [avatar, setAvatar] = useState("");
+  const [quipWin, setQuipWin] = useState("");
+  const [quipLose, setQuipLose] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string, after?: () => void) =>
+    start(async () => {
+      const r = await fn();
+      if (r.ok) {
+        toast.success(ok);
+        after?.();
+        router.refresh();
+      } else toast.error(r.error);
+    });
+
+  return (
+    <div className="p-4 space-y-3">
+      <p className="text-[11.5px] text-faint">{t.dealersHint}</p>
+      <div className="divide-y divide-line-2">
+        {dealers.map((d) => (
+          <div key={d.id} className="py-2.5 first:pt-0">
+            {editing === d.id ? (
+              <DealerForm
+                initial={d}
+                pending={pending}
+                lang={lang}
+                onSave={(v) => run(() => adminUpsertDealer({ id: d.id, ...v }), t.savedToast, () => setEditing(null))}
+                onCancel={() => setEditing(null)}
+              />
+            ) : (
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="size-8 grid place-items-center rounded-lg bg-surface-2 text-[17px] shrink-0">{d.avatar}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-semibold flex items-center gap-1.5">
+                    {d.name}
+                    {!d.active && <Badge tone="mute">{t.dealerInactive}</Badge>}
+                  </div>
+                  <div className="text-[11px] text-faint truncate">
+                    {d.quipWin && `W: “${d.quipWin}”`} {d.quipLose && `· L: “${d.quipLose}”`}
+                  </div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  <button
+                    type="button"
+                    title={t.rename}
+                    onClick={() => setEditing(d.id)}
+                    className="size-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-surface-2 cursor-pointer"
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title={d.active ? t.dealerInactive : t.approve}
+                    disabled={pending}
+                    onClick={() => run(() => adminToggleDealer({ id: d.id, active: !d.active }), t.savedToast)}
+                    className="size-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-surface-2 cursor-pointer disabled:opacity-40"
+                  >
+                    {d.active ? <Ban className="size-3.5" /> : <Check className="size-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    title={t.delete}
+                    disabled={pending}
+                    onClick={() => {
+                      if (confirm(t.deleteCatConfirm(d.name))) run(() => adminDeleteDealer({ id: d.id }), t.catDeleted);
+                    }}
+                    className="size-7 grid place-items-center rounded-md text-faint hover:text-no-strong hover:bg-no-soft cursor-pointer disabled:opacity-40"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {dealers.length === 0 && <p className="text-[12.5px] text-faint py-1">{t.notesEmpty}</p>}
+      </div>
+      <DealerForm
+        pending={pending}
+        lang={lang}
+        onSave={(v) =>
+          run(() => adminUpsertDealer(v), t.dealerAdd, () => {
+            setName("");
+            setAvatar("");
+            setQuipWin("");
+            setQuipLose("");
+          })
+        }
+        onCancel={null}
+        values={{ name, avatar, quipWin, quipLose }}
+        onChange={{ setName, setAvatar, setQuipWin, setQuipLose }}
+      />
+    </div>
+  );
+}
+
+function DealerForm({
+  initial,
+  values,
+  onChange,
+  pending,
+  lang,
+  onSave,
+  onCancel,
+}: {
+  initial?: { name: string; avatar: string; quipWin: string; quipLose: string };
+  values?: { name: string; avatar: string; quipWin: string; quipLose: string };
+  onChange?: { setName: (v: string) => void; setAvatar: (v: string) => void; setQuipWin: (v: string) => void; setQuipLose: (v: string) => void };
+  pending: boolean;
+  lang?: Lang;
+  onSave: (v: { name: string; avatar: string; quipWin: string; quipLose: string }) => void;
+  onCancel: (() => void) | null;
+}) {
+  const t = getT(lang ?? "en");
+  // Inline-edit rows manage their own state; the add form lifts it to the parent.
+  const [n, setN] = useState(initial?.name ?? "");
+  const [a, setA] = useState(initial?.avatar ?? "");
+  const [qw, setQw] = useState(initial?.quipWin ?? "");
+  const [ql, setQl] = useState(initial?.quipLose ?? "");
+  const name = values?.name ?? n;
+  const avatar = values?.avatar ?? a;
+  const quipWin = values?.quipWin ?? qw;
+  const quipLose = values?.quipLose ?? ql;
+  const setters = onChange ?? { setName: setN, setAvatar: setA, setQuipWin: setQw, setQuipLose: setQl };
+  return (
+    <form
+      className="space-y-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!name.trim()) return;
+        onSave({ name, avatar, quipWin, quipLose });
+        if (!onChange) {
+          setN("");
+          setA("");
+          setQw("");
+          setQl("");
+        }
+      }}
+    >
+      <div className="grid grid-cols-[3rem_1fr] gap-2">
+        <Input value={avatar} onChange={(e) => setters.setAvatar(e.target.value)} placeholder="🃏" maxLength={4} className="h-9 text-center" />
+        <Input value={name} onChange={(e) => setters.setName(e.target.value)} placeholder={t.dealerNamePh} maxLength={40} required className="h-9" />
+      </div>
+      <Input value={quipWin} onChange={(e) => setters.setQuipWin(e.target.value)} placeholder={t.dealerQuipWinPh} maxLength={140} className="h-9" />
+      <Input value={quipLose} onChange={(e) => setters.setQuipLose(e.target.value)} placeholder={t.dealerQuipLosePh} maxLength={140} className="h-9" />
+      <div className="flex gap-2">
+        <Button size="sm" disabled={pending || !name.trim()}>
+          {initial ? t.rename : t.dealerAdd}
+        </Button>
+        {onCancel && (
+          <Button size="sm" variant="outline" type="button" onClick={onCancel}>
+            ✕
+          </Button>
+        )}
+      </div>
+    </form>
   );
 }

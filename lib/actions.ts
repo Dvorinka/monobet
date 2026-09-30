@@ -3,13 +3,13 @@
 import { db, schema } from "@/lib/db";
 import { eq, and, sql, desc, isNull } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout } from "@/lib/games";
+import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT } from "@/lib/games";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
 import { yesPrice, tradeCost, sharesForSpend, qForProb } from "@/lib/lmsr";
 import { loanFor, liquidationValueCents, shouldLiquidate } from "@/lib/liq";
-import { accruedDebtCents, LOAN_PRESETS_CENTS, rollRateBps, DEBT_CAP_CENTS } from "@/lib/loans";
+import { accruedDebtCents, LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT, LOAN_OFFER_TTL_MS, rollRateBps, DEBT_CAP_CENTS } from "@/lib/loans";
 import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
 import {
   DAILY_AMOUNT,
@@ -975,6 +975,14 @@ export async function resolveMarket(input: {
         .from(schema.resolutionVote)
         .where(and(eq(schema.resolutionVote.marketId, m.id), eq(schema.resolutionVote.vote, "dispute")));
       if ((d?.n ?? 0) > 0 && !isAdmin(u)) throw new Error("Resolution is disputed — an admin must resolve");
+      // Community-note gate: more than NOTE_ADMIN_GATE notes means the crowd
+      // is weighing in — the market creator can't self-resolve, only an admin.
+      const [nc] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.communityNote)
+        .where(eq(schema.communityNote.marketId, m.id));
+      if ((nc?.n ?? 0) > NOTE_ADMIN_GATE && !isAdmin(u))
+        throw new Error("This market has 6+ community notes — an admin must resolve it");
       paidOut = await settleMarketTx(tx, m, input.outcome, (input.reason ?? "").trim().slice(0, 500));
     });
     revalidatePath("/");
@@ -1060,8 +1068,13 @@ export async function voteResolution(input: {
             eq(schema.resolutionVote.vote, "dispute")
           )
         );
-      // Two confirms with no disputes settles the market at the proposal.
-      if ((c?.n ?? 0) >= 2 && (d?.n ?? 0) === 0) {
+      // Two confirms with no disputes settles the market at the proposal —
+      // unless the community left enough notes to force an admin's eyes.
+      const [nc] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.communityNote)
+        .where(eq(schema.communityNote.marketId, m.id));
+      if ((c?.n ?? 0) >= 2 && (d?.n ?? 0) === 0 && (nc?.n ?? 0) <= NOTE_ADMIN_GATE) {
         await settleMarketTx(tx, m, m.proposedOutcome === "no" ? "no" : "yes", m.resolutionReason);
         resolved = true;
       }
@@ -1318,25 +1331,168 @@ export async function adminDeleteUser(input: { userId: string }): Promise<{ ok: 
   }
 }
 
+// ---------- community notes ----------
+
+// Above this many notes on one market, only a site admin may resolve it —
+// the community flagged it loud enough that creator-resolution isn't trusted.
+const NOTE_ADMIN_GATE = 5;
+
+// True when `u` may moderate notes on market `m`: site admin, the market's
+// creator, or — for a group option — the parent market's creator.
+async function canModerateMarket(m: { creatorId: string | null; parentId: string | null }, userId: string, admin: boolean) {
+  if (admin) return true;
+  if (m.creatorId === userId) return true;
+  if (m.parentId) {
+    const [p] = await db.select({ creatorId: schema.market.creatorId }).from(schema.market).where(eq(schema.market.id, m.parentId)).limit(1);
+    if (p?.creatorId === userId) return true;
+  }
+  return false;
+}
+
+// Add a note to a resolvable market — binary or a group option. Stance is the
+// outcome the note argues for; resolver sees these before settling.
+export async function addCommunityNote(input: {
+  marketId: string;
+  body: string;
+  stance?: "yes" | "no";
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    if (u.commentsBanned) throw new Error("You're muted");
+    await assertNotSpam(u.id, "comment");
+    const body = input.body.trim().slice(0, 500);
+    if (body.length < 10) throw new Error("Note too short — explain the reasoning");
+    const m = await db.select().from(schema.market).where(eq(schema.market.id, input.marketId)).limit(1);
+    if (!m[0] || m[0].kind === "group" || !["live", "resolved"].includes(m[0].status)) throw new Error("Not a resolvable market");
+    await db.insert(schema.communityNote).values({
+      marketId: m[0].id,
+      userId: u.id,
+      body,
+      stance: input.stance === "no" ? "no" : input.stance === "yes" ? "yes" : null,
+    });
+    const [self] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, m[0].id)).limit(1);
+    if (self) revalidatePath(`/market/${self.slug}`);
+    if (m[0].parentId) {
+      const [p] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, m[0].parentId)).limit(1);
+      if (p) revalidatePath(`/market/${p.slug}`);
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Note failed" };
+  }
+}
+
+// Publish/unpublish a note onto the market page — resolver-only.
+export async function setNotePublished(input: { noteId: string; published: boolean }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const [note] = await db.select().from(schema.communityNote).where(eq(schema.communityNote.id, input.noteId)).limit(1);
+    if (!note) throw new Error("Note not found");
+    const [m] = await db.select().from(schema.market).where(eq(schema.market.id, note.marketId)).limit(1);
+    if (!m || !(await canModerateMarket(m, u.id, isAdmin(u)))) throw new Error("Only the resolver can publish notes");
+    await db.update(schema.communityNote).set({ published: input.published }).where(eq(schema.communityNote.id, note.id));
+    const [self] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, m.id)).limit(1);
+    if (self) revalidatePath(`/market/${self.slug}`);
+    if (m.parentId) {
+      const [p] = await db.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, m.parentId)).limit(1);
+      if (p) revalidatePath(`/market/${p.slug}`);
+    }
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Update failed" };
+  }
+}
+
+// Delete a note — the author, or the resolver moderating their market.
+export async function deleteCommunityNote(input: { noteId: string }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const [note] = await db.select().from(schema.communityNote).where(eq(schema.communityNote.id, input.noteId)).limit(1);
+    if (!note) throw new Error("Note not found");
+    if (note.userId !== u.id) {
+      const [m] = await db.select().from(schema.market).where(eq(schema.market.id, note.marketId)).limit(1);
+      if (!m || !(await canModerateMarket(m, u.id, isAdmin(u)))) throw new Error("Not your note");
+    }
+    await db.delete(schema.communityNote).where(eq(schema.communityNote.id, note.id));
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Delete failed" };
+  }
+}
+
 // ---------- loans ----------
 // Take a house loan: cash lands immediately, debt accrues at an APR rolled
 // at borrow time — you gamble on the rate you get. Repay pays debt down
 // out of balance; every touch accrues first so the figure is honest.
 
-export async function takeLoan(input: { amountCents: number }): Promise<{ ok: boolean; error?: string; rateBps?: number }> {
+// Loan offers are a pick-a-card gamble: the server deals three hidden APRs
+// into an HMAC-signed token (same scheme as the timer rounds); the borrower
+// picks a card and owes whatever rate it hid. Existing debt blocks new loans
+// — repay before borrowing again.
+const LOAN_SECRET = process.env.BETTER_AUTH_SECRET ?? "monobet-dev-secret";
+
+function signLoanOffers(userId: string, amountCents: number, rates: number[]): string {
+  const payload = Buffer.from(JSON.stringify({ u: userId, a: amountCents, r: rates, i: Date.now() })).toString("base64url");
+  const sig = createHmac("sha256", LOAN_SECRET).update(payload).digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+function openLoanOffers(token: string, userId: string): { a: number; r: number[] } {
+  const [payload, sig] = token.split(".");
+  const good = createHmac("sha256", LOAN_SECRET).update(payload ?? "").digest("base64url");
+  if (!sig || sig.length !== good.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(good)))
+    throw new Error("Bad offer");
+  const data = JSON.parse(Buffer.from(payload, "base64url").toString()) as { u: string; a: number; r: number[]; i: number };
+  if (data.u !== userId) throw new Error("Not your offer");
+  if (Date.now() - data.i > LOAN_OFFER_TTL_MS) throw new Error("Offers expired — deal again");
+  if (!Array.isArray(data.r) || data.r.length !== LOAN_OFFER_COUNT) throw new Error("Bad offer");
+  return { a: data.a, r: data.r };
+}
+
+async function assertNoDebt(userId: string) {
+  const [u] = await db
+    .select({ debtCents: schema.user.debtCents, debtRateBps: schema.user.debtRateBps, debtSince: schema.user.debtSince })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+    .limit(1);
+  if (accruedDebtCents(u?.debtCents ?? 0, u?.debtRateBps ?? 0, u?.debtSince ?? null) > 0)
+    throw new Error("Repay your debt first");
+}
+
+export async function dealLoanOffers(input: { amountCents: number }): Promise<{ ok: boolean; error?: string; token?: string }> {
+  try {
+    const u = await requireUser();
+    const amount = Math.round(input.amountCents);
+    if (!LOAN_PRESETS_CENTS.includes(amount)) throw new Error("Bad loan size");
+    await assertNoDebt(u.id);
+    const rates = Array.from({ length: LOAN_OFFER_COUNT }, () => rollRateBps());
+    return { ok: true, token: signLoanOffers(u.id, amount, rates) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Deal failed" };
+  }
+}
+
+export async function takeLoan(input: { token: string; pick: number }): Promise<{ ok: boolean; error?: string; rateBps?: number; offers?: number[] }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "loan");
-    const amount = Math.round(input.amountCents);
-    if (!LOAN_PRESETS_CENTS.includes(amount)) throw new Error("Bad loan size");
-    const rate = rollRateBps();
+    const { a: amount, r: offers } = openLoanOffers(input.token, u.id);
+    const pick = Math.round(input.pick);
+    if (pick < 0 || pick >= offers.length) throw new Error("Pick a card");
+    const rate = offers[pick];
     await db.transaction(async (tx) => {
+      // Re-check on the locked row — the offers were dealt while debt-free,
+      // but a levered game loss could have landed in between.
+      const cur = await lockUser(tx, u.id);
+      if (accruedDebtCents(cur.debtCents, cur.debtRateBps, cur.debtSince) > 0)
+        throw new Error("Repay your debt first");
       await credit(tx, u.id, amount, "loan", null, `Loan @ ${(rate / 100).toFixed(1)}% APR`);
       await addDebt(tx, u.id, amount, rate, `Loan taken — ${(rate / 100).toFixed(1)}% APR`);
     });
     revalidatePath("/rewards");
     revalidatePath("/portfolio");
-    return { ok: true, rateBps: rate };
+    return { ok: true, rateBps: rate, offers };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Loan failed" };
   }
@@ -2140,5 +2296,238 @@ export async function setNotifPrefs(input: {
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
+// ---------- blackjack ----------
+// Interactive round: the shoe and both hands live on blackjack_round so the
+// client only ever asks "hit"/"stand". Collateral is charged at deal; a loss
+// parks the levered remainder on house debt like every other game.
+
+type BjPersona = { name: string; avatar: string; quipWin: string; quipLose: string };
+const BJ_FALLBACK_DEALER: BjPersona = { name: "The House", avatar: "🃏", quipWin: "The house always collects.", quipLose: "Well played." };
+const BJ_ROUND_TTL_MS = 60 * 60_000; // abandoned hands settle as a push
+
+function shuffledShoe(): number[] {
+  const d = Array.from({ length: 52 }, (_, i) => i);
+  for (let i = d.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [d[i], d[j]] = [d[j], d[i]];
+  }
+  return d;
+}
+
+// Settle a round: credit winnings / park levered loss on debt / refund push.
+// Returns the player's net cents for the result flash.
+async function settleBlackjack(
+  tx: Tx,
+  round: { id: string; userId: string; betCents: number; leverage: number },
+  result: "win" | "lose" | "push" | "blackjack",
+  dealerName: string
+): Promise<number> {
+  const wager = Math.round(round.betCents * round.leverage);
+  const borrowed = Math.round(round.betCents * (round.leverage - 1));
+  const label = `Blackjack vs ${dealerName}`;
+  await lockUser(tx, round.userId);
+  let net: number;
+  if (result === "win" || result === "blackjack") {
+    const mult = result === "blackjack" ? BJ_NATURAL_MULT : BJ_WIN_MULT;
+    const win = Math.round(wager * mult);
+    await credit(tx, round.userId, win, "game", null, `${label} — ${result === "blackjack" ? "natural 21" : "won"} ×${mult}`);
+    net = win - wager;
+  } else if (result === "push") {
+    await credit(tx, round.userId, round.betCents, "game", null, `${label} — push, stake back`);
+    net = 0;
+  } else {
+    if (borrowed > 0) {
+      const r = rollRateBps();
+      await addDebt(tx, round.userId, borrowed, r, `${label} — house loan ${(borrowed / 100).toFixed(0)}Ɱ @ ${(r / 100).toFixed(1)}% APR`);
+    }
+    net = -wager;
+  }
+  await tx
+    .update(schema.blackjackRound)
+    .set({ status: "settled", result, netCents: net, settledAt: new Date() })
+    .where(eq(schema.blackjackRound.id, round.id));
+  return net;
+}
+
+type BjState = {
+  roundId: string;
+  player: number[];
+  dealer: number[]; // during play only the up-card is real to the client
+  dealerHidden: boolean;
+  playerTotal: number;
+  dealerTotal: number | null;
+  persona: BjPersona;
+  status: string;
+  result?: string | null;
+  netCents?: number | null;
+};
+
+function bjState(r: { id: string; player: number[]; dealer: number[]; persona: BjPersona; status: string; result: string | null; netCents: number | null }, hideDealer: boolean): BjState {
+  const p = handTotal(r.player);
+  const d = handTotal(r.dealer);
+  return {
+    roundId: r.id,
+    player: r.player,
+    dealer: hideDealer ? r.dealer.slice(0, 1) : r.dealer,
+    dealerHidden: hideDealer,
+    playerTotal: p.total,
+    dealerTotal: hideDealer ? null : d.total,
+    persona: r.persona,
+    status: r.status,
+    result: r.result,
+    netCents: r.netCents,
+  };
+}
+
+export async function blackjackDeal(input: {
+  betCents: number;
+  leverage: number;
+}): Promise<{ ok: boolean; error?: string; state?: BjState }> {
+  try {
+    const u = await requireUser();
+    await assertNotSpam(u.id, "game");
+    const { bet, lev } = checkBet(input.betCents, input.leverage);
+    const dealers = await db.select().from(schema.dealerPersona).where(eq(schema.dealerPersona.active, true));
+    const d = dealers.length > 0 ? dealers[randomInt(dealers.length)] : null;
+    const persona: BjPersona = d
+      ? { name: d.name, avatar: d.avatar, quipWin: d.quipWin, quipLose: d.quipLose }
+      : BJ_FALLBACK_DEALER;
+    const deck = shuffledShoe();
+    const player = [deck.pop()!, deck.pop()!];
+    const dealer = [deck.pop()!, deck.pop()!];
+    let state!: BjState;
+    await db.transaction(async (tx) => {
+      await lockUser(tx, u.id);
+      // Collateral leaves the balance up front so a slow hand can't double-spend it.
+      await credit(tx, u.id, -bet, "game", null, `Blackjack vs ${persona.name} — wager ×${lev}`);
+      const [round] = await tx
+        .insert(schema.blackjackRound)
+        .values({ userId: u.id, betCents: bet, leverage: lev, deck, player, dealer, persona })
+        .returning();
+      const pNat = isNatural(player);
+      const dNat = isNatural(dealer);
+      if (pNat || dNat) {
+        const result = pNat && dNat ? "push" : pNat ? "blackjack" : "lose";
+        const net = await settleBlackjack(tx, round, result, persona.name);
+        state = bjState({ ...round, status: "settled", result, netCents: net }, false);
+      } else {
+        state = bjState(round, true);
+      }
+    });
+    revalidatePath("/games");
+    return { ok: true, state };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Deal failed" };
+  }
+}
+
+// Loads + locks a live round owned by the user; stale hands push-refund.
+async function lockRound(tx: Tx, roundId: string, userId: string) {
+  const [r] = await tx.select().from(schema.blackjackRound).where(eq(schema.blackjackRound.id, roundId)).for("update").limit(1);
+  if (!r || r.userId !== userId) throw new Error("Round not found");
+  if (r.status !== "playing") throw new Error("Hand already settled");
+  if (Date.now() - r.createdAt.getTime() > BJ_ROUND_TTL_MS) {
+    await settleBlackjack(tx, r, "push", r.persona.name);
+    throw new Error("Hand timed out — stake refunded");
+  }
+  return r;
+}
+
+export async function blackjackHit(input: { roundId: string }): Promise<{ ok: boolean; error?: string; state?: BjState }> {
+  try {
+    const u = await requireUser();
+    let state!: BjState;
+    await db.transaction(async (tx) => {
+      const r = await lockRound(tx, input.roundId, u.id);
+      const deck = [...r.deck];
+      const card = deck.pop()!;
+      const player = [...r.player, card];
+      await tx.update(schema.blackjackRound).set({ deck, player }).where(eq(schema.blackjackRound.id, r.id));
+      if (handTotal(player).total > 21) {
+        const net = await settleBlackjack(tx, r, "lose", r.persona.name);
+        state = bjState({ ...r, player, status: "settled", result: "lose", netCents: net }, false);
+      } else {
+        state = bjState({ ...r, player }, true);
+      }
+    });
+    revalidatePath("/games");
+    return { ok: true, state };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Hit failed" };
+  }
+}
+
+export async function blackjackStand(input: { roundId: string }): Promise<{ ok: boolean; error?: string; state?: BjState }> {
+  try {
+    const u = await requireUser();
+    let state!: BjState;
+    await db.transaction(async (tx) => {
+      const r = await lockRound(tx, input.roundId, u.id);
+      const deck = [...r.deck];
+      const dealer = [...r.dealer];
+      while (handTotal(dealer).total < 17) dealer.push(deck.pop()!);
+      const p = handTotal(r.player).total;
+      const d = handTotal(dealer).total;
+      const result = d > 21 || p > d ? "win" : p === d ? "push" : "lose";
+      const net = await settleBlackjack(tx, r, result, r.persona.name);
+      await tx.update(schema.blackjackRound).set({ deck, dealer }).where(eq(schema.blackjackRound.id, r.id));
+      state = bjState({ ...r, dealer, status: "settled", result, netCents: net }, false);
+    });
+    revalidatePath("/games");
+    return { ok: true, state };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Stand failed" };
+  }
+}
+
+// ---------- dealer personas (admin) ----------
+
+export async function adminUpsertDealer(input: {
+  id?: string;
+  name: string;
+  avatar: string;
+  quipWin?: string;
+  quipLose?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const name = input.name.trim().slice(0, 40);
+    if (!name) throw new Error("Name required");
+    const avatar = (input.avatar.trim() || "🃏").slice(0, 8);
+    const vals = { name, avatar, quipWin: (input.quipWin ?? "").trim().slice(0, 140), quipLose: (input.quipLose ?? "").trim().slice(0, 140) };
+    if (input.id) {
+      await db.update(schema.dealerPersona).set(vals).where(eq(schema.dealerPersona.id, input.id));
+    } else {
+      await db.insert(schema.dealerPersona).values(vals);
+    }
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Save failed" };
+  }
+}
+
+export async function adminDeleteDealer(input: { id: string }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await db.delete(schema.dealerPersona).where(eq(schema.dealerPersona.id, input.id));
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Delete failed" };
+  }
+}
+
+export async function adminToggleDealer(input: { id: string; active: boolean }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await db.update(schema.dealerPersona).set({ active: input.active }).where(eq(schema.dealerPersona.id, input.id));
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Update failed" };
   }
 }

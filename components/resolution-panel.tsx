@@ -3,15 +3,31 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Scale, CheckCircle2, AlertTriangle, Send } from "lucide-react";
-import { Button, Card, Input, Segmented } from "@/components/ui/primitives";
-import { proposeResolution, voteResolution } from "@/lib/actions";
+import { Scale, CheckCircle2, AlertTriangle, Send, StickyNote, Trash2, Eye, EyeOff } from "lucide-react";
+import { Button, Card, Input, Segmented, Avatar, Badge } from "@/components/ui/primitives";
+import { proposeResolution, voteResolution, addCommunityNote, setNotePublished, deleteCommunityNote } from "@/lib/actions";
 import { getT, type Lang } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
+
+export type NoteView = {
+  id: string;
+  body: string;
+  stance: string | null;
+  published: boolean;
+  userId: string;
+  username: string | null;
+  userImage: string | null;
+};
 
 // Community-resolution card — always present on live markets. Before a
 // proposal it explains the flow; the resolver (creator/admin) can declare the
 // outcome at any time, everyone else once the market closes. Two confirms
 // settle it, disputes hand it to the admins.
+//
+// The same card hosts community notes: anyone signed in can argue for an
+// outcome; the resolver sees every note here — before the propose controls —
+// and can publish individual notes onto the page above the rules. Markets
+// with 6+ notes are admin-resolve only (`noteGate` badge explains).
 export function ResolutionPanel({
   marketId,
   proposedOutcome,
@@ -24,6 +40,8 @@ export function ResolutionPanel({
   myVote,
   closed,
   isResolver,
+  notes = [],
+  noteGate = false,
   contextLabel,
   lang,
 }: {
@@ -38,6 +56,10 @@ export function ResolutionPanel({
   myVote: string | null;
   closed: boolean;
   isResolver: boolean;
+  // All notes for resolvers (publish flags intact); empty for the public —
+  // published ones render in their own card above the rules.
+  notes?: NoteView[];
+  noteGate?: boolean;
   // Option context on group markets, e.g. "1 - 2 roky".
   contextLabel?: string;
   lang?: Lang;
@@ -47,6 +69,8 @@ export function ResolutionPanel({
   const [pending, start] = useTransition();
   const [outcome, setOutcome] = useState<"yes" | "no">("yes");
   const [r, setR] = useState("");
+  const [noteBody, setNoteBody] = useState("");
+  const [noteStance, setNoteStance] = useState("none");
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) =>
     start(async () => {
@@ -65,14 +89,119 @@ export function ResolutionPanel({
         {t.resolutionPoll}
         {contextLabel ? ` — ${contextLabel}` : ""}
       </span>
+      {notes.length > 0 && (
+        <Badge tone="mute" className="ml-auto shrink-0">
+          <StickyNote className="size-3" /> {t.notesCount(notes.length)}
+        </Badge>
+      )}
     </h3>
+  );
+
+  // Note composer — every signed-in user argues their case; the resolver
+  // reads these before settling. Stance marks which outcome the note backs.
+  const composer = !!viewerId && (
+    <div className="mt-3 border-t border-line-2 pt-3">
+      <div className="flex gap-1.5">
+        <Input
+          value={noteBody}
+          onChange={(e) => setNoteBody(e.target.value)}
+          placeholder={t.notePh}
+          maxLength={500}
+          className="text-[13px]"
+        />
+        <Segmented
+          value={noteStance}
+          onChange={setNoteStance}
+          options={[
+            { value: "none", label: "—" },
+            { value: "yes", label: t.yes },
+            { value: "no", label: t.no },
+          ]}
+        />
+      </div>
+      <div className="mt-1.5 flex justify-end">
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={pending || noteBody.trim().length < 10}
+          onClick={() =>
+            run(
+              () =>
+                addCommunityNote({
+                  marketId,
+                  body: noteBody,
+                  stance: noteStance === "yes" || noteStance === "no" ? noteStance : undefined,
+                }),
+              t.noteAdded
+            )
+          }
+        >
+          <StickyNote className="size-3" /> {t.noteSubmit}
+        </Button>
+      </div>
+    </div>
+  );
+
+  // Resolver's review stack — rendered above the proposal controls so the
+  // resolver literally scrolls through community opinion first.
+  const noteList = isResolver && (
+    <div className="mt-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-faint">
+        {t.notesTitle} · {t.notesResolverHint}
+      </p>
+      {notes.length === 0 ? (
+        <p className="text-[12px] text-faint mt-1.5">{t.notesEmpty}</p>
+      ) : (
+        <div className="mt-2 space-y-2 max-h-64 overflow-y-auto">
+          {notes.map((n) => (
+            <div key={n.id} className="rounded-lg border border-line-2 bg-surface-2/50 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Avatar name={n.username ?? "?"} image={n.userImage} className="size-5" />
+                <span className="text-[11.5px] font-semibold truncate">@{n.username ?? n.userId.slice(0, 8)}</span>
+                {n.stance && (
+                  <Badge tone={n.stance === "yes" ? "yes" : "no"}>{(n.stance === "yes" ? t.yes : t.no).toUpperCase()}</Badge>
+                )}
+                {n.published && <Badge tone="warn">{t.notePublishedBadge}</Badge>}
+                <span className="ml-auto flex gap-1 shrink-0">
+                  <button
+                    type="button"
+                    title={n.published ? t.noteUnpublish : t.notePublish}
+                    disabled={pending}
+                    onClick={() => run(() => setNotePublished({ noteId: n.id, published: !n.published }), t.savedToast)}
+                    className="size-6 grid place-items-center rounded text-faint hover:text-ink hover:bg-surface-3 cursor-pointer disabled:opacity-40"
+                  >
+                    {n.published ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+                  </button>
+                  <button
+                    type="button"
+                    title={t.delete}
+                    disabled={pending}
+                    onClick={() => run(() => deleteCommunityNote({ noteId: n.id }), t.delete)}
+                    className="size-6 grid place-items-center rounded text-faint hover:text-no-strong hover:bg-no-soft cursor-pointer disabled:opacity-40"
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
+                </span>
+              </div>
+              <p className="text-[12.5px] text-ink-2 mt-1 leading-snug whitespace-pre-wrap">{n.body}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {noteGate && (
+        <p className="mt-2 text-[11.5px] font-semibold text-warn-strong flex items-center gap-1.5">
+          <AlertTriangle className="size-3.5" /> {t.notesGate}
+        </p>
+      )}
+    </div>
   );
 
   if (proposedOutcome) {
     const isProposer = !!viewerId && viewerId === proposedById;
     return (
-      <Card className={`p-4 border ${disputed ? "border-no/40" : "border-amber-500/40"}`}>
+      <Card className={cn("p-4 border", disputed ? "border-no/40" : "border-amber-500/40")}>
         {heading}
+        {noteList}
         <p className="text-[12.5px] font-semibold mt-2">
           {t.proposalHeading((proposedOutcome === "yes" ? t.yes : t.no).toUpperCase())}
         </p>
@@ -104,6 +233,7 @@ export function ResolutionPanel({
             </Button>
           </div>
         )}
+        {composer}
       </Card>
     );
   }
@@ -112,6 +242,7 @@ export function ResolutionPanel({
   return (
     <Card className="p-4">
       {heading}
+      {noteList}
       <p className="text-[11.5px] text-mute mt-1.5">
         {isResolver && !closed ? t.resolutionResolverHint : t.resolutionIdle}
       </p>
@@ -145,6 +276,7 @@ export function ResolutionPanel({
           </div>
         </>
       )}
+      {composer}
     </Card>
   );
 }

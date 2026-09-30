@@ -7,7 +7,7 @@ import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Card } from "@/components/ui/primitives";
 import { fmtMonos, timeAgo } from "@/lib/money";
-import { Gamepad2, Coins, Dices, Timer, Rocket, Disc3, Cherry, ChevronRight } from "lucide-react";
+import { Gamepad2, Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +26,7 @@ export default async function GamesPage() {
     { slug: "limbo", icon: Rocket, title: t.gLimbo, sub: t.gLimboSub },
     { slug: "wheel", icon: Disc3, title: t.gWheel, sub: t.gWheelSub },
     { slug: "slots", icon: Cherry, title: t.gSlots, sub: t.gSlotsSub },
+    { slug: "blackjack", icon: Spade, title: t.gBlackjack, sub: t.gBlackjackSub },
   ];
 
   return (

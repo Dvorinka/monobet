@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/primitives";
 import { OptionChip } from "@/components/market-icon";
 import { Sparkline } from "@/components/sparkline";
 import { TradeTicket } from "@/components/trade-ticket";
-import { ResolutionPanel } from "@/components/resolution-panel";
+import { ResolutionPanel, type NoteView } from "@/components/resolution-panel";
 import { yesPrice } from "@/lib/lmsr";
 import { fmtMonos } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
@@ -47,8 +47,11 @@ export function GroupTrade({
   initialOpt,
   initialSide,
   resStates,
+  notesByOption,
+  noteCounts,
   viewerId,
   isResolver,
+  adminGate,
   parentClosed,
   chart,
   left,
@@ -65,8 +68,13 @@ export function GroupTrade({
   initialOpt?: string;
   initialSide?: string;
   resStates?: Record<string, ResolutionState>;
+  // Resolver-only: every note per option; public viewers get published notes
+  // in the page card instead. noteCounts feeds the heading badge for all.
+  notesByOption?: Record<string, NoteView[]>;
+  noteCounts?: Record<string, number>;
   viewerId?: string;
   isResolver?: boolean;
+  adminGate?: boolean;
   parentClosed?: boolean;
   chart?: React.ReactNode;
   left?: React.ReactNode;
@@ -235,6 +243,8 @@ export function GroupTrade({
               myVote={resStates?.[sel.id]?.myVote ?? null}
               closed={parentClosed ?? false}
               isResolver={isResolver ?? false}
+              notes={notesByOption?.[sel.id] ?? []}
+              noteGate={!!adminGate && (noteCounts?.[sel.id] ?? 0) > 5}
               contextLabel={sel.label}
               lang={lang}
             />

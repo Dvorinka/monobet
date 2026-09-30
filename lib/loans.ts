@@ -5,8 +5,12 @@ import { randomInt } from "node:crypto";
 // accrues lazily: every touch compounds the debt to `now` first.
 export const DEBT_CAP_CENTS = 100_000_000; // Ɱ1M ceiling — keeps integer sane
 export const LOAN_PRESETS_CENTS = [25_000, 100_000, 500_000]; // Ɱ250 / Ɱ1,000 / Ɱ5,000
-export const LOAN_RATE_MIN_BPS = 500; // 5% APR
-export const LOAN_RATE_MAX_BPS = 8000; // 80% APR — the house is feeling generous
+export const LOAN_RATE_MIN_BPS = 50; // 0.5% APR
+export const LOAN_RATE_MAX_BPS = 3000; // 30% APR
+// The borrow minigame deals three hidden rate offers; the borrower picks a
+// card and gets that rate — the gamble is which card hides the cheap money.
+export const LOAN_OFFER_COUNT = 3;
+export const LOAN_OFFER_TTL_MS = 10 * 60_000;
 
 export function rollRateBps(): number {
   return LOAN_RATE_MIN_BPS + randomInt(LOAN_RATE_MAX_BPS - LOAN_RATE_MIN_BPS + 1);

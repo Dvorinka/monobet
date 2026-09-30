@@ -3,8 +3,8 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { claimAdReward, claimBonus, claimDaily, claimWeekly, takeLoan, repayLoan } from "@/lib/actions";
-import { LOAN_PRESETS_CENTS } from "@/lib/loans";
+import { claimAdReward, claimBonus, claimDaily, claimWeekly, takeLoan, repayLoan, dealLoanOffers } from "@/lib/actions";
+import { LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT } from "@/lib/loans";
 import { getT, type Lang } from "@/lib/i18n";
 import { AD_WATCH_MS } from "@/lib/rewards";
 import { fmtMonos } from "@/lib/money";
@@ -245,11 +245,40 @@ function InviteCard({ username, lang }: { username: string; lang: Lang }) {
   );
 }
 
-// House loan card — borrow Monos at an APR rolled on take (the rate itself is
-// the gamble), repay out of balance later. Levered game losses land here too.
+// House loan card — borrow Monos via a pick-a-card gamble: clicking an amount
+// deals three hidden APRs (server-signed), the card you pick sets your rate.
+// Borrowing is blocked while you owe the house; levered game losses land here.
 function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps: number; t: ReturnType<typeof getT>; lang: Lang }) {
   const [pending, start] = useTransition();
   const router = useRouter();
+  const [offer, setOffer] = useState<{ token: string; amount: number } | null>(null);
+  const [reveal, setReveal] = useState<{ picked: number; offers: number[] } | null>(null);
+  const inDebt = debtCents > 0;
+
+  const deal = (cents: number) =>
+    start(async () => {
+      setReveal(null);
+      const r = await dealLoanOffers({ amountCents: cents });
+      if (r.ok && r.token) {
+        playSfx("flip", 0.4);
+        setOffer({ token: r.token, amount: cents });
+      } else toast.error(r.error === "Repay your debt first" ? t.loanBlockedDebt : r.error);
+    });
+
+  const pick = (i: number) => {
+    if (!offer) return;
+    start(async () => {
+      const r = await takeLoan({ token: offer.token, pick: i });
+      if (r.ok) {
+        playSfx("claim", 0.5);
+        setReveal({ picked: i, offers: r.offers ?? [] });
+        toast.success(t.loanTaken(fmtMonos(offer.amount, { lang }), ((r.rateBps ?? 0) / 100).toFixed(1)));
+        router.refresh();
+        setTimeout(() => setOffer(null), 4000);
+      } else toast.error(r.error);
+    });
+  };
+
   return (
     <div className="rounded-xl border border-line bg-surface p-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -259,11 +288,11 @@ function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps:
           </div>
           <div>
             <div className="text-[15px] font-semibold">{t.loanTitle}</div>
-            <div className="text-[12.5px] text-mute mt-0.5">{t.loanDesc}</div>
+            <div className="text-[12.5px] text-mute mt-0.5">{inDebt ? t.loanRepayHint : t.loanDesc}</div>
           </div>
         </div>
         <div className="text-right">
-          {debtCents > 0 ? (
+          {inDebt ? (
             <>
               <div className="num text-sm font-bold text-no-strong">{t.loanOwed(fmtMonos(debtCents, { lang }))}</div>
               <div className="num text-[11.5px] text-faint">{(rateBps / 100).toFixed(1)}% APR</div>
@@ -273,27 +302,47 @@ function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps:
           )}
         </div>
       </div>
+
+      {/* Pick-a-card rate gamble — the dealt offers are server-signed, the
+          pick binds the loan to that card's rate. */}
+      {offer && (
+        <div className="mt-3">
+          <p className="text-[12px] font-medium text-mute mb-1.5">{t.loanPickCard}</p>
+          <div className="flex gap-2">
+            {Array.from({ length: LOAN_OFFER_COUNT }, (_, i) => {
+              const revealed = reveal !== null;
+              const mine = reveal?.picked === i;
+              const rate = revealed ? reveal.offers[i] : null;
+              return (
+                <button
+                  key={i}
+                  disabled={pending || revealed}
+                  onClick={() => pick(i)}
+                  className={`flex-1 h-16 rounded-lg border text-center transition-all cursor-pointer disabled:cursor-default ${
+                    revealed
+                      ? mine
+                        ? "border-brand bg-brand-soft"
+                        : "border-line-2 bg-surface-2 opacity-60"
+                      : "border-line bg-surface-2 hover:border-brand/50 hover:bg-brand-soft/40 active:scale-[0.97]"
+                  }`}
+                >
+                  {revealed && rate != null ? (
+                    <span className={`num block text-[15px] font-bold ${mine ? "text-brand-strong" : "text-mute"}`}>
+                      {(rate / 100).toFixed(1)}%
+                      <span className="block text-[10px] font-medium">APR</span>
+                    </span>
+                  ) : (
+                    <span className="text-[20px]">🂠</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {LOAN_PRESETS_CENTS.map((cents) => (
-          <button
-            key={cents}
-            disabled={pending}
-            onClick={() =>
-              start(async () => {
-                const r = await takeLoan({ amountCents: cents });
-                if (r.ok) {
-                  playSfx("claim", 0.5);
-                  toast.success(t.loanTaken(fmtMonos(cents, { lang }), ((r.rateBps ?? 0) / 100).toFixed(1)));
-                  router.refresh();
-                } else toast.error(r.error);
-              })
-            }
-            className="h-8 px-3.5 rounded-lg bg-surface-2 text-[12.5px] font-semibold text-ink hover:bg-surface-3 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {t.loanBorrow(fmtMonos(cents, { lang, decimals: false }))}
-          </button>
-        ))}
-        {debtCents > 0 && (
+        {inDebt ? (
           <button
             disabled={pending}
             onClick={() =>
@@ -310,6 +359,18 @@ function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps:
           >
             {t.loanRepayAll}
           </button>
+        ) : (
+          !offer &&
+          LOAN_PRESETS_CENTS.map((cents) => (
+            <button
+              key={cents}
+              disabled={pending}
+              onClick={() => deal(cents)}
+              className="h-8 px-3.5 rounded-lg bg-surface-2 text-[12.5px] font-semibold text-ink hover:bg-surface-3 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {t.loanBorrow(fmtMonos(cents, { lang, decimals: false }))}
+            </button>
+          ))
         )}
       </div>
     </div>

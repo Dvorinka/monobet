@@ -170,6 +170,17 @@ export function TradeTicket({
         <div className="mt-4 space-y-1.5 text-[13px]">
           <Row k={side === "buy" ? t.estShares : t.selling} v={fmtShares(est.shares, lang)} />
           <Row k={t.avgPrice} v={fmtCents(est.avg)} />
+          {/* A big order sweeps the book — flag it when the fill price is far
+              from the quoted chance so the numbers don't look contradictory. */}
+          {side === "buy" &&
+            (() => {
+              const px = outcome === "yes" ? py : 1 - py;
+              return est.avg > px * 1.15 && est.avg - px > 0.08 ? (
+                <p className="text-[11px] leading-snug text-warn-strong">
+                  {t.priceImpact(fmtCents(px), fmtCents(est.avg))}
+                </p>
+              ) : null;
+            })()}
           {side === "buy" && lev > 1 && (
             <Row k={t.loanLabel} v={fmtMonos(spendCents * (lev - 1), { lang })} />
           )}

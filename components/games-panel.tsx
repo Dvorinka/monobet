@@ -12,6 +12,9 @@ import {
   playLimbo,
   playWheel,
   playSlots,
+  blackjackDeal,
+  blackjackHit,
+  blackjackStand,
 } from "@/lib/actions";
 import {
   GAME_LEVERAGES,
@@ -26,12 +29,13 @@ import {
   WHEEL_SEGMENTS,
   WHEEL_STEP,
   SLOT_SYMBOLS,
+  cardLabel,
 } from "@/lib/games";
 import { fmtMonos } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Coins, Dices, Timer, Rocket, Disc3, Cherry, X } from "lucide-react";
+import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, X } from "lucide-react";
 
 type Net = { netCents: number; won: boolean; stamp: number } | null;
 
@@ -796,6 +800,164 @@ function SlotsCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }
   );
 }
 
+// ---------- blackjack ----------
+// Interactive hand against an automated dealer persona — the shoe lives
+// server-side; the client only sends deal/hit/stand.
+
+type BjRound = {
+  roundId: string;
+  player: number[];
+  dealer: number[];
+  dealerHidden: boolean;
+  playerTotal: number;
+  dealerTotal: number | null;
+  persona: { name: string; avatar: string; quipWin: string; quipLose: string };
+  status: string;
+  result?: string | null;
+  netCents?: number | null;
+};
+
+function PlayingCard({ v, hidden }: { v?: number; hidden?: boolean }) {
+  if (hidden || v === undefined)
+    return (
+      <div className="w-10 h-14 rounded-md border border-line bg-ink grid place-items-center text-surface-3 text-[15px] shadow-sm">
+        🂠
+      </div>
+    );
+  const c = cardLabel(v);
+  return (
+    <div
+      className={cn(
+        "w-10 h-14 rounded-md border border-line bg-surface grid grid-rows-[auto_1fr] px-1 pt-0.5 shadow-sm anim-win-pop",
+        c.red ? "text-no-strong" : "text-ink"
+      )}
+    >
+      <span className="num text-[12px] font-bold leading-none">{c.rank}</span>
+      <span className="text-[15px] leading-none self-center justify-self-center">{c.suit}</span>
+    </div>
+  );
+}
+
+function BlackjackCard({ balanceCents, lang }: { balanceCents: number; lang?: Lang }) {
+  const t = getT(lang ?? "en");
+  const { pending, run } = useGame(lang);
+  const [bet, setBet] = useState("10");
+  const [lev, setLev] = useState("1");
+  const [round, setRound] = useState<BjRound | null>(null);
+  const [net, setNet] = useState<Net>(null);
+
+  const settle = (s?: BjRound) => {
+    if (!s || s.status !== "settled") return;
+    playSfx(s.result === "lose" ? "lose" : "win", 0.5);
+    setNet({ stamp: Date.now(), netCents: s.netCents ?? 0, won: s.result !== "lose" });
+  };
+
+  const deal = () =>
+    run(() => blackjackDeal({ betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then((r) => {
+      if (!r?.state) return;
+      playSfx("flip", 0.4);
+      setNet(null);
+      setRound(r.state);
+      settle(r.state);
+    });
+
+  const hit = () =>
+    run(() => blackjackHit({ roundId: round!.roundId })).then((r) => {
+      if (!r?.state) return;
+      playSfx("trade", 0.3);
+      setRound(r.state);
+      settle(r.state);
+    });
+
+  const stand = () =>
+    run(() => blackjackStand({ roundId: round!.roundId })).then((r) => {
+      if (!r?.state) return;
+      setRound(r.state);
+      settle(r.state);
+    });
+
+  const playing = round?.status === "playing";
+  const settledRound = round?.status === "settled" ? round : null;
+  const resultLabel =
+    settledRound?.result === "blackjack"
+      ? t.bjNatural
+      : settledRound?.result === "push"
+        ? t.bjPush
+        : settledRound?.result === "win"
+          ? t.bjYouWin
+          : settledRound?.result === "lose"
+            ? (round?.playerTotal ?? 0) > 21
+              ? t.bjBust
+              : t.bjDealerWins
+            : null;
+  const quip = settledRound
+    ? settledRound.result === "lose"
+      ? settledRound.persona.quipWin
+      : settledRound.persona.quipLose
+    : null;
+
+  return (
+    <GameCard
+      icon={<Spade className="size-4.5" />}
+      title={t.gBlackjack}
+      sub={round ? round.persona.name : t.gBlackjackSub}
+      stage={
+        <div className="w-full flex flex-col items-center gap-3 px-1">
+          {/* dealer row */}
+          <div className="w-full">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="size-6 grid place-items-center rounded-md bg-surface-3 text-[14px]">{round?.persona.avatar ?? "🃏"}</span>
+              <span className="text-[12px] font-semibold text-mute">{round?.persona.name ?? t.gBlackjack}</span>
+              {round?.dealerTotal != null && <span className="num ml-auto text-[12px] font-bold">{round.dealerTotal}</span>}
+            </div>
+            <div className="flex gap-1.5 flex-wrap min-h-14">
+              {round
+                ? round.dealer.map((c, i) => <PlayingCard key={i} v={c} />).concat(round.dealerHidden ? [<PlayingCard key="h" hidden />] : [])
+                : <PlayingCard hidden />}
+            </div>
+          </div>
+          {/* player row */}
+          <div className="w-full">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[12px] font-semibold text-mute">{lang === "cs" ? "Vy" : "You"}</span>
+              {round && <span className="num ml-auto text-[12px] font-bold">{round.playerTotal}</span>}
+            </div>
+            <div className="flex gap-1.5 flex-wrap min-h-14">
+              {round ? round.player.map((c, i) => <PlayingCard key={i} v={c} />) : <PlayingCard hidden />}
+            </div>
+          </div>
+          <div className="min-h-5 flex flex-col items-center gap-0.5">
+            {resultLabel && <span className="text-[12.5px] font-bold anim-win-pop">{resultLabel}</span>}
+            {quip && <span className="text-[11.5px] text-faint italic">“{quip}”</span>}
+            <ResultTag net={net} lang={lang} />
+          </div>
+        </div>
+      }
+      controls={
+        <>
+          {!playing && (
+            <BetControls bet={bet} setBet={setBet} lev={lev} setLev={setLev} balanceCents={balanceCents} disabled={pending} lang={lang} />
+          )}
+          {playing ? (
+            <div className="flex gap-2">
+              <Button className="flex-1" size="lg" disabled={pending} onClick={hit}>
+                {t.bjHit}
+              </Button>
+              <Button className="flex-1" size="lg" variant="outline" disabled={pending} onClick={stand}>
+                {t.bjStand}
+              </Button>
+            </div>
+          ) : (
+            <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet)} onClick={deal}>
+              {round ? t.bjNewHand : t.bjDeal}
+            </Button>
+          )}
+        </>
+      }
+    />
+  );
+}
+
 export const GAME_COMPONENTS = {
   coinflip: CoinFlipCard,
   dice: DiceCard,
@@ -803,6 +965,7 @@ export const GAME_COMPONENTS = {
   limbo: LimboCard,
   wheel: WheelCard,
   slots: SlotsCard,
+  blackjack: BlackjackCard,
 } as const;
 
 export type GameSlug = keyof typeof GAME_COMPONENTS;

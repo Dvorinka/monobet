@@ -1,6 +1,6 @@
 import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
-import { Clock, Users, Scale, CheckCircle2, XCircle, Hourglass } from "lucide-react";
+import { Clock, Users, Scale, CheckCircle2, XCircle, Hourglass, StickyNote } from "lucide-react";
 import type { Metadata } from "next";
 import {
   getMarketBySlug,
@@ -27,6 +27,8 @@ import {
   getGroupHolders,
   getUserPublic,
   listMarkets,
+  getCommunityNotes,
+  getNotesFor,
 } from "@/lib/queries";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
@@ -104,8 +106,9 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
   }
 
   const parent = market.parentId ? await getMarketById(market.parentId) : null;
+  const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
 
-  const [history, trades, comments, position, related, betCount, categories, res, liked, likes, holders, creator, posBadges] = await Promise.all([
+  const [history, trades, comments, position, related, betCount, categories, res, liked, likes, holders, creator, posBadges, notes] = await Promise.all([
     getPriceHistory(market.id),
     getRecentTrades(market.id),
     getComments(market.id, user?.id),
@@ -119,9 +122,12 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
     getTopHolders(market.id),
     getUserPublic(market.creatorId),
     getPositionBadges([market.id]),
+    // Resolvers need every note for review; everyone else only sees the
+    // published ones (they land in the card above the rules).
+    canManage ? getCommunityNotes(market.id) : getCommunityNotes(market.id, { publishedOnly: true }),
   ]);
   const canDelete = !!user && (isAdmin(user) || (market.creatorId === user.id && betCount === 0));
-  const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
+  const publishedNotes = notes.filter((n) => n.published);
 
   // Comment badges: each commenter's dominant side on this market.
   const badges: Record<string, { label: string; shares: number; tone: "yes" | "no" }> = {};
@@ -215,6 +221,8 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
                 myVote={res.myVote}
                 closed={!!market.closesAt && market.closesAt <= new Date()}
                 isResolver={!!user && (isAdmin(user) || market.creatorId === user.id)}
+                notes={canManage ? notes : []}
+                noteGate={canManage && !isAdmin(user) && notes.length > 5}
                 lang={lang}
               />
             </div>
@@ -268,6 +276,30 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               lang={lang}
             />
           </div>
+
+          {publishedNotes.length > 0 && (
+            <div className="mt-8">
+              <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
+                <StickyNote className="size-4" /> {t.notesTitle}
+              </h2>
+              <Card className="p-1.5">
+                {publishedNotes.map((n) => (
+                  <div key={n.id} className="px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <Avatar name={n.username ?? "?"} image={n.userImage} className="size-5" />
+                      <span className="text-[11.5px] font-semibold text-mute">@{n.username ?? "?"}</span>
+                      {n.stance && (
+                        <Badge tone={n.stance === "yes" ? "yes" : "no"}>
+                          {(n.stance === "yes" ? t.yes : t.no).toUpperCase()}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[13px] text-ink-2 mt-1 leading-snug whitespace-pre-wrap">{n.body}</p>
+                  </div>
+                ))}
+              </Card>
+            </div>
+          )}
 
           {/* rules + market context, Polymarket-style tabs block */}
           <div className="mt-8">
@@ -476,7 +508,8 @@ async function GroupMarketView({
   const t: Dict = getT(lang);
   const optionIds = options.map((o) => o.id);
   const live = options.filter((o) => o.status === "live");
-  const [optionSparks, histories, betCount, categories, posRows, myPositions, creator, res, holders, resStates] = await Promise.all([
+  const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
+  const [optionSparks, histories, betCount, categories, posRows, myPositions, creator, res, holders, resStates, notesMap] = await Promise.all([
     getSparklines(optionIds),
     getGroupHistories(optionIds),
     getMarketBetCount(market.id),
@@ -487,6 +520,7 @@ async function GroupMarketView({
     getResolutionState(market.id, user?.id),
     getGroupHolders(optionIds),
     getResolutionStates(optionIds, user?.id),
+    canManage ? getNotesFor(optionIds) : getNotesFor(optionIds, { publishedOnly: true }),
   ]);
   // Comment badges: each commenter's dominant option position. YES-side holders
   // get the option color, NO-side holders a red "No <option>" tag.
@@ -510,7 +544,6 @@ async function GroupMarketView({
   const traders = options.reduce((s, o) => s + o.traderCount, 0);
   const anyLive = live.length > 0;
   const canDelete = !!user && (isAdmin(user) || (market.creatorId === user.id && betCount === 0));
-  const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
   // Multi-line chart: every option with a price history, colored by sort order
   // — resolved options stay as flat lines pinned at 0%/100%.
   const series = options
@@ -593,8 +626,11 @@ async function GroupMarketView({
         initialOpt={selOpt}
         initialSide={selSide}
         resStates={Object.fromEntries(resStates)}
+        notesByOption={canManage ? Object.fromEntries(notesMap) : undefined}
+        noteCounts={Object.fromEntries([...notesMap].map(([k, v]) => [k, v.length]))}
         viewerId={user?.id}
         isResolver={canManage}
+        adminGate={!isAdmin(user)}
         parentClosed={!!market.closesAt && market.closesAt <= new Date()}
         chart={
           <div className="rounded-[14px] border border-line bg-surface p-4">
@@ -628,6 +664,35 @@ async function GroupMarketView({
         }
         left={
           <>
+            {options.some((o) => (notesMap.get(o.id) ?? []).some((n) => n.published)) && (
+              <div className="mt-8">
+                <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
+                  <StickyNote className="size-4" /> {t.notesTitle}
+                </h2>
+                <Card className="p-1.5">
+                  {options.flatMap((o) =>
+                    (notesMap.get(o.id) ?? [])
+                      .filter((n) => n.published)
+                      .map((n) => (
+                        <div key={n.id} className="px-3 py-2.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Avatar name={n.username ?? "?"} image={n.userImage} className="size-5" />
+                            <span className="text-[11.5px] font-semibold text-mute">@{n.username ?? "?"}</span>
+                            <Badge tone="mute">{t.notesOnOption(o.label ?? o.question)}</Badge>
+                            {n.stance && (
+                              <Badge tone={n.stance === "yes" ? "yes" : "no"}>
+                                {(n.stance === "yes" ? t.yes : t.no).toUpperCase()}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-[13px] text-ink-2 mt-1 leading-snug whitespace-pre-wrap">{n.body}</p>
+                        </div>
+                      ))
+                  )}
+                </Card>
+              </div>
+            )}
+
             {market.description && (
               <div className="mt-8">
                 <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">

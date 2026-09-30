@@ -901,6 +901,83 @@ export async function getResolutionStates(marketIds: string[], userId?: string) 
   return map;
 }
 
+// Community notes for a market — resolvers get every note (with publish
+// flags); the public card only ever asks for published ones.
+export async function getCommunityNotes(marketId: string, opts: { publishedOnly?: boolean } = {}) {
+  return db
+    .select({
+      id: schema.communityNote.id,
+      body: schema.communityNote.body,
+      stance: schema.communityNote.stance,
+      published: schema.communityNote.published,
+      createdAt: schema.communityNote.createdAt,
+      userId: schema.communityNote.userId,
+      username: schema.user.username,
+      userImage: schema.user.image,
+    })
+    .from(schema.communityNote)
+    .leftJoin(schema.user, eq(schema.communityNote.userId, schema.user.id))
+    .where(
+      and(
+        eq(schema.communityNote.marketId, marketId),
+        opts.publishedOnly ? eq(schema.communityNote.published, true) : undefined
+      )
+    )
+    .orderBy(desc(schema.communityNote.createdAt));
+}
+
+// Notes for a set of markets (group options) batched into a map — pass
+// publishedOnly for the public card; resolvers get everything.
+export async function getNotesFor(marketIds: string[], opts: { publishedOnly?: boolean } = {}) {
+  const map = new Map<string, { id: string; body: string; stance: string | null; published: boolean; userId: string; username: string | null; userImage: string | null; createdAt: Date }[]>();
+  if (marketIds.length === 0) return map;
+  const rows = await db
+    .select({
+      id: schema.communityNote.id,
+      marketId: schema.communityNote.marketId,
+      body: schema.communityNote.body,
+      stance: schema.communityNote.stance,
+      published: schema.communityNote.published,
+      userId: schema.communityNote.userId,
+      createdAt: schema.communityNote.createdAt,
+      username: schema.user.username,
+      userImage: schema.user.image,
+    })
+    .from(schema.communityNote)
+    .leftJoin(schema.user, eq(schema.communityNote.userId, schema.user.id))
+    .where(
+      and(
+        inArray(schema.communityNote.marketId, marketIds),
+        opts.publishedOnly ? eq(schema.communityNote.published, true) : undefined
+      )
+    )
+    .orderBy(desc(schema.communityNote.createdAt));
+  for (const r of rows) {
+    const arr = map.get(r.marketId) ?? [];
+    arr.push(r);
+    map.set(r.marketId, arr);
+  }
+  return map;
+}
+
+// Total note count per market — admin list + the >5 admin-resolution gate.
+export async function getNoteCounts(marketIds: string[]) {
+  const map = new Map<string, number>();
+  if (marketIds.length === 0) return map;
+  const rows = await db
+    .select({ marketId: schema.communityNote.marketId, n: sql<number>`count(*)::int` })
+    .from(schema.communityNote)
+    .where(inArray(schema.communityNote.marketId, marketIds))
+    .groupBy(schema.communityNote.marketId);
+  for (const r of rows) map.set(r.marketId, r.n);
+  return map;
+}
+
+// Blackjack dealers — admin panel lists all; rounds pick from active ones.
+export async function listDealers() {
+  return db.select().from(schema.dealerPersona).orderBy(schema.dealerPersona.createdAt);
+}
+
 // Duels involving this user — opponent/creator names joined for display.
 export async function getDuels(userId: string) {
   const rows = await db

@@ -79,3 +79,32 @@ export function slotPayout(a: number, b: number, c: number) {
   if (a === b && b === c) return SLOT_TRIPLE[a];
   return a === b || b === c || a === c ? SLOT_PAIR : 0;
 }
+
+// Blackjack — single 52-card shoe, ints 0-51 (rank = v % 13, suit = v / 13).
+// Dealer stands on all 17. Blackjack pays 2.5×, a regular win 2×, push refunds.
+export const BJ_WIN_MULT = 2;
+export const BJ_NATURAL_MULT = 2.5;
+
+export const BJ_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"] as const;
+export const BJ_SUITS = ["♠", "♥", "♦", "♣"] as const;
+export function cardLabel(v: number) {
+  return { rank: BJ_RANKS[v % 13], suit: BJ_SUITS[Math.floor(v / 13)], red: Math.floor(v / 13) === 1 || Math.floor(v / 13) === 2 };
+}
+
+// Hand total with aces as 11→1 fallback; `soft` = an ace still counts as 11.
+export function handTotal(cards: number[]): { total: number; soft: boolean } {
+  let total = 0;
+  let aces = 0;
+  for (const c of cards) {
+    const r = c % 13;
+    if (r === 0) aces++;
+    else total += r >= 9 ? 10 : r + 1;
+  }
+  total += aces * 11;
+  while (total > 21 && aces > 0) {
+    total -= 10;
+    aces--;
+  }
+  return { total, soft: aces > 0 };
+}
+export const isNatural = (cards: number[]) => cards.length === 2 && handTotal(cards).total === 21;

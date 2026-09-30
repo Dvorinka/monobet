@@ -10,6 +10,7 @@ import {
   doublePrecision,
   uuid,
   index,
+  jsonb,
   primaryKey,
   smallint,
   unique,
@@ -309,6 +310,62 @@ export const resolutionVote = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.marketId, t.userId] })]
+);
+
+// Community notes — user annotations arguing for an outcome on a resolvable
+// market (binary or group option). The resolver reviews them before settling
+// and can publish individual notes onto the market page above the rules.
+// Markets with more than NOTE_ADMIN_GATE notes can only be resolved by an
+// admin — the crowd flagged it, so the house signs off.
+export const communityNote = pgTable(
+  "community_note",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    marketId: uuid("market_id").notNull().references(() => market.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    stance: text("stance"), // 'yes' | 'no' | null — outcome the note argues for
+    body: text("body").notNull(),
+    published: boolean("published").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("community_note_market_idx").on(t.marketId, t.createdAt)]
+);
+
+// ---------- blackjack ----------
+
+// Dealer personas — admin-configured characters that front the automated
+// blackjack dealer. Each round snapshots the persona so edits can't
+// rewrite history.
+export const dealerPersona = pgTable("dealer_persona", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  avatar: text("avatar").notNull().default("🃏"),
+  quipWin: text("quip_win").notNull().default(""), // shown when the dealer wins
+  quipLose: text("quip_lose").notNull().default(""), // dealer loses or pushes
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// A live blackjack hand — deck and cards live server-side so hit/stand can't
+// forge draws. Settles inside the deal/hit/stand actions via settleGame.
+export const blackjackRound = pgTable(
+  "blackjack_round",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    betCents: integer("bet_cents").notNull(),
+    leverage: integer("leverage").notNull().default(1),
+    deck: jsonb("deck").notNull().$type<number[]>(), // remaining shoe, ints 0-51
+    player: jsonb("player").notNull().$type<number[]>(),
+    dealer: jsonb("dealer").notNull().$type<number[]>(),
+    persona: jsonb("persona").notNull().$type<{ name: string; avatar: string; quipWin: string; quipLose: string }>(),
+    status: text("status").notNull().default("playing"), // playing | settled
+    result: text("result"), // win | lose | push | blackjack
+    netCents: integer("net_cents"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (t) => [index("blackjack_round_user_idx").on(t.userId, t.createdAt)]
 );
 
 // ---------- squads ----------

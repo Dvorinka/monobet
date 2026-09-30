@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { getCurrentUser, isAdmin } from "@/lib/session";
-import { getPendingMarkets, listMarkets, getAllUsers, listCategories, listCategoryRows, getDisputedDuels } from "@/lib/queries";
-import { PendingList, LiveMarketList, GrantPanel, CategoriesPanel, UsersPanel, UserManager, DuelAdminPanel } from "@/components/admin-panels";
+import { getPendingMarkets, listMarkets, getAllUsers, listCategories, listCategoryRows, getDisputedDuels, getNoteCounts, listDealers } from "@/lib/queries";
+import { PendingList, LiveMarketList, GrantPanel, CategoriesPanel, UsersPanel, UserManager, DuelAdminPanel, DealersPanel } from "@/components/admin-panels";
 import { MarketForm } from "@/components/market-form";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Card } from "@/components/ui/primitives";
-import { ShieldCheck, Inbox, Radio, Users, PlusCircle, Tags, UserPlus, Swords } from "lucide-react";
+import { ShieldCheck, Inbox, Radio, Users, PlusCircle, Tags, UserPlus, Swords, Spade } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Admin" };
@@ -18,14 +18,19 @@ export default async function AdminPage() {
   if (!isAdmin(user)) redirect("/");
   const t = getT(lang);
 
-  const [pending, live, users, categories, categoryRows, disputed] = await Promise.all([
+  const [pending, live, users, categories, categoryRows, disputed, dealers, noteCounts] = await Promise.all([
     getPendingMarkets(),
     listMarkets({ includeOptions: true }),
     getAllUsers(),
     listCategories(),
     listCategoryRows(),
     getDisputedDuels(),
-  ]);
+    listDealers(),
+  ]).then(async (r) => {
+    // Note counts need the market ids first — one extra batched query.
+    const counts = await getNoteCounts((r[1] as { id: string }[]).map((m) => m.id));
+    return [...r, counts] as const;
+  });
 
   return (
     <div className="mx-auto max-w-5xl px-4 pt-8">
@@ -33,7 +38,10 @@ export default async function AdminPage() {
         <ShieldCheck className="size-5" /> {t.adminTitle}
       </h1>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+      {/* [&>*]:min-w-0 — grid items default to min-width:auto, so any nowrap
+          text inside (dealer quips, long emails) would stretch the implicit
+          mobile column past the viewport. */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
         <section className="lg:col-span-2">
           <SectionTitle icon={<Inbox className="size-4" />} title={t.pendingProposals(pending.length)} />
           <Card className="overflow-hidden">
@@ -94,6 +102,9 @@ export default async function AdminPage() {
                 traderCount: m.traderCount,
                 closesAt: m.closesAt,
                 kind: m.kind,
+                noteCount: noteCounts.get(m.id) ?? 0,
+                proposedOutcome: m.proposedOutcome,
+                status: m.status,
               }))}
             />
           </Card>
@@ -124,6 +135,13 @@ export default async function AdminPage() {
           <SectionTitle icon={<UserPlus className="size-4" />} title={t.umCreateUser} />
           <Card>
             <UsersPanel lang={lang} />
+          </Card>
+        </section>
+
+        <section>
+          <SectionTitle icon={<Spade className="size-4" />} title={t.dealersTitle} />
+          <Card>
+            <DealersPanel dealers={dealers} lang={lang} />
           </Card>
         </section>
       </div>
