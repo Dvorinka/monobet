@@ -4,11 +4,12 @@ import { CategoryTabs } from "@/components/category-tabs";
 import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicker } from "@/components/trade-ticker";
 import { MarketCard } from "@/components/market-card";
+import { Sk, MarketCardSkeleton } from "@/components/skeletons";
 import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor, listCategories, getWatchlistIds, getLikedIds, getLikeCounts, getExpiredLive, maybeNotifyClosing } from "@/lib/queries";
 import { fmtMonos } from "@/lib/money";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
-import { getT, LOCALES } from "@/lib/i18n";
+import { getT, LOCALES, type Lang } from "@/lib/i18n";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
@@ -24,16 +25,61 @@ export default async function Home({
   const cat = sp.cat ?? "all";
   const q = sp.q;
   const lang = await getLang();
-  const t = getT(lang);
   const [user, categories] = await Promise.all([getCurrentUser(), listCategories()]);
-  // One parallel window: watchlist, the market list that may depend on it,
-  // the expired queue, and closing reminders all resolve together.
+  // Watchlist/likes start resolving now — only the "watching" tab blocks the
+  // market query on them; everything else streams in alongside the results.
   const watchIdsP = user ? getWatchlistIds(user.id) : Promise.resolve<string[]>([]);
   const likedIdsP = user ? getLikedIds(user.id) : Promise.resolve<string[]>([]);
+  // Closing-in-24h reminders land in the bell — written after the response
+  // streams so the fan-out never blocks the render.
+  if (user) after(() => maybeNotifyClosing(user.id));
+
+  return (
+    <div className="mx-auto max-w-6xl px-4">
+      <LiveRefresher intervalMs={15000} />
+      <Suspense>
+        <CategoryTabs categories={categories} lang={lang} showWatching={!!user} />
+      </Suspense>
+      <Suspense fallback={<ResultsSkeleton />}>
+        <MarketResults cat={cat} q={q} lang={lang} user={user} watchIdsP={watchIdsP} likedIdsP={likedIdsP} />
+      </Suspense>
+    </div>
+  );
+}
+
+function ResultsSkeleton() {
+  return (
+    <div aria-busy>
+      <Sk className="my-5 h-7 w-44" />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <MarketCardSkeleton key={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+async function MarketResults({
+  cat,
+  q,
+  lang,
+  user,
+  watchIdsP,
+  likedIdsP,
+}: {
+  cat: string;
+  q?: string;
+  lang: Lang;
+  user: Awaited<ReturnType<typeof getCurrentUser>>;
+  watchIdsP: Promise<string[]>;
+  likedIdsP: Promise<string[]>;
+}) {
+  const t = getT(lang);
   const [watchIds, likedIds, markets, expired] = await Promise.all([
     watchIdsP,
     likedIdsP,
-    watchIdsP.then((ids) =>
+    (cat === "watching" ? watchIdsP : Promise.resolve<string[]>([])).then((ids) =>
       listMarkets({
         category: cat,
         q,
@@ -44,9 +90,6 @@ export default async function Home({
     ),
     cat === "all" && !q ? getExpiredLive() : Promise.resolve([]),
   ]);
-  // Closing-in-24h reminders land in the bell — written after the response
-  // streams so the fan-out never blocks the render.
-  if (user) after(() => maybeNotifyClosing(user.id));
   const watchSet = new Set(watchIds);
   const likedSet = new Set(likedIds);
   const ids = markets.map((m) => m.id);
@@ -65,11 +108,7 @@ export default async function Home({
   );
 
   return (
-    <div className="mx-auto max-w-6xl px-4">
-      <LiveRefresher intervalMs={15000} />
-      <Suspense>
-        <CategoryTabs categories={categories} lang={lang} showWatching={!!user} />
-      </Suspense>
+    <>
       <TradeTicker trades={ticker} lang={lang} />
 
       {expired.length > 0 && (
@@ -114,6 +153,6 @@ export default async function Home({
           ))}
         </div>
       )}
-    </div>
+    </>
   );
 }

@@ -4,7 +4,7 @@ import { db, schema } from "@/lib/db";
 import { eq, ne, and, sql, desc, asc, isNull, inArray } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
 import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, type Persona } from "@/lib/games";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
 import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb } from "@/lib/lmsr";
@@ -294,6 +294,7 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
           b: parent.b,
           qYes: multiQForProb(pi, parent.b).toFixed(6),
           qNo: "0",
+          volumeCents: houseSeedCents(parent.b),
           opensAt: nextOpen,
           closesAt: nextClose,
           maxLeverage: parent.maxLeverage,
@@ -873,6 +874,12 @@ export async function grantBalance(input: {
 // Everyone can open a live market. The creator sets the starting odds and
 // liquidity; the LMSR takes it from there.
 const LIQUIDITY_OPTIONS = [100, 300, 900] as const;
+// New books default to deep liquidity — early trades move the price 3× less.
+const DEFAULT_LIQUIDITY = 900;
+// House-provided seed shown as starting volume: the LMSR subsidy the house
+// stakes in every new book (b·ln2 of worst-case loss). A real deposit that
+// damps early swings — no fake trades, no fake trader count.
+const houseSeedCents = (b: number) => Math.round(b * Math.LN2);
 const NEW_CATEGORY = "__new__";
 
 function normalizeCategory(raw: string): string {
@@ -915,6 +922,7 @@ export async function createCategory(input: { name: string }): Promise<{ ok: boo
     });
     revalidatePath("/");
     revalidatePath("/admin");
+    updateTag("categories");
     return { ok: true, name };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed to create category" };
@@ -937,6 +945,7 @@ export async function renameCategory(input: { from: string; to: string }): Promi
     });
     revalidatePath("/");
     revalidatePath("/admin");
+    updateTag("categories");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Rename failed" };
@@ -953,6 +962,7 @@ export async function reorderCategories(input: { names: string[] }): Promise<{ o
     });
     revalidatePath("/");
     revalidatePath("/admin");
+    updateTag("categories");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Reorder failed" };
@@ -970,6 +980,7 @@ export async function deleteCategory(input: { name: string }): Promise<{ ok: boo
     await db.delete(schema.category).where(eq(schema.category.name, input.name));
     revalidatePath("/");
     revalidatePath("/admin");
+    updateTag("categories");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Delete failed" };
@@ -999,7 +1010,7 @@ export async function proposeMarket(input: {
     if (question.length > 200) throw new Error("Question too long (max 200)");
     if (input.description.length > 5000) throw new Error("Description too long");
     const context = (input.context ?? "").trim().slice(0, 2000);
-    const b = LIQUIDITY_OPTIONS.includes(input.liquidity as 100) ? input.liquidity! : 300;
+    const b = LIQUIDITY_OPTIONS.includes(input.liquidity as 100) ? input.liquidity! : DEFAULT_LIQUIDITY;
     const p = Math.min(0.97, Math.max(0.03, input.initialProb ?? 0.5));
     const description = input.description.trim();
     const recurDays = [1, 7, 14, 30].includes(input.recurDays ?? 0) ? input.recurDays! : null;
@@ -1097,6 +1108,7 @@ export async function proposeMarket(input: {
               b,
               qYes: multiQForProb(pi, b).toFixed(6),
               qNo: "0",
+              volumeCents: houseSeedCents(b),
               opensAt,
               closesAt,
               maxLeverage,
@@ -1120,6 +1132,7 @@ export async function proposeMarket(input: {
           b,
           qYes: qForProb(p, b).toFixed(6),
           qNo: "0",
+          volumeCents: houseSeedCents(b),
           opensAt,
           closesAt,
           recurDays,
@@ -1133,6 +1146,7 @@ export async function proposeMarket(input: {
 
     revalidatePath("/admin");
     revalidatePath("/");
+    updateTag("categories");
     return { ok: true, slug, live: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed to create market" };
@@ -1259,6 +1273,7 @@ export async function updateMarket(input: {
     revalidatePath(`/market/${m[0].slug}`);
     revalidatePath("/admin");
     revalidatePath("/");
+    updateTag("categories");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Update failed" };
@@ -1400,6 +1415,7 @@ async function settleMarketTx(
         b: m.b,
         qYes: qForProb(seedP, m.b).toFixed(6),
         qNo: "0",
+        volumeCents: houseSeedCents(m.b),
         recurDays: m.recurDays,
         maxLeverage: m.maxLeverage,
         imageUrl: m.imageUrl,
