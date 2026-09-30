@@ -22,7 +22,7 @@ export function dealerFx(p?: Persona | null): DealerFx {
 // fee (min Ɱ25 or 2% of the debt, whichever is steeper) and clears a small
 // random slice; sometimes the wall stays silent and keeps the fee anyway.
 // Vows pledge a share of every win to the debt until it's gone.
-export const WALL_COOLDOWN_MS = 24 * 3600_000;
+export const WALL_COOLDOWN_MS = 6 * 3600_000;
 export const WALL_FEE_MIN_CENTS = 2_500;
 export const WALL_FEE_DEBT_PCT = 0.02;
 export const WALL_CLEAR_MIN_PCT = 0.02;

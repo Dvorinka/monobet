@@ -31,9 +31,13 @@ export const auth = betterAuth({
       lastClaimAt: { type: "date", required: false, input: false },
       bannedAt: { type: "date", required: false, input: false },
       commentsBanned: { type: "boolean", required: false, input: false },
+      commentBanUntil: { type: "date", required: false, input: false },
+      claimStreak: { type: "number", required: false, input: false },
       debtCents: { type: "number", required: false, input: false },
       debtRateBps: { type: "number", required: false, input: false },
       debtSince: { type: "date", required: false, input: false },
+      wallPrayerAt: { type: "date", required: false, input: false },
+      vowBps: { type: "number", required: false, input: false },
     },
   },
   hooks: {

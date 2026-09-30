@@ -457,7 +457,7 @@ export function RewardsPanels({
   bonuses: BonusState[];
   username: string;
   debt: { cents: number; rateBps: number };
-  wall: { prayerAt: Date | null; vowBps: number; prayers: WallPrayerRow[] };
+  wall: { prayerAt: Date | null; vowBps: number; prayers: WallPrayerRow[]; balanceCents: number };
   wallNow: number;
 }) {
   const t = getT(lang);
@@ -512,7 +512,7 @@ export function RewardsPanels({
           <LoanCard debtCents={debt.cents} rateBps={debt.rateBps} t={t} lang={lang} />
         </div>
         <div className="mt-3">
-          <WallCard debtCents={debt.cents} wallPrayerAt={wall.prayerAt} vowBps={wall.vowBps} prayers={wall.prayers} lang={lang} now={wallNow} />
+          <WallCard debtCents={debt.cents} wallPrayerAt={wall.prayerAt} vowBps={wall.vowBps} prayers={wall.prayers} lang={lang} now={wallNow} balanceCents={wall.balanceCents} />
         </div>
       </section>
 

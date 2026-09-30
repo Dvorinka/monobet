@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Flame, Landmark } from "lucide-react";
@@ -35,7 +35,8 @@ export function WallCard({
   vowBps,
   prayers,
   lang,
-  now,
+  now: nowProp,
+  balanceCents,
 }: {
   debtCents: number;
   wallPrayerAt: Date | null;
@@ -43,6 +44,7 @@ export function WallCard({
   prayers: WallPrayerRow[];
   lang?: Lang;
   now: number;
+  balanceCents: number;
 }) {
   const t = getT(lang ?? "en");
   const router = useRouter();
@@ -50,11 +52,20 @@ export function WallCard({
   const [note, setNote] = useState("");
   const [vow, setVow] = useState(String(vowBps));
   const [last, setLast] = useState<{ cleared: number; silent: boolean; miracle: boolean } | null>(null);
+  // The server-rendered timestamp goes stale — tick locally so the candle
+  // re-enables itself the moment the cooldown expires.
+  const [now, setNow] = useState(nowProp);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(id);
+  }, []);
 
   const inDebt = debtCents > 0;
   const fee = Math.max(WALL_FEE_MIN_CENTS, Math.round(debtCents * WALL_FEE_DEBT_PCT));
   const nextAt = wallPrayerAt ? wallPrayerAt.getTime() + WALL_COOLDOWN_MS : null;
   const cooling = !!nextAt && nextAt > now;
+  const afford = balanceCents >= fee;
+  const remain = cooling ? fmtRemain(nextAt! - now) : null;
 
   const pray = () =>
     start(async () => {
@@ -122,11 +133,13 @@ export function WallCard({
                 placeholder={t.wallNotePh}
                 className="h-9 flex-1 rounded-lg border border-line bg-surface px-3 text-[13px] text-ink placeholder:text-faint focus:outline-2 focus:outline-brand"
               />
-              <Button onClick={pray} disabled={pending || cooling} className="gap-1.5">
+              <Button onClick={pray} disabled={pending || cooling || !afford} className="gap-1.5">
                 <Flame className="size-4" />
                 {cooling
-                  ? t.wallCooldown
-                  : `${t.wallPray} · ${fmtMonos(fee, { lang })}`}
+                  ? t.wallCooldownWait(remain!)
+                  : !afford
+                    ? t.wallCantAfford(fmtMonos(fee, { lang }))
+                    : `${t.wallPray} · ${fmtMonos(fee, { lang })}`}
               </Button>
             </div>
             <p className="mt-1.5 text-[11.5px] text-faint">
@@ -185,6 +198,11 @@ export function WallCard({
       </div>
     </div>
   );
+}
+
+function fmtRemain(ms: number) {
+  const m = Math.ceil(ms / 60_000);
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
 }
 
 function playWallSfx() {
