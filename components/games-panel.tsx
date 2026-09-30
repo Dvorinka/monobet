@@ -18,10 +18,11 @@ import {
   blackjackDouble,
   blackjackSurrender,
 } from "@/lib/actions";
-import { levFeeCents, LEV_FEE_BPS } from "@/lib/liq";
+import { levFeeCents, levWinCents, LEV_FEE_BPS } from "@/lib/liq";
 import {
   GAME_LEVERAGES,
   MAX_GAME_WAGER_CENTS,
+  COINFLIP_MULT,
   diceMult,
   diceWinChance,
   TIMER_TARGETS,
@@ -33,6 +34,8 @@ import {
   WHEEL_SEGMENTS,
   WHEEL_STEP,
   SLOT_SYMBOLS,
+  SLOT_TRIPLE,
+  BJ_NATURAL_MULT,
   cardLabel,
   dealerFx,
 } from "@/lib/games";
@@ -150,6 +153,7 @@ function BetControls({
   locked,
   lang,
   sideUnits,
+  winPreview,
 }: {
   bet: string;
   setBet: (v: string) => void;
@@ -160,6 +164,9 @@ function BetControls({
   locked?: boolean;
   lang?: Lang;
   sideUnits?: number;
+  // Multiplier a win pays — `max` marks a ceiling (variable-outcome games).
+  // Shown lever-adjusted so the leverage's real effect is visible.
+  winPreview?: { mult: number; max?: boolean };
 }) {
   const t = getT(lang ?? "en");
   const betCents = Math.round(parseFloat(bet || "0") * 100);
@@ -230,6 +237,13 @@ function BetControls({
         />
         {levN > 1 && !locked && (
           <p className="mt-1.5 text-[11.5px] text-faint">{t.levFeeNote(fmtMonos(fee, { lang }))}</p>
+        )}
+        {winPreview && betCents > 0 && (
+          <p className="mt-1.5 text-[11.5px] font-medium text-yes-strong">
+            {(winPreview.max ? t.winUpTo : t.winPays)(
+              fmtMonos(levWinCents(betCents, levN, winPreview.mult), { lang })
+            )}
+          </p>
         )}
         {locked && <p className="mt-1.5 text-[11.5px] font-medium text-no-strong">{t.levLocked}</p>}
       </div>
@@ -346,7 +360,7 @@ function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
             value={pick}
             onChange={(v) => setPick(v)}
           />
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} winPreview={{ mult: COINFLIP_MULT }} />
           <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={flip}>
             {spinning ? t.flipping : t.flip}
           </Button>
@@ -440,7 +454,7 @@ function DiceCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
               className="w-full accent-brand cursor-pointer"
             />
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || rolling} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || rolling} lang={lang} winPreview={{ mult: diceMult(over) }} />
           <Button className="w-full" size="lg" disabled={pending || rolling || !parseFloat(bet)} onClick={roll}>
             {rolling ? t.rolling : t.roll}
           </Button>
@@ -549,7 +563,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
               {t.paysUpTo(timerTopMult(targetMs).toFixed(0))}
             </div>
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || phase === "running"} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || phase === "running"} lang={lang} winPreview={{ mult: timerTopMult(targetMs), max: true }} />
           {phase === "running" ? (
             <Button className="w-full" size="lg" variant="no" disabled={pending} onClick={stop}>
               {t.stop}
@@ -667,7 +681,7 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
               className="w-full accent-brand cursor-pointer"
             />
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || busy} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || busy} lang={lang} winPreview={{ mult: target * 0.98 }} />
           <Button className="w-full" size="lg" disabled={pending || busy || !parseFloat(bet)} onClick={play}>
             {busy ? t.launching : t.launch}
           </Button>
@@ -778,7 +792,7 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       }
       controls={
         <>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} winPreview={{ mult: Math.max(...WHEEL_SEGMENTS), max: true }} />
           <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={spin}>
             {spinning ? t.spinning : t.spin}
           </Button>
@@ -896,7 +910,7 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       }
       controls={
         <>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} winPreview={{ mult: SLOT_TRIPLE[0], max: true }} />
           <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={spin}>
             {spinning ? t.spinning : t.spin}
           </Button>
@@ -1097,7 +1111,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
         <>
           {!playing && (
             <>
-              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} sideUnits={(pp ? 1 : 0) + (t3 ? 1 : 0)} />
+              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} sideUnits={(pp ? 1 : 0) + (t3 ? 1 : 0)} winPreview={{ mult: BJ_NATURAL_MULT, max: true }} />
               <div className="flex gap-1.5">
                 {([
                   { on: pp, set: setPp, name: "PP", desc: t.bjSidePP },
