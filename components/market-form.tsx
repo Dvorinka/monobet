@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button, Input, Select, Textarea, Card, Segmented } from "@/components/ui/primitives";
 import { proposeMarket } from "@/lib/actions";
+import { CategoryModal } from "@/components/category-modal";
 import { ImageCell, IconPicker } from "@/components/image-cell";
 import { Plus, X } from "lucide-react";
 import { getT, type Lang } from "@/lib/i18n";
@@ -43,8 +44,10 @@ export function MarketForm({
   const [rangeText, setRangeText] = useState("");
   const [description, setDescription] = useState("");
   const [context, setContext] = useState("");
-  const [category, setCategory] = useState<string>(categories[0] ?? NEW_CATEGORY);
-  const [newCategory, setNewCategory] = useState("");
+  const [category, setCategory] = useState<string>(categories[0] ?? "");
+  // "+ New category…" opens a modal that saves immediately via createCategory.
+  const [extraCats, setExtraCats] = useState<string[]>([]);
+  const [catModal, setCatModal] = useState(false);
   const [opensAt, setOpensAt] = useState("");
   const [closesAt, setClosesAt] = useState("");
   const [recurDays, setRecurDays] = useState("0");
@@ -92,6 +95,7 @@ export function MarketForm({
   // Display label is the part before the optional "| image-url".
   const optionLabels = optionLines.map((l) => l.split("|")[0].trim());
   const multi = marketType !== "binary";
+
   // Multi-option odds default to a uniform split — e.g. ~17% for 6 options.
   const uniformOdds = optionLines.length > 0 ? Math.max(1, Math.min(99, Math.round(100 / optionLines.length))) : 50;
   const probFor = (i: number) => optionOdds[i] ?? uniformOdds;
@@ -109,7 +113,6 @@ export function MarketForm({
               context: context || undefined,
               imageUrl: marketImage || undefined,
               category,
-              newCategory: category === NEW_CATEGORY ? newCategory : undefined,
               opensAt: opensAt || undefined,
               closesAt: closesAt || undefined,
               initialProb: odds / 100,
@@ -309,25 +312,22 @@ export function MarketForm({
             <label className="text-[13px] font-medium text-mute" htmlFor="c">
               {t.category}
             </label>
-            <Select id="c" value={category} onChange={(e) => setCategory(e.target.value)} className="mt-1">
-              {categories.map((c) => (
+            <Select
+              id="c"
+              value={category}
+              onChange={(e) => {
+                if (e.target.value === NEW_CATEGORY) setCatModal(true);
+                else setCategory(e.target.value);
+              }}
+              className="mt-1"
+            >
+              {[...categories, ...extraCats.filter((c) => !categories.includes(c))].map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
               ))}
               <option value={NEW_CATEGORY}>{t.newCategory}</option>
             </Select>
-            {category === NEW_CATEGORY && (
-              <Input
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
-                placeholder={t.newCategoryPh}
-                maxLength={24}
-                className="mt-2"
-                required
-                autoFocus
-              />
-            )}
           </div>
           <div>
             <label className="text-[13px] font-medium text-mute" htmlFor="o">
@@ -515,6 +515,17 @@ export function MarketForm({
           {isAdmin ? t.formNoteAdmin : t.formNoteUser}
         </p>
       </form>
+
+      <CategoryModal
+        open={catModal}
+        onClose={() => setCatModal(false)}
+        onPicked={(name) => {
+          setExtraCats((s) => (s.includes(name) ? s : [...s, name]));
+          setCategory(name);
+          router.refresh();
+        }}
+        lang={lang}
+      />
     </Card>
   );
 }

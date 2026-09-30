@@ -7,6 +7,7 @@ import { CircleCheck, Ban, Pencil, Lock, ChevronDown, ChevronRight } from "lucid
 import { Button, Card, Input, Textarea, Select } from "@/components/ui/primitives";
 import { ImageCell, IconPicker } from "@/components/image-cell";
 import { MarketIcon } from "@/components/market-icon";
+import { CategoryModal } from "@/components/category-modal";
 import { resolveMarket, cancelMarket, updateMarket } from "@/lib/actions";
 import { fmtMonos } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
@@ -28,6 +29,7 @@ export function MarketManagePanel({
     category: string;
     imageUrl: string | null;
     closesAt: string | Date | null;
+    opensAt?: string | Date | null;
     status: string;
     kind: string;
   };
@@ -44,6 +46,11 @@ export function MarketManagePanel({
   const [context, setContext] = useState(market.context ?? "");
   const [category, setCategory] = useState(market.category);
   const [imageUrl, setImageUrl] = useState(market.imageUrl ?? "");
+  const [catModal, setCatModal] = useState(false);
+  const [extraCats, setExtraCats] = useState<string[]>([]);
+  const [opensAt, setOpensAt] = useState(
+    market.opensAt ? new Date(market.opensAt).toISOString().slice(0, 16) : ""
+  );
   const [closesAt, setClosesAt] = useState(
     market.closesAt ? new Date(market.closesAt).toISOString().slice(0, 16) : ""
   );
@@ -121,6 +128,7 @@ export function MarketManagePanel({
                   context,
                   category,
                   imageUrl,
+                  opensAt: opensAt || undefined,
                   closesAt: closesAt || undefined,
                 }),
               t.savedToast
@@ -196,11 +204,24 @@ export function MarketManagePanel({
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
                 {t.category}
               </label>
-              <Select value={category} onChange={(e) => setCategory(e.target.value)}>
-                {categories.map((c) => (
+              <Select
+                value={category}
+                onChange={(e) => {
+                  if (e.target.value === "__new__") setCatModal(true);
+                  else setCategory(e.target.value);
+                }}
+              >
+                {[...categories, ...extraCats.filter((c) => !categories.includes(c))].map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
+                <option value="__new__">{t.newCategory}</option>
               </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+                {t.opensLabel}
+              </label>
+              <Input type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} />
             </div>
             <div>
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
@@ -215,6 +236,17 @@ export function MarketManagePanel({
           </Button>
         </form>
       )}
+
+      <CategoryModal
+        open={catModal}
+        onClose={() => setCatModal(false)}
+        onPicked={(name) => {
+          setExtraCats((s) => (s.includes(name) ? s : [...s, name]));
+          setCategory(name);
+          router.refresh();
+        }}
+        lang={lang}
+      />
     </Card>
   );
 }
