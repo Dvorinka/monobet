@@ -87,19 +87,22 @@ function ResultTag({ net, lang }: { net: Net; lang?: Lang }) {
   }, [net]);
   if (!net) return null;
   const t = getT(lang ?? "en");
-  // The headline is the amount actually credited — stake back + profit.
-  // Showing the bare net read as "won less than the stake".
+  // Headline = the win itself (stake + profit, before any debt garnish). A
+  // debtor's profit may route to their loan, so a separate line shows what
+  // actually landed on the balance — otherwise "+stake back" reads as
+  // "won what I bet".
   const gross = net.netCents + (net.stakeCents ?? 0) + (net.feeCents ?? 0);
+  const skim = net.skimCents ?? 0;
   const sub =
     net.won && net.stakeCents
-      ? t.gameProfit(`+${fmtMonos(net.netCents + (net.skimCents ?? 0), { lang })}`)
+      ? t.gameProfit(`+${fmtMonos(net.netCents + skim, { lang })}`)
       : !net.won && gross > 0
         ? t.gameReturned(fmtMonos(gross, { lang }))
         : null;
   return (
     <div key={net.stamp} className="anim-win-pop num">
       <div className={cn("text-[15px] font-bold", net.won ? "text-yes-strong" : "text-no-strong")}>
-        {net.won ? `+${fmtMonos(gross, { lang })}` : `−${fmtMonos(-net.netCents, { lang })}`}
+        {net.won ? `+${fmtMonos(gross + skim, { lang })}` : `−${fmtMonos(-net.netCents, { lang })}`}
         <span className="ml-1.5 text-[11px] font-semibold text-mute">{net.won ? t.win : t.lose}</span>
         {(net.feeCents ?? 0) > 0 && (
           <span className="ml-1.5 rounded-full border border-no/40 bg-no-soft px-1.5 py-0.5 text-[10px] font-bold text-no-strong align-middle">
@@ -108,8 +111,11 @@ function ResultTag({ net, lang }: { net: Net; lang?: Lang }) {
         )}
       </div>
       {sub && <div className="text-[11px] font-semibold text-mute">{sub}</div>}
-      {(net.skimCents ?? 0) > 0 && (
-        <div className="text-[11px] font-semibold text-mute">{t.debtGarnish(fmtMonos(net.skimCents!, { lang }))}</div>
+      {skim > 0 && (
+        <>
+          <div className="text-[11px] font-semibold text-mute">{t.debtGarnish(fmtMonos(skim, { lang }))}</div>
+          <div className="text-[11px] font-semibold text-yes-strong">{t.gameCredited(`+${fmtMonos(gross, { lang })}`)}</div>
+        </>
       )}
     </div>
   );
@@ -315,7 +321,7 @@ function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
         setTimeout(() => {
           setSpinning(false);
           setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
-          dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
+          dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
         }, 1150);
       }
     );
@@ -420,7 +426,7 @@ function DiceCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
         if (r?.roll) {
           setFace(r.roll);
           setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
-          dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
+          dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
         }
       }, 650);
     });
@@ -526,7 +532,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       setErr(r.errMs ?? null);
       setDealer(r.dealer ?? null);
       setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
-      dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
+      dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
     });
   };
 
@@ -620,7 +626,7 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
             setBusy(false);
             setWonLast(!!r.won);
             setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
-            dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
+            dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
           }
         };
         raf.current = requestAnimationFrame(step);
@@ -732,7 +738,7 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
         setLanded(r.mult ?? null);
         // 0.5×/0.6×/0.8× segments return part of the stake — still a loss.
         setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
-        dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
+        dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
       }, 3250);
     });
   };
@@ -875,7 +881,7 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
           setTimeout(() => {
             setSpinning(false);
             setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
-            dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0), onWinFx, r.tavCents);
+            dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
           }, 700 + r.reels.length * 350 + 150)
         );
       }
@@ -984,7 +990,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
     const won = s.result === "win" || s.result === "blackjack";
     playSfx(won ? "win" : "lose", 0.5);
     setNet({ stamp: Date.now(), netCents: s.netCents ?? 0, won, feeCents: s.feeCents, stakeCents: s.betCents, skimCents: s.skimCents });
-    dealerWinFx(s.persona, won, (s.netCents ?? 0) + (s.betCents ?? 0) + (s.feeCents ?? 0), onWinFx, s.tavCents);
+    dealerWinFx(s.persona, won, (s.netCents ?? 0) + (s.betCents ?? 0) + (s.feeCents ?? 0) + (s.skimCents ?? 0), onWinFx, s.tavCents);
   };
 
   const deal = () =>
