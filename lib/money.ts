@@ -69,3 +69,16 @@ export function fmtDate(d: Date | string | null | undefined, lang?: Lang): strin
     year: "numeric",
   });
 }
+
+// Opens/closes need the clock — a bare date reads as "the whole day" and
+// splits across midnight between UTC SSR and the viewer's timezone.
+export function fmtDateTime(d: Date | string | null | undefined, lang?: Lang): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleString(LOCALES[lang ?? "en"], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
