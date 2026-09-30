@@ -10,16 +10,33 @@ export const MAX_GAME_WAGER_CENTS = 100_000_00;
 export type Persona = { id?: string; name: string; avatar: string; quipWin: string; quipLose: string };
 
 // Special personas keyed by name — admin can add/remove dealers freely, but
-// these names carry behavior: a win overlay ("splash"/"plane"/"pride") and/or
-// a rigged table (rigged dealers get a re-roll against player wins).
-export type DealerFx = { winFx?: "splash" | "plane" | "pride"; rigged?: boolean };
+// these names carry behavior: a win overlay ("splash"/"plane"/"pride"/"shekel"),
+// a rigged table (rigged dealers flip player wins into losses), or a blessed
+// table (blessed dealers flip losses into wins by Wall prayer count).
+export type DealerFx = { winFx?: "splash" | "plane" | "pride" | "shekel"; rigged?: boolean; blessed?: boolean };
 export function dealerFx(p?: Persona | null): DealerFx {
   const n = p?.name.toLowerCase().replace(/[^a-z.]/g, "") ?? "";
   if (n === "bonnieblue") return { winFx: "splash" };
   if (n === "j.epst." || n === "jepst" || n === "j.epst") return { winFx: "plane", rigged: true };
   if (n === "clavicular") return { winFx: "pride" };
+  if (n === "bibi" || n === "netanyahu") return { winFx: "shekel", blessed: true };
   return {};
 }
+
+// Bibi's blessing — a losing round under his table flips to a win with a
+// chance that grows with prayers left at the Wall of Debts. Capped so the
+// house never deals a sure thing.
+export const BLESS_BASE_PCT = 6;
+export const BLESS_PER_PRAYER_PCT = 6;
+export const BLESS_MAX_PCT = 48;
+export function blessedChancePct(prayers: number): number {
+  return Math.min(BLESS_MAX_PCT, BLESS_BASE_PCT + Math.max(0, prayers) * BLESS_PER_PRAYER_PCT);
+}
+
+// Tel Aviv bonus — a won round under Bibi forgives a slice of house debt,
+// at most once per window. The ledger (kind "tav") is the source of truth.
+export const TAV_BONUS_PCT = 0.067;
+export const TAV_COOLDOWN_MS = 12 * 3600_000;
 
 // The Wall of Debts — a sacrificial relief mechanic. A prayer burns a candle
 // fee (min Ɱ25 or 2% of the debt, whichever is steeper) and clears a small
@@ -32,6 +49,15 @@ export const WALL_CLEAR_MIN_PCT = 0.02;
 export const WALL_CLEAR_MAX_PCT = 0.08;
 export const WALL_SILENT_PCT = 18; // % of prayers the wall ignores
 export const WALL_MIRACLE_PER_MILLE = 15; // ‰ of answered prayers that clear all debt
+// A wordless slip is an insult, not a prayer — the candle burns anyway and
+// the wall answers by growing the debt.
+export const WALL_BACKFIRE_PCT = 0.05;
+// Prayers that name the holy land move the stones more often: half the
+// silence, quadruple the miracles, a deeper slice of forgiveness.
+export const WALL_BLESSED_RE = /israel|israeli|tel\s?-?aviv|netanyahu|bibi|zion|jerusalem|shalom|holy\s?land|mossad|shekel|kosher|promised\s?land/i;
+export const WALL_BLESSED_SILENT_PCT = 9;
+export const WALL_BLESSED_MIRACLE_PER_MILLE = 60;
+export const WALL_BLESSED_CLEAR_MAX_PCT = 0.2;
 export const VOW_CHOICES_BPS = [0, 1000, 2000, 3000]; // 0/10/20/30% of wins
 
 // Coin flip: 50/50, house keeps ~2%.
