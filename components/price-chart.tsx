@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatedPct } from "@/components/animated-number";
-import { LOCALES, type Lang } from "@/lib/i18n";
+import { LOCALES, getT, type Lang } from "@/lib/i18n";
 
 type Pt = { t: string; p: number };
 const RANGES = [
@@ -68,6 +68,7 @@ function fmtTick(t: number, span: number, locale: string): string {
 
 export function PriceChart({ points, now, live, lang }: { points: Pt[]; now: number; live?: boolean; lang?: Lang }) {
   const locale = LOCALES[lang ?? "en"];
+  const t = getT(lang ?? "en");
   const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("ALL");
   const [hover, setHover] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -130,7 +131,7 @@ export function PriceChart({ points, now, live, lang }: { points: Pt[]; now: num
             value={last?.p ?? 0}
             className="text-[34px] font-bold tracking-tight leading-none"
           />
-          <span className="text-[13px] font-medium text-mute">chance</span>
+          <span className="text-[13px] font-medium text-mute">{t.chance}</span>
           {data.length > 1 && Math.abs(delta) > 0.004 && (
             <span
               className={cn(

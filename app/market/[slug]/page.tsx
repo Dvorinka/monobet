@@ -210,26 +210,6 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               </p>
             </div>
           )}
-          {market.status === "live" && (
-            <div className="mt-5">
-              <ResolutionPanel
-                marketId={market.id}
-                proposedOutcome={market.proposedOutcome}
-                reason={market.resolutionReason}
-                proposer={res.proposer}
-                proposedById={market.proposedById}
-                viewerId={user?.id}
-                confirms={res.confirms}
-                disputes={res.disputes}
-                myVote={res.myVote}
-                closed={!!market.closesAt && market.closesAt <= new Date()}
-                isResolver={!!user && (isAdmin(user) || market.creatorId === user.id)}
-                notes={canManage ? notes : []}
-                noteGate={canManage && !isAdmin(user) && notes.length > 5}
-                lang={lang}
-              />
-            </div>
-          )}
           {market.status === "pending" && (
             <div className="mt-5 rounded-[14px] border border-dashed border-line p-4 flex items-center gap-3">
               <Hourglass className="size-5 text-amber-600 shrink-0" />
@@ -290,6 +270,27 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               opensAt={market.opensAt}
             />
           </div>
+
+          {market.status === "live" && (
+            <div className="mt-5">
+              <ResolutionPanel
+                marketId={market.id}
+                proposedOutcome={market.proposedOutcome}
+                reason={market.resolutionReason}
+                proposer={res.proposer}
+                proposedById={market.proposedById}
+                viewerId={user?.id}
+                confirms={res.confirms}
+                disputes={res.disputes}
+                myVote={res.myVote}
+                closed={!!market.closesAt && market.closesAt <= new Date()}
+                isResolver={!!user && (isAdmin(user) || market.creatorId === user.id)}
+                notes={canManage ? notes : []}
+                noteGate={canManage && !isAdmin(user) && notes.length > 5}
+                lang={lang}
+              />
+            </div>
+          )}
 
           {publishedNotes.length > 0 && (
             <div className="mt-8">
