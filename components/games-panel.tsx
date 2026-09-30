@@ -1604,7 +1604,7 @@ export function GameView({
                 <Shuffle className="size-5 text-mute" />
               </span>
               <span className="min-w-0">
-                <span className="block text-[13px] font-bold text-ink truncate">{t.dealerRandom}</span>
+                <span className="block text-[13px] font-bold text-ink leading-tight">{t.dealerRandom}</span>
                 <span className="block text-[11px] text-mute truncate">{t.dealerRandomHint}</span>
               </span>
             </button>
@@ -1614,7 +1614,7 @@ export function GameView({
                 <button type="button" key={d.id} onClick={() => setDealerId(d.id)} className={cardCls(dealerId === d.id)}>
                   <DealerAvatar avatar={d.avatar} className="size-11 rounded-lg shrink-0" />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-bold text-ink truncate">{d.name}</span>
+                    <span className="block text-[13px] font-bold text-ink leading-tight">{d.name}</span>
                     {d.quipWin && <span className="block text-[11px] leading-snug text-mute line-clamp-2 italic">“{d.quipWin}”</span>}
                     {(fx.rigged || fx.blessed) && (
                       <span className="mt-1 flex gap-1">
