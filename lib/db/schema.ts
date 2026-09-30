@@ -445,6 +445,10 @@ export const challenge = pgTable(
     opponentId: text("opponent_id").notNull().references(() => user.id, { onDelete: "cascade" }),
     claim: text("claim").notNull(),
     stakeCents: integer("stake_cents").notNull(),
+    // claim = the classic text bet; rps/roll/wheel/slots are server-resolved
+    // minigames — moves and rolls live in state.
+    kind: text("kind").notNull().default("claim"),
+    state: jsonb("state"),
     status: text("status").notNull().default("open"), // open|accepted|declined|cancelled|settled|disputed
     winnerId: text("winner_id").references(() => user.id, { onDelete: "set null" }),
     pendingWinnerId: text("pending_winner_id").references(() => user.id, { onDelete: "set null" }),

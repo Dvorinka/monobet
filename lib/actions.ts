@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, ne, and, sql, desc, asc, isNull, inArray } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, type DuelKind, type RpsMove, type Persona } from "@/lib/games";
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -2898,12 +2898,14 @@ export async function createDuel(input: {
   opponent: string;
   claim: string;
   stakeCents: number;
+  kind?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
-    const claim = input.claim.trim();
-    if (claim.length < 5) throw new Error("Describe the bet (min 5 chars)");
-    if (claim.length > 200) throw new Error("Claim too long (max 200)");
+    const kind = (DUEL_KINDS as readonly string[]).includes(input.kind ?? "claim") ? (input.kind as DuelKind) : "claim";
+    const claim = kind === "claim" ? input.claim.trim() : DUEL_NAMES[kind];
+    if (kind === "claim" && claim.length < 5) throw new Error("Describe the bet (min 5 chars)");
+    if (kind === "claim" && claim.length > 200) throw new Error("Claim too long (max 200)");
     const stake = Math.round(input.stakeCents);
     if (!Number.isFinite(stake) || stake < 100) throw new Error("Minimum stake is Ɱ 1");
     if (stake > 10_000_000) throw new Error("Maximum stake is Ɱ 100,000");
@@ -2917,7 +2919,7 @@ export async function createDuel(input: {
       if (opp.id === u.id) throw new Error("Pick someone else");
       await lockUser(tx, u.id);
       await credit(tx, u.id, -stake, "duel", null, `Duel stake vs @${opp.username}: ${claim.slice(0, 60)}`);
-      await tx.insert(schema.challenge).values({ creatorId: u.id, opponentId: opp.id, claim, stakeCents: stake });
+      await tx.insert(schema.challenge).values({ creatorId: u.id, opponentId: opp.id, claim, stakeCents: stake, kind });
       await ping(tx, opp.id, `Duel invite from @${u.username ?? u.name}: ${claim.slice(0, 70)}`);
     });
     revalidatePath("/duels");
@@ -3016,6 +3018,73 @@ export async function proposeDuelWinner(input: {
     });
     revalidatePath("/duels");
     return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
+// Game duels: each side submits one move — rps takes the player's pick, the
+// luck kinds draw server-side (roll = d100, wheel = one segment, slots = one
+// payout draw). Moves stay hidden until both are in; equal results clear the
+// board and replay. The pot is the locked stakes — game rounds cost nothing.
+export async function duelPlay(input: {
+  id: string;
+  move?: string;
+}): Promise<{ ok: boolean; error?: string; waiting?: boolean; tie?: boolean; settled?: boolean }> {
+  try {
+    const u = await requireUser();
+    const outcome = await db.transaction(async (tx): Promise<"waiting" | "tie" | "settled"> => {
+      const [c] = await tx.select().from(schema.challenge).where(eq(schema.challenge.id, input.id)).for("update").limit(1);
+      if (!c || (u.id !== c.creatorId && u.id !== c.opponentId)) throw new Error("Not your duel");
+      if (c.status !== "accepted") throw new Error("Not playable");
+      if (c.kind === "claim") throw new Error("Claim duels settle by agreement");
+      const moves = { ...(((c.state as { moves?: Record<string, string | number> } | null)?.moves) ?? {}) };
+      if (moves[u.id] !== undefined) throw new Error("Move already locked");
+      let mv: string | number;
+      if (c.kind === "rps") {
+        const pick = (input.move ?? "") as RpsMove;
+        if (!(RPS_MOVES as readonly string[]).includes(pick)) throw new Error("Pick rock, paper or scissors");
+        mv = pick;
+      } else if (c.kind === "roll") {
+        mv = randomInt(1, 101); // d100
+      } else if (c.kind === "wheel") {
+        mv = WHEEL_SEGMENTS[randomInt(0, WHEEL_SEGMENTS.length)];
+      } else if (c.kind === "slots") {
+        const draw = [slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT))];
+        mv = slotPayout(draw[0], draw[1], draw[2]);
+      } else throw new Error("Unknown duel kind");
+      moves[u.id] = mv;
+      const other = u.id === c.creatorId ? c.opponentId : c.creatorId;
+      const theirs = moves[other];
+      if (theirs === undefined) {
+        await tx.update(schema.challenge).set({ state: { moves } }).where(eq(schema.challenge.id, c.id));
+        await ping(tx, other, `Duel waiting for your move: ${c.claim.slice(0, 60)}`);
+        return "waiting";
+      }
+      let winner: string | null = null;
+      if (c.kind === "rps") {
+        if (mv !== theirs) winner = RPS_BEATS[mv as RpsMove] === theirs ? u.id : other;
+      } else if (Number(mv) !== Number(theirs)) {
+        winner = Number(mv) > Number(theirs) ? u.id : other;
+      }
+      if (winner === null) {
+        await tx.update(schema.challenge).set({ state: { moves: {} } }).where(eq(schema.challenge.id, c.id));
+        await ping(tx, other, `Duel tied — play again: ${c.claim.slice(0, 60)}`);
+        return "tie";
+      }
+      const loser = winner === c.creatorId ? c.opponentId : c.creatorId;
+      await lockUser(tx, winner);
+      await credit(tx, winner, c.stakeCents * 2, "duel", null, `Duel won: ${c.claim.slice(0, 60)}`);
+      await ping(tx, winner, `Duel won — pot is yours: ${c.claim.slice(0, 60)}`);
+      await ping(tx, loser, `Duel lost: ${c.claim.slice(0, 60)}`);
+      await tx
+        .update(schema.challenge)
+        .set({ status: "settled", winnerId: winner, settledAt: new Date(), state: { moves } })
+        .where(eq(schema.challenge.id, c.id));
+      return "settled";
+    });
+    revalidatePath("/duels");
+    return { ok: true, waiting: outcome === "waiting", tie: outcome === "tie", settled: outcome === "settled" };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed" };
   }
