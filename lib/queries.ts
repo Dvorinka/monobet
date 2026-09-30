@@ -2,13 +2,51 @@ import { cache } from "react";
 import { db, schema } from "@/lib/db";
 import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS } from "@/lib/rewards";
 import { eq, ne, desc, asc, and, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
-import { yesPrice } from "@/lib/lmsr";
+import { yesPrice, multiCoords, multiPrices } from "@/lib/lmsr";
 import type { MarketStatus } from "@/lib/db/schema";
 
 export type MarketRow = typeof schema.market.$inferSelect;
 
 export function marketYesPrice(m: MarketRow): number {
   return yesPrice(Number(m.qYes), Number(m.qNo), m.b);
+}
+
+// Shared-book price map for one group's live options — option id →
+// probability. Options are mutually exclusive, so the softmax over live
+// coordinates is the probability each option wins. Sums to 1.
+export function groupPrices(options: MarketRow[]): Map<string, number> {
+  const coords = multiCoords(options.map((o) => ({ qYes: Number(o.qYes), qNo: Number(o.qNo) })));
+  const ps = multiPrices(coords, options[0]?.b ?? 300);
+  return new Map(options.map((o, i) => [o.id, ps[i]]));
+}
+
+// Prices for option rows across any mix of markets — fetches each affected
+// group's live siblings in one query, then softmaxes per group. Binary and
+// non-live options keep their standalone marketYesPrice.
+async function optionPriceMap(markets: MarketRow[]): Promise<Map<string, number>> {
+  const parentIds = [
+    ...new Set(
+      markets
+        .filter((m) => m.parentId && m.status === "live")
+        .map((m) => m.parentId!)
+    ),
+  ];
+  const out = new Map<string, number>();
+  if (!parentIds.length) return out;
+  const sibs = await db
+    .select()
+    .from(schema.market)
+    .where(and(inArray(schema.market.parentId, parentIds), eq(schema.market.status, "live")));
+  const byParent = new Map<string, MarketRow[]>();
+  for (const s of sibs) {
+    const list = byParent.get(s.parentId!) ?? [];
+    list.push(s);
+    byParent.set(s.parentId!, list);
+  }
+  for (const group of byParent.values()) {
+    for (const [id, p] of groupPrices(group)) out.set(id, p);
+  }
+  return out;
 }
 
 export async function listCategories() {
@@ -243,6 +281,7 @@ export type PositionRow = {
   market: MarketRow;
   yesShares: number;
   noShares: number;
+  py: number; // mark price of YES — group options use the shared book's mark
   valueCents: number;
   debtCents: number;
 };
@@ -253,18 +292,19 @@ export async function getUserPositions(userId: string): Promise<PositionRow[]> {
     .from(schema.position)
     .innerJoin(schema.market, eq(schema.position.marketId, schema.market.id))
     .where(eq(schema.position.userId, userId));
+  const optPrices = await optionPriceMap(rows.map((r) => r.market));
   return rows
     .map(({ position: p, market: m }) => {
       const y = Number(p.yesShares);
       const n = Number(p.noShares);
-      const py = marketYesPrice(m);
+      const py = optPrices.get(m.id) ?? marketYesPrice(m);
       // Resolved markets price winning shares at 1, losing at 0. Leveraged
       // positions report equity (value − outstanding loan), floored at zero.
       const grossCents =
         m.status === "resolved"
           ? Math.round((m.outcome === "yes" ? y : n) * 100)
           : Math.round((y * py + n * (1 - py)) * 100);
-      return { market: m, yesShares: y, noShares: n, valueCents: Math.max(0, grossCents - p.debtCents), debtCents: p.debtCents };
+      return { market: m, yesShares: y, noShares: n, py, valueCents: Math.max(0, grossCents - p.debtCents), debtCents: p.debtCents };
     })
     .filter((r) => r.yesShares > 0.0001 || r.noShares > 0.0001);
 }
@@ -312,9 +352,10 @@ export async function getLeaderboard() {
     .from(schema.position)
     .innerJoin(schema.market, eq(schema.position.marketId, schema.market.id));
 
+  const optPrices = await optionPriceMap(positions.map((r) => r.market));
   const valueByUser = new Map<string, number>();
   for (const { position: p, market: m } of positions) {
-    const py = marketYesPrice(m);
+    const py = optPrices.get(m.id) ?? marketYesPrice(m);
     const gross =
       m.status === "resolved"
         ? Number(m.outcome === "yes" ? p.yesShares : p.noShares) * 100

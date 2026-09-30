@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { getMarketBySlug, getGroupOptions, marketYesPrice } from "@/lib/queries";
+import { getMarketBySlug, getGroupOptions, marketYesPrice, groupPrices } from "@/lib/queries";
 import { fmtMonos } from "@/lib/money";
 
 export const alt = "MonoBet market";
@@ -25,7 +25,10 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   }
 
   const group = market.kind === "group" ? await getGroupOptions(market.id) : [];
-  const liveOpts = group.filter((o) => o.status === "live").slice(0, 4);
+  const liveAll = group.filter((o) => o.status === "live");
+  // Shared book — options are exclusive, so softmax probabilities sum to 1.
+  const liveP = groupPrices(liveAll);
+  const liveOpts = liveAll.slice(0, 4);
   const py = marketYesPrice(market);
   const pct = Math.round(py * 100);
 
@@ -93,7 +96,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           {market.kind === "group" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {liveOpts.map((o) => {
-                const p = Math.round(marketYesPrice(o) * 100);
+                const p = Math.round((liveP.get(o.id) ?? 0) * 100);
                 return (
                   <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 14 }}>
                     <div style={{ width: 300, fontSize: 24, color: "#dfe8e1", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>

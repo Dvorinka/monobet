@@ -125,7 +125,8 @@ export const market = pgTable(
     status: text("status").notNull().default("pending"),
     outcome: text("outcome"), // 'yes' | 'no' | null
     // Multi-outcome markets: a "group" parent holds the shared question;
-    // each "option" child is an independent binary market with its own prices.
+    // each "option" child shares one multinomial book — coord_i = qYes_i +
+    // Σ_siblings qNo_k and prices are the softmax over live options (sum = 1).
     kind: text("kind").notNull().default("binary"),
     parentId: uuid("parent_id").references((): AnyPgColumn => market.id, { onDelete: "cascade" }),
     label: text("label"), // option label on children, e.g. "September 30"
