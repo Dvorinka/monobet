@@ -498,3 +498,16 @@ export const casinoConfig = pgTable("casino_config", {
   rigBps: integer("rig_bps").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Daily jackpot — a share of every game's handle pools into a pot drawn once
+// a day; each wagered ticket is a weighted entry. The draw itself happens
+// lazily in getJackpot() when the first request lands after draw_at.
+export const jackpotRound = pgTable("jackpot_round", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull().defaultNow(),
+  drawAt: timestamp("draw_at", { withTimezone: true }).notNull(),
+  drawnAt: timestamp("drawn_at", { withTimezone: true }),
+  winnerId: text("winner_id").references(() => user.id, { onDelete: "set null" }),
+  poolCents: bigint("pool_cents", { mode: "number" }).notNull().default(0),
+  tickets: integer("tickets").notNull().default(0),
+});

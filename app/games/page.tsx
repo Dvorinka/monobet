@@ -2,12 +2,12 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getCurrentUser } from "@/lib/session";
-import { getUserLedger } from "@/lib/queries";
+import { getUserLedger, getJackpot } from "@/lib/queries";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Card } from "@/components/ui/primitives";
-import { fmtMonos, timeAgo } from "@/lib/money";
-import { Gamepad2, Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, CircleDot, ChevronRight } from "lucide-react";
+import { fmtMonos, fmtCountdown, timeAgo } from "@/lib/money";
+import { Gamepad2, Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, CircleDot, ChevronRight, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,10 @@ export default async function GamesPage() {
   const [user, lang] = await Promise.all([getCurrentUser(), getLang()]);
   if (!user) redirect("/login");
   const t = getT(lang);
-  const ledger = (await getUserLedger(user.id, 60)).filter((l) => l.kind === "game").slice(0, 12);
+  const [ledger, jackpot] = await Promise.all([
+    getUserLedger(user.id, 60).then((l) => l.filter((x) => x.kind === "game").slice(0, 12)),
+    getJackpot(user.id),
+  ]);
 
   const games = [
     { slug: "coinflip", icon: Coins, title: t.gCoinFlip, sub: t.gCoinFlipSub },
@@ -36,6 +39,31 @@ export default async function GamesPage() {
         <Gamepad2 className="size-5" /> {t.games}
       </h1>
       <p className="text-[13px] text-mute mt-1">{t.gamesSub}</p>
+
+      {jackpot && (
+        <Card className="mt-5 p-4 flex items-center gap-4 flex-wrap">
+          <span className="size-11 rounded-xl bg-warn-soft text-warn-strong grid place-items-center shrink-0">
+            <Sparkles className="size-5" />
+          </span>
+          <div className="flex-1 min-w-48">
+            <div className="text-[15px] font-bold tracking-tight">
+              {t.jpTitle} · <span className="num text-warn-strong">{fmtMonos(jackpot.poolCents, { lang })}</span>
+            </div>
+            <div className="text-[12px] text-mute leading-snug mt-0.5">{t.jpSub}</div>
+            {jackpot.last && (
+              <div className="text-[11.5px] text-faint mt-1">
+                {jackpot.last.winner
+                  ? t.jpLast(jackpot.last.winner.username ?? jackpot.last.winner.name, fmtMonos(jackpot.last.poolCents, { lang }))
+                  : t.jpNoWinner}
+              </div>
+            )}
+          </div>
+          <div className="text-right shrink-0">
+            <div className="num text-[14px] font-bold">{t.jpDrawIn} {fmtCountdown(jackpot.drawAt)}</div>
+            <div className="num text-[11.5px] text-faint">{t.jpYourTickets} {jackpot.yourTickets}</div>
+          </div>
+        </Card>
+      )}
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {games.map((g) => (

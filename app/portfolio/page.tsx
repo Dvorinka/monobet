@@ -249,6 +249,7 @@ function KindBadge({ kind, lang }: { kind: string; lang?: Lang }) {
     ad: { label: t.kindBonus, tone: "ink" },
     bonus: { label: t.kindBonus, tone: "ink" },
     game: { label: t.kindGame, tone: "ink" },
+    jackpot: { label: t.kindJackpot, tone: "yes" },
     liq: { label: t.kindLiq, tone: "no" },
     duel: { label: t.kindDuel, tone: "warn" },
     loan: { label: t.kindLoan, tone: "warn" },

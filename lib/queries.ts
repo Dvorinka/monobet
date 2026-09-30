@@ -1,7 +1,8 @@
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS } from "@/lib/rewards";
+import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS, JACKPOT_RAKE_BPS, JACKPOT_TICKET_CENTS, JACKPOT_ROUND_MS } from "@/lib/rewards";
+import { randomInt } from "node:crypto";
 import { eq, ne, desc, asc, and, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { yesPrice, multiCoords, multiPrices } from "@/lib/lmsr";
 import type { MarketStatus } from "@/lib/db/schema";
@@ -801,6 +802,152 @@ export async function ensureSeason() {
     throw new Error("Season rollover failed");
   }
 }
+
+// ---------- daily jackpot ----------
+
+type JackpotEntry = { userId: string; tickets: number };
+
+// Wagers inside a round window, grouped into tickets — 1 per Ɱ10 staked.
+async function jackpotEntries(
+  tx: Pick<typeof db, "select">,
+  startsAt: Date,
+  endsAt?: Date
+): Promise<{ entrants: JackpotEntry[]; totalWagered: number }> {
+  const rows = await tx
+    .select({
+      userId: schema.ledger.userId,
+      wagered: sql<string | null>`sum(-${schema.ledger.amountCents})`,
+    })
+    .from(schema.ledger)
+    .where(
+      and(
+        eq(schema.ledger.kind, "game"),
+        sql`${schema.ledger.amountCents} < 0`,
+        sql`${schema.ledger.createdAt} >= ${startsAt}`,
+        endsAt ? sql`${schema.ledger.createdAt} <= ${endsAt}` : undefined
+      )
+    )
+    .groupBy(schema.ledger.userId);
+  const entrants = rows
+    .map((r) => ({ userId: r.userId, tickets: Math.floor(Number(r.wagered) / JACKPOT_TICKET_CENTS) }))
+    .filter((e) => e.tickets > 0);
+  const totalWagered = rows.reduce((s, r) => s + Number(r.wagered), 0);
+  return { entrants, totalWagered };
+}
+
+// Settle an expired round inside a locked transaction — only wagers placed
+// inside the window count, the pot is the rake share of that handle.
+async function drawJackpot(roundId: string): Promise<boolean> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [round] = await tx
+        .select()
+        .from(schema.jackpotRound)
+        .where(eq(schema.jackpotRound.id, roundId))
+        .for("update")
+        .limit(1);
+      if (!round || round.drawnAt) return false;
+      const { entrants, totalWagered } = await jackpotEntries(tx, round.startsAt, round.drawAt);
+      const totalTickets = entrants.reduce((s, e) => s + e.tickets, 0);
+      const poolCents = Math.round((totalWagered * JACKPOT_RAKE_BPS) / 10_000);
+      let winnerId: string | null = null;
+      if (totalTickets > 0) {
+        let roll = randomInt(totalTickets);
+        for (const e of entrants) {
+          roll -= e.tickets;
+          if (roll < 0) {
+            winnerId = e.userId;
+            break;
+          }
+        }
+      }
+      if (winnerId && poolCents > 0) {
+        const [u] = await tx
+          .update(schema.user)
+          .set({ balanceCents: sql`${schema.user.balanceCents} + ${poolCents}` })
+          .where(eq(schema.user.id, winnerId))
+          .returning({ balanceCents: schema.user.balanceCents });
+        await tx.insert(schema.ledger).values({
+          userId: winnerId,
+          amountCents: poolCents,
+          balanceAfterCents: u?.balanceCents ?? 0,
+          kind: "jackpot",
+          memo: `Daily jackpot — ${totalTickets} tickets in the hat`,
+        });
+        await tx.insert(schema.ledger).values({
+          userId: winnerId,
+          amountCents: 0,
+          balanceAfterCents: u?.balanceCents ?? 0,
+          kind: "notify",
+          memo: `You hit the daily jackpot — the pot is yours`,
+        });
+      }
+      await tx
+        .update(schema.jackpotRound)
+        .set({ drawnAt: new Date(), winnerId, poolCents, tickets: totalTickets })
+        .where(eq(schema.jackpotRound.id, round.id));
+      await tx
+        .insert(schema.jackpotRound)
+        .values({ startsAt: round.drawAt, drawAt: new Date(round.drawAt.getTime() + JACKPOT_ROUND_MS) });
+      return true;
+    });
+  } catch {
+    return false;
+  }
+}
+
+// Whoever loads the games page after draw_at settles the round and opens the
+// next — same idempotent lazy-rollover as ensureSeason. cache() dedupes it
+// within a request.
+export const getJackpot = cache(async (userId?: string) => {
+  for (let i = 0; i < 4; i++) {
+    const [round] = await db
+      .select()
+      .from(schema.jackpotRound)
+      .where(isNull(schema.jackpotRound.drawnAt))
+      .orderBy(desc(schema.jackpotRound.drawAt))
+      .limit(1);
+    if (!round) {
+      try {
+        await db.insert(schema.jackpotRound).values({ drawAt: new Date(Date.now() + JACKPOT_ROUND_MS) });
+      } catch {
+        // a concurrent first insert lost nothing — re-read
+      }
+      continue;
+    }
+    if (round.drawAt.getTime() <= Date.now()) {
+      await drawJackpot(round.id);
+      continue;
+    }
+    const { entrants, totalWagered } = await jackpotEntries(db, round.startsAt);
+    const totalTickets = entrants.reduce((s, e) => s + e.tickets, 0);
+    const poolCents = Math.round((totalWagered * JACKPOT_RAKE_BPS) / 10_000);
+    const yourTickets = userId ? (entrants.find((e) => e.userId === userId)?.tickets ?? 0) : 0;
+    const [last] = await db
+      .select()
+      .from(schema.jackpotRound)
+      .where(isNotNull(schema.jackpotRound.drawnAt))
+      .orderBy(desc(schema.jackpotRound.drawAt))
+      .limit(1);
+    let lastWinner: { username: string | null; name: string } | null = null;
+    if (last?.winnerId) {
+      const [w] = await db
+        .select({ username: schema.user.username, name: schema.user.name })
+        .from(schema.user)
+        .where(eq(schema.user.id, last.winnerId))
+        .limit(1);
+      lastWinner = w ?? null;
+    }
+    return {
+      drawAt: round.drawAt,
+      poolCents,
+      totalTickets,
+      yourTickets,
+      last: last ? { winner: lastWinner, poolCents: last.poolCents, tickets: last.tickets } : null,
+    };
+  }
+  return null;
+});
 
 export async function getSeasonHistory(limit = 4) {
   const seasons = await db

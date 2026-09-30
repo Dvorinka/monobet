@@ -34,6 +34,12 @@ export const BONUS_MAP = new Map(BONUSES.map((b) => [b.key, b]));
 export const REFEREE_BONUS = 10_000;
 export const REFERRER_BONUS = 20_000;
 
+// Daily jackpot — 4% of game handle pools back into a pot drawn once a day.
+// Every Ɱ10 wagered buys a ticket; the draw weights entries by ticket count.
+export const JACKPOT_RAKE_BPS = 400;
+export const JACKPOT_TICKET_CENTS = 1_000;
+export const JACKPOT_ROUND_MS = 24 * 3600_000;
+
 // Claim streaks: gap must stay under 48h (20h cooldown + slack) to keep the
 // streak alive; each streak day adds Marks up to a 7-day cap.
 export const STREAK_WINDOW_MS = 48 * 3600 * 1000;
