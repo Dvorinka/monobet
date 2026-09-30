@@ -323,21 +323,21 @@ export function MarketForm({
           </div>
         </div>
 
-        {closesAt && (
-          <div>
-            <label className="text-[13px] font-medium text-mute" htmlFor="recur">
-              {t.repeats}
-            </label>
-            <Select id="recur" value={recurDays} onChange={(e) => setRecurDays(e.target.value)} className="mt-1">
-              <option value="0">{t.recurNever}</option>
-              <option value="1">{t.recurDaily}</option>
-              <option value="7">{t.recurWeekly}</option>
-              <option value="14">{t.recurBiweekly}</option>
-              <option value="30">{t.recurMonthly}</option>
-            </Select>
-            <p className="mt-1 text-[11.5px] text-faint">{t.repeatsHint}</p>
-          </div>
-        )}
+        <div>
+          <label className="text-[13px] font-medium text-mute" htmlFor="recur">
+            {t.repeats}
+          </label>
+          <Select id="recur" value={recurDays} onChange={(e) => setRecurDays(e.target.value)} className="mt-1">
+            <option value="0">{t.recurNever}</option>
+            <option value="1">{t.recurDaily}</option>
+            <option value="7">{t.recurWeekly}</option>
+            <option value="14">{t.recurBiweekly}</option>
+            <option value="30">{t.recurMonthly}</option>
+          </Select>
+          <p className="mt-1 text-[11.5px] text-faint">
+            {closesAt ? t.repeatsHint : t.repeatsNoCloseHint}
+          </p>
+        </div>
 
         {multi ? (
           <div>

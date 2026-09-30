@@ -725,8 +725,14 @@ export async function proposeMarket(input: {
     const b = LIQUIDITY_OPTIONS.includes(input.liquidity as 100) ? input.liquidity! : 300;
     const p = Math.min(0.97, Math.max(0.03, input.initialProb ?? 0.5));
     const description = input.description.trim();
-    const closesAt = input.closesAt ? new Date(input.closesAt) : null;
     const recurDays = [1, 7, 14, 30].includes(input.recurDays ?? 0) ? input.recurDays! : null;
+    // No explicit close on a recurring market → the first run closes one
+    // period out, so "Daily" actually means closes-every-day.
+    const closesAt = input.closesAt
+      ? new Date(input.closesAt)
+      : recurDays
+        ? new Date(Date.now() + recurDays * 24 * 3600 * 1000)
+        : null;
     const maxLeverage = TRADE_LEVERAGES.includes(input.maxLeverage ?? 10) ? input.maxLeverage! : 10;
     const marketImage = input.imageUrl?.trim() || null;
     if (marketImage) {
