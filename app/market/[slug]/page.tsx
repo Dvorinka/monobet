@@ -36,6 +36,7 @@ import { getLang } from "@/lib/lang-server";
 import { getT, type Dict } from "@/lib/i18n";
 import { fmtMonos, fmtDate, fmtShares } from "@/lib/money";
 import { PriceChart } from "@/components/price-chart";
+import { LocalTime } from "@/components/local-time";
 import { LikeButton } from "@/components/like-button";
 import { CopyLink } from "@/components/copy-link";
 import { LiveRefresher } from "@/components/live-refresher";
@@ -266,14 +267,14 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="size-3.5" />
-                {market.closesAt ? `${expired ? t.closedOn : t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
+                {market.closesAt ? <>{expired ? t.closedOn : t.closes} <LocalTime d={market.closesAt} lang={lang} /></> : t.noCloseDate}
               </span>
               <span className="inline-flex items-center gap-1.5">
                 {t.openedAt} {fmtDate(market.createdAt, lang)}
               </span>
               {market.opensAt && market.opensAt > new Date() && (
                 <span className="inline-flex items-center gap-1.5 text-amber-600">
-                  <Clock className="size-3.5" /> {t.opensAtDate(fmtDate(market.opensAt, lang))}
+                  <Clock className="size-3.5" /> {t.opensLabel} <LocalTime d={market.opensAt} lang={lang} />
                 </span>
               )}
               {recurLabel(t, market.recurDays) && (
@@ -400,7 +401,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
                 <div>
                   <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.closes}</dt>
                   <dd className="font-medium num">
-                    {market.closesAt ? fmtDate(market.closesAt, lang) : t.noCloseDate}
+                    {market.closesAt ? <LocalTime d={market.closesAt} lang={lang} /> : t.noCloseDate}
                   </dd>
                 </div>
               </dl>
@@ -639,7 +640,7 @@ async function GroupMarketView({
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Clock className="size-3.5" />
-              {market.closesAt ? `${expired ? t.closedOn : t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
+              {market.closesAt ? <>{expired ? t.closedOn : t.closes} <LocalTime d={market.closesAt} lang={lang} /></> : t.noCloseDate}
             </span>
             {recurLabel(t, market.recurDays) && (
               <span className="inline-flex items-center gap-1.5" title={t.repeatsHint}>
@@ -717,14 +718,14 @@ async function GroupMarketView({
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <Clock className="size-3.5" />
-                {market.closesAt ? `${expired ? t.closedOn : t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
+                {market.closesAt ? <>{expired ? t.closedOn : t.closes} <LocalTime d={market.closesAt} lang={lang} /></> : t.noCloseDate}
               </span>
               <span className="inline-flex items-center gap-1.5">
                 {t.openedAt} {fmtDate(market.createdAt, lang)}
               </span>
               {market.opensAt && market.opensAt > new Date() && (
                 <span className="inline-flex items-center gap-1.5 text-amber-600">
-                  <Clock className="size-3.5" /> {t.opensAtDate(fmtDate(market.opensAt, lang))}
+                  <Clock className="size-3.5" /> {t.opensLabel} <LocalTime d={market.opensAt} lang={lang} />
                 </span>
               )}
               {recurLabel(t, market.recurDays) && (
@@ -814,7 +815,7 @@ async function GroupMarketView({
                   <div>
                     <dt className="text-[11px] uppercase tracking-wide text-faint font-semibold">{t.closes}</dt>
                     <dd className="font-medium num">
-                      {market.closesAt ? fmtDate(market.closesAt, lang) : t.noCloseDate}
+                      {market.closesAt ? <LocalTime d={market.closesAt} lang={lang} /> : t.noCloseDate}
                     </dd>
                   </div>
                 </dl>

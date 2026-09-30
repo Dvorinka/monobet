@@ -1392,25 +1392,44 @@ export function GameView({
     const id = setTimeout(() => setSplash(null), 2600);
     return () => clearTimeout(id);
   }, [splash]);
-  const chip = (on: boolean) =>
+  const cardCls = (on: boolean) =>
     cn(
-      "h-8 inline-flex items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-semibold cursor-pointer transition-colors",
-      on ? "border-brand bg-brand-soft text-brand-strong" : "border-line bg-surface text-mute hover:text-ink hover:border-mute"
+      "flex items-center gap-3 rounded-xl border p-3 text-left cursor-pointer transition-colors",
+      on ? "border-brand bg-brand-soft" : "border-line bg-surface hover:border-mute"
     );
   return (
     <div>
       {dealers && dealers.length > 0 && (
         <div className="mb-4">
           <div className="text-[12px] font-semibold text-mute mb-1.5">{t.dealerPick}</div>
-          <div className="flex gap-1.5 flex-wrap">
-            <button type="button" onClick={() => setDealerId(undefined)} className={chip(dealerId == null)}>
-              <Shuffle className="size-3.5" /> {t.dealerRandom}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            <button type="button" onClick={() => setDealerId(undefined)} className={cardCls(dealerId == null)}>
+              <span className={cn("size-11 grid place-items-center rounded-lg", dealerId == null ? "bg-brand-soft" : "bg-surface-2")}>
+                <Shuffle className="size-5 text-mute" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13px] font-bold text-ink truncate">{t.dealerRandom}</span>
+                <span className="block text-[11px] text-mute truncate">{t.dealerRandomHint}</span>
+              </span>
             </button>
-            {dealers.map((d) => (
-              <button type="button" key={d.id} onClick={() => setDealerId(d.id)} className={chip(dealerId === d.id)}>
-                <DealerAvatar avatar={d.avatar} className="size-4.5 rounded-full" /> {d.name}
-              </button>
-            ))}
+            {dealers.map((d) => {
+              const fx = dealerFx(d);
+              return (
+                <button type="button" key={d.id} onClick={() => setDealerId(d.id)} className={cardCls(dealerId === d.id)}>
+                  <DealerAvatar avatar={d.avatar} className="size-11 rounded-lg shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-bold text-ink truncate">{d.name}</span>
+                    {d.quipWin && <span className="block text-[11px] leading-snug text-mute line-clamp-2 italic">“{d.quipWin}”</span>}
+                    {(fx.rigged || fx.blessed) && (
+                      <span className="mt-1 flex gap-1">
+                        {fx.rigged && <span className="rounded-full bg-no-soft px-1.5 py-px text-[9.5px] font-bold text-no-strong uppercase tracking-wide">{t.dealerRigged}</span>}
+                        {fx.blessed && <span className="rounded-full bg-yes-soft px-1.5 py-px text-[9.5px] font-bold text-yes-strong uppercase tracking-wide">{t.dealerBlessed}</span>}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

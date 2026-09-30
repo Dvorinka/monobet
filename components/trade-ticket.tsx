@@ -6,7 +6,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Segmented, Button } from "@/components/ui/primitives";
 import { sharesForSpend, tradeCost, yesPrice, multiPrices, multiTradeCost, multiSharesForSpend } from "@/lib/lmsr";
-import { fmtMonos, fmtCents, fmtShares, fmtDate } from "@/lib/money";
+import { fmtMonos, fmtCents, fmtShares, fmtDateTime } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -91,7 +91,8 @@ export function TradeTicket({
       <div className="rounded-[14px] border border-line bg-surface p-5 text-center">
         <Clock className="size-5 text-mute mx-auto" />
         <p className="mt-2 text-sm font-medium text-ink">{t.tradingOpensTitle}</p>
-        <p className="text-[13px] text-mute mt-1">{t.opensAtDate(fmtDate(opensAt, lang))}</p>
+        {/* Localized datetime — SSR prints server TZ, hydration corrects. */}
+        <p className="text-[13px] text-mute mt-1" suppressHydrationWarning>{t.opensAtDate(fmtDateTime(opensAt, lang))}</p>
       </div>
     );
   }
