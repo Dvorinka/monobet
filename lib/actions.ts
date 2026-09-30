@@ -2489,8 +2489,9 @@ async function settleGame(
     // A debtor's win pays the house debt first — the profit garnishes it.
     skim = Math.min(win, await garnishDebt(tx, userId, win - betCents, label));
     const take = win - skim;
-    // Sub-1x segments refund part of the stake — the ledger says so plainly.
-    if (take > 0) await credit(tx, userId, take, "game", null, `${label} — ${win > betCents ? "won" : "partial return"} ×${mult}${skim ? " (debt repaid)" : ""}`);
+    // Sub-1x segments refund part of the stake — the ledger says so plainly;
+    // an exact refund reads "push".
+    if (take > 0) await credit(tx, userId, take, "game", null, `${label} — ${win > betCents ? "won" : win === betCents ? "push" : "partial return"} ×${mult}${skim ? " (debt repaid)" : ""}`);
     if (dealer && dealerFx(dealer).blessed) tav = await telAvivBonus(tx, userId);
   }
   return { netCents: win - skim - betCents - fee, feeCents: fee, skimCents: skim, tavCents: tav };
@@ -2802,8 +2803,9 @@ export async function playSlots(input: {
     const reels = [slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(SLOT_TOTAL_WEIGHT))];
     let mult = slotPayout(reels[0], reels[1], reels[2]);
     const dealer = await pickDealer(input.dealerId);
-    if (dealerFx(dealer).rigged && mult > 0 && randomInt(100) < RIG_PCT) {
-      // Re-deal until a dead spin — reels visibly miss.
+    if (dealerFx(dealer).rigged && mult > 1 && randomInt(100) < RIG_PCT) {
+      // Re-deal until a dead spin — reels visibly miss. Pushes (a lone pair
+      // refunding the stake) are left alone: rigging targets real wins only.
       for (let i = 0; i < 40 && mult > 0; i++) {
         reels[0] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));
         reels[1] = slotDraw(randomInt(SLOT_TOTAL_WEIGHT));

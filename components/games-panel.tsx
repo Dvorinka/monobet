@@ -83,7 +83,9 @@ function useGame(lang?: Lang) {
 // Shared result flash — pops in with the net win/loss.
 function ResultTag({ net, lang }: { net: Net; lang?: Lang }) {
   useEffect(() => {
-    if (net) playSfx(net.won ? "win" : "lose", 0.5);
+    // A push (exactly the stake back, minus any lever fee) gets a neutral
+    // tick, not a lose sting.
+    if (net) playSfx(net.won ? "win" : net.netCents === -(net.feeCents ?? 0) ? "trade" : "lose", 0.5);
   }, [net]);
   if (!net) return null;
   const t = getT(lang ?? "en");
@@ -93,17 +95,19 @@ function ResultTag({ net, lang }: { net: Net; lang?: Lang }) {
   // "won what I bet".
   const gross = net.netCents + (net.stakeCents ?? 0) + (net.feeCents ?? 0);
   const skim = net.skimCents ?? 0;
+  // Push: the game returned exactly the stake (lever fee excluded).
+  const isPush = !net.won && net.netCents === -(net.feeCents ?? 0) && (net.stakeCents ?? 0) > 0;
   const sub =
     net.won && net.stakeCents
       ? t.gameProfit(`+${fmtMonos(net.netCents + skim, { lang })}`)
-      : !net.won && gross > 0
+      : !net.won && !isPush && gross > 0
         ? t.gameReturned(fmtMonos(gross, { lang }))
         : null;
   return (
     <div key={net.stamp} className="anim-win-pop num">
-      <div className={cn("text-[15px] font-bold", net.won ? "text-yes-strong" : "text-no-strong")}>
-        {net.won ? `+${fmtMonos(gross + skim, { lang })}` : `−${fmtMonos(-net.netCents, { lang })}`}
-        <span className="ml-1.5 text-[11px] font-semibold text-mute">{net.won ? t.win : t.lose}</span>
+      <div className={cn("text-[15px] font-bold", net.won ? "text-yes-strong" : isPush ? "text-ink" : "text-no-strong")}>
+        {net.won ? `+${fmtMonos(gross + skim, { lang })}` : isPush ? fmtMonos(gross, { lang }) : `−${fmtMonos(-net.netCents, { lang })}`}
+        <span className="ml-1.5 text-[11px] font-semibold text-mute">{net.won ? t.win : isPush ? t.push : t.lose}</span>
         {(net.feeCents ?? 0) > 0 && (
           <span className="ml-1.5 rounded-full border border-no/40 bg-no-soft px-1.5 py-0.5 text-[10px] font-bold text-no-strong align-middle">
             {t.gameFeeChip(fmtMonos(net.feeCents!, { lang }))}
@@ -901,6 +905,8 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
   };
 
   const won = net?.won === true;
+  const counts = reels.reduce<Record<number, number>>((m, s) => ((m[s] = (m[s] ?? 0) + 1), m), {});
+  const best = Math.max(...Object.values(counts));
   return (
     <GameCard
       icon={<Cherry className="size-4.5" />}
@@ -913,17 +919,22 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
               <div
                 key={i}
                 className={cn(
-                  "size-16 rounded-xl grid place-items-center text-[26px] font-black border",
-                  settled[i]
-                    ? won
-                      ? "bg-brand-soft border-brand/40 text-brand-strong"
-                      : "bg-surface border-line text-ink"
-                    : "bg-surface-2 border-line-2 text-mute animate-pulse"
+                  "size-16 rounded-xl grid place-items-center text-[26px] font-black border transition-all duration-200",
+                  !settled[i]
+                    ? "bg-surface-2 border-line-2 text-mute animate-pulse scale-95"
+                    : won && best === 3
+                      ? "bg-brand-soft border-brand/40 text-brand-strong scale-105"
+                      : counts[s] >= 2
+                        ? "bg-yes-soft border-yes/40 text-yes-strong"
+                        : "bg-surface border-line text-mute"
                 )}
               >
                 {SLOT_SYMBOLS[s]}
               </div>
             ))}
+          </div>
+          <div className="num text-[11px] font-semibold text-faint tabular-nums">
+            {SLOT_SYMBOLS.map((s, i) => `${s}${s}${s} ${SLOT_TRIPLE[i]}×`).join(" · ")} · {t.slotPair}
           </div>
           <ResultTag net={spinning ? null : net} lang={lang} />
           <DealerTag dealer={dealer} won={spinning ? null : net?.won} />
