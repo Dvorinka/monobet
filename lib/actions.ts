@@ -1,7 +1,7 @@
 "use server";
 
 import { db, schema } from "@/lib/db";
-import { eq, and, sql, desc, isNull } from "drizzle-orm";
+import { eq, and, sql, desc, asc, isNull } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
 import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT } from "@/lib/games";
 import { revalidatePath } from "next/cache";
@@ -169,15 +169,73 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
     .from(schema.market)
     .where(eq(schema.market.parentId, m.parentId));
   if (sibs.some((s) => s.status === "live")) return;
+  const parentResolved = sibs.some((s) => s.status === "resolved");
   await tx
     .update(schema.market)
     .set({
-      status: sibs.some((s) => s.status === "resolved") ? "resolved" : "cancelled",
+      status: parentResolved ? "resolved" : "cancelled",
       resolvedAt: new Date(),
     })
     .where(eq(schema.market.id, m.parentId));
-  const [parent] = await tx.select({ slug: schema.market.slug }).from(schema.market).where(eq(schema.market.id, m.parentId)).limit(1);
+  const [parent] = await tx.select().from(schema.market).where(eq(schema.market.id, m.parentId)).limit(1);
   if (parent) revalidatePath(`/market/${parent.slug}`);
+
+  // Recurring group: the series rolls over only when it finished resolved —
+  // a cancelled run stops the cadence. Options clone with fresh uniform
+  // pricing; labels, images and leverage carry over.
+  if (parent?.recurDays && parentResolved) {
+    const nextClose = new Date((parent.closesAt?.getTime() ?? Date.now()) + parent.recurDays * 24 * 3600 * 1000);
+    const [clone] = await tx
+      .insert(schema.market)
+      .values({
+        slug: await uniqueSlug(tx),
+        question: parent.question,
+        description: parent.description,
+        context: parent.context,
+        category: parent.category,
+        status: "live",
+        kind: "group",
+        creatorId: parent.creatorId,
+        b: parent.b,
+        closesAt: nextClose,
+        recurDays: parent.recurDays,
+        maxLeverage: parent.maxLeverage,
+        imageUrl: parent.imageUrl,
+      })
+      .returning({ id: schema.market.id });
+    const kids = sibs.length; // same option set — just reset to uniform odds
+    const base = parent.question.replace(/[?？!.\s]+$/g, "");
+    const originals = await tx
+      .select()
+      .from(schema.market)
+      .where(eq(schema.market.parentId, parent.id))
+      .orderBy(asc(schema.market.sortIndex));
+    for (const [i, o] of originals.entries()) {
+      const pi = Math.min(0.99, Math.max(0.01, 1 / kids));
+      const [child] = await tx
+        .insert(schema.market)
+        .values({
+          slug: await uniqueSlug(tx),
+          question: `${base} — ${o.label ?? o.question}?`,
+          description: parent.description,
+          category: parent.category,
+          status: "live",
+          kind: "option",
+          parentId: clone.id,
+          label: o.label,
+          imageUrl: o.imageUrl,
+          sortIndex: i,
+          creatorId: parent.creatorId,
+          b: parent.b,
+          qYes: qForProb(pi, parent.b).toFixed(6),
+          qNo: "0",
+          closesAt: nextClose,
+          maxLeverage: parent.maxLeverage,
+        })
+        .returning({ id: schema.market.id });
+      await tx.insert(schema.pricePoint).values({ marketId: child.id, yesPrice: pi.toFixed(5) });
+    }
+  }
 }
 
 // ---------- trading ----------
@@ -185,7 +243,7 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
 // Leverage: the user posts `spend` as collateral and the house lends the rest,
 // so `notional = spend × leverage` worth of shares. The loan lives on the
 // position row as debtCents and is repaid out of sells/resolves/refunds.
-const TRADE_LEVERAGES = [1, 2, 3, 5, 10];
+const TRADE_LEVERAGES = [1, 2, 3, 5, 10, 25, 50, 100];
 
 // If a leveraged position's liquidation value drops to the debt (5% cushion),
 // force-sell it into the book, repay the loan, hand back any leftover equity.
@@ -668,7 +726,7 @@ export async function proposeMarket(input: {
     const p = Math.min(0.97, Math.max(0.03, input.initialProb ?? 0.5));
     const description = input.description.trim();
     const closesAt = input.closesAt ? new Date(input.closesAt) : null;
-    const recurDays = [7, 14, 30].includes(input.recurDays ?? 0) ? input.recurDays! : null;
+    const recurDays = [1, 7, 14, 30].includes(input.recurDays ?? 0) ? input.recurDays! : null;
     const maxLeverage = TRADE_LEVERAGES.includes(input.maxLeverage ?? 10) ? input.maxLeverage! : 10;
     const marketImage = input.imageUrl?.trim() || null;
     if (marketImage) {
@@ -714,6 +772,7 @@ export async function proposeMarket(input: {
             creatorId: u.id,
             b,
             closesAt,
+            recurDays,
             maxLeverage,
             imageUrl: marketImage,
           })
@@ -932,7 +991,7 @@ async function settleMarketTx(
   await syncGroupStatus(tx, m);
 
   // Recurring markets: open a fresh copy closing recurDays after this close.
-  // Options stay out — a group's recurrence is driven by its own pattern.
+  // Groups recur from syncGroupStatus once every option has settled.
   if (m.recurDays && !m.parentId && m.kind !== "group") {
     const nextClose = new Date((m.closesAt?.getTime() ?? Date.now()) + m.recurDays * 24 * 3600 * 1000);
     const [clone] = await tx
@@ -941,12 +1000,14 @@ async function settleMarketTx(
         slug: await uniqueSlug(tx),
         question: m.question,
         description: m.description,
+        context: m.context,
         category: m.category,
         status: "live",
         kind: "binary",
         creatorId: m.creatorId,
         b: m.b,
         recurDays: m.recurDays,
+        maxLeverage: m.maxLeverage,
         imageUrl: m.imageUrl,
         closesAt: nextClose,
       })

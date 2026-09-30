@@ -1,7 +1,7 @@
 // Minigame payout math — shared between the /games UI (odds display) and the
 // server actions that settle rounds. No secrets here; tokens live in actions.
 
-export const GAME_LEVERAGES = [1, 2, 3, 5, 10] as const;
+export const GAME_LEVERAGES = [1, 2, 3, 5, 10, 25, 50, 100] as const;
 
 // Coin flip: 50/50, house keeps ~2%.
 export const COINFLIP_MULT = 1.96;

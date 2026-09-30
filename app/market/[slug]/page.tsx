@@ -1,6 +1,6 @@
 import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
-import { Clock, Users, Scale, CheckCircle2, XCircle, Hourglass, StickyNote } from "lucide-react";
+import { Clock, Users, Scale, CheckCircle2, XCircle, Hourglass, StickyNote, Repeat } from "lucide-react";
 import type { Metadata } from "next";
 import {
   getMarketBySlug,
@@ -53,6 +53,9 @@ import { optionColor } from "@/lib/option-style";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+
+const recurLabel = (t: Dict, d: number | null) =>
+  d === 1 ? t.recurDaily : d === 7 ? t.recurWeekly : d === 14 ? t.recurBiweekly : d === 30 ? t.recurMonthly : null;
 
 export async function generateMetadata({
   params,
@@ -255,6 +258,11 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               <span className="inline-flex items-center gap-1.5">
                 {t.openedAt} {fmtDate(market.createdAt, lang)}
               </span>
+              {recurLabel(t, market.recurDays) && (
+                <span className="inline-flex items-center gap-1.5" title={t.repeatsHint}>
+                  <Repeat className="size-3.5" /> {recurLabel(t, market.recurDays)}
+                </span>
+              )}
               <CopyLink path={`/market/${market.slug}`} lang={lang} />
             </div>
           </div>
@@ -586,6 +594,11 @@ async function GroupMarketView({
               <Clock className="size-3.5" />
               {market.closesAt ? `${t.closes} ${fmtDate(market.closesAt, lang)}` : t.noCloseDate}
             </span>
+            {recurLabel(t, market.recurDays) && (
+              <span className="inline-flex items-center gap-1.5" title={t.repeatsHint}>
+                <Repeat className="size-3.5" /> {recurLabel(t, market.recurDays)}
+              </span>
+            )}
             {anyLive && (
               <Badge tone="yes" className="uppercase">
                 <span className="live-dot" /> {t.live}
@@ -658,6 +671,11 @@ async function GroupMarketView({
               <span className="inline-flex items-center gap-1.5">
                 {t.openedAt} {fmtDate(market.createdAt, lang)}
               </span>
+              {recurLabel(t, market.recurDays) && (
+                <span className="inline-flex items-center gap-1.5" title={t.repeatsHint}>
+                  <Repeat className="size-3.5" /> {recurLabel(t, market.recurDays)}
+                </span>
+              )}
               <CopyLink path={`/market/${market.slug}`} lang={lang} />
             </div>
           </div>

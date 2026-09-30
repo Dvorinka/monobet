@@ -156,7 +156,7 @@ export function TradeTicket({
         <div className="mt-3">
           <div className="text-[13px] font-medium text-mute mb-1.5">{t.leverage}</div>
           <Segmented
-            options={["1", "2", "3", "5", "10"]
+            options={["1", "2", "3", "5", "10", "25", "50", "100"]
               .filter((v) => Number(v) <= maxLeverage)
               .map((v) => ({ value: v, label: `${v}×` }))}
             value={leverage}

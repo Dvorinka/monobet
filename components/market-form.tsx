@@ -107,7 +107,7 @@ export function MarketForm({
               liquidity,
               outcomes: multi ? optionLines : undefined, // range buckets arrive as ordinary options
               optionProbs: multi ? optionLines.map((_, i) => probFor(i)) : undefined,
-              recurDays: multi ? undefined : Number(recurDays),
+              recurDays: Number(recurDays),
               maxLeverage,
             });
             if (r.ok) {
@@ -323,13 +323,14 @@ export function MarketForm({
           </div>
         </div>
 
-        {!multi && closesAt && (
+        {closesAt && (
           <div>
             <label className="text-[13px] font-medium text-mute" htmlFor="recur">
               {t.repeats}
             </label>
             <Select id="recur" value={recurDays} onChange={(e) => setRecurDays(e.target.value)} className="mt-1">
               <option value="0">{t.recurNever}</option>
+              <option value="1">{t.recurDaily}</option>
               <option value="7">{t.recurWeekly}</option>
               <option value="14">{t.recurBiweekly}</option>
               <option value="30">{t.recurMonthly}</option>
@@ -440,7 +441,7 @@ export function MarketForm({
             {t.maxLev}
           </label>
           <Select id="maxlev" value={String(maxLeverage)} onChange={(e) => setMaxLeverage(Number(e.target.value))} className="mt-1">
-            {[1, 2, 3, 5, 10].map((v) => (
+            {[1, 2, 3, 5, 10, 25, 50, 100].map((v) => (
               <option key={v} value={v}>
                 {v === 1 ? `${t.maxLevNone} (1×)` : `${v}×`}
               </option>
