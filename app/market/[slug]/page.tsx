@@ -94,7 +94,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
     const [options, trades, comments, sameCat, liked, likes] = await Promise.all([
       getGroupOptions(market.id),
       getGroupTrades(market.id),
-      getComments(market.id, user?.id),
+      getComments(market.id, user?.id, !!user && isAdmin(user)),
       getRelatedMarkets(market.id, market.category),
       user ? isLiked(user.id, market.id) : false,
       getLikeCounts([market.id]),
@@ -113,7 +113,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
   const [history, trades, comments, position, related, betCount, categories, res, liked, likes, holders, creator, posBadges, notes] = await Promise.all([
     getPriceHistory(market.id),
     getRecentTrades(market.id),
-    getComments(market.id, user?.id),
+    getComments(market.id, user?.id, !!user && isAdmin(user)),
     user ? getUserPosition(market.id, user.id) : null,
     getRelatedMarkets(market.id, market.category),
     getMarketBetCount(market.id),

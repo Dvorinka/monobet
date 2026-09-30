@@ -70,7 +70,10 @@ export function WallCard({
   const pray = () =>
     start(async () => {
       const r = await wallPray({ note });
-      if (!r.ok) { toast.error(r.error); return; }
+      if (!r.ok) {
+        toast.error(r.nextAt ? t.wallCooldownWait(fmtRemain(r.nextAt - Date.now())) : r.error === "Insufficient balance" || r.error?.startsWith("The candle costs") ? t.wallCantAfford(fmtMonos(fee, { lang })) : r.error);
+        return;
+      }
       playWallSfx();
       setLast({ cleared: r.clearedCents ?? 0, silent: !!r.silent, miracle: !!r.miracle });
       setNote("");

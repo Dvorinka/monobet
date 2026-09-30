@@ -113,8 +113,9 @@ export function MarketForm({
               context: context || undefined,
               imageUrl: marketImage || undefined,
               category,
-              opensAt: opensAt || undefined,
-              closesAt: closesAt || undefined,
+              // ISO instants — raw datetime-local would parse as server-local.
+              opensAt: opensAt ? new Date(opensAt).toISOString() : undefined,
+              closesAt: closesAt ? new Date(closesAt).toISOString() : undefined,
               initialProb: odds / 100,
               liquidity,
               outcomes: multi ? optionLines : undefined, // range buckets arrive as ordinary options
@@ -488,7 +489,7 @@ export function MarketForm({
             {t.maxLev}
           </label>
           <Select id="maxlev" value={String(maxLeverage)} onChange={(e) => setMaxLeverage(Number(e.target.value))} className="mt-1">
-            {[1, 2, 3, 5, 10, 25, 50, 100].map((v) => (
+            {[1, 2, 3, 5, 10, 20].map((v) => (
               <option key={v} value={v}>
                 {v === 1 ? `${t.maxLevNone} (1×)` : `${v}×`}
               </option>

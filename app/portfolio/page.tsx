@@ -67,6 +67,8 @@ export default async function PortfolioPage() {
                 {positions.flatMap((p) => {
                   const py = marketYesPrice(p.market);
                   const rows = [];
+                  let debtShown = false;
+                  const takeDebt = () => (debtShown ? 0 : ((debtShown = true), p.debtCents));
                   if (p.yesShares > 0.001)
                     rows.push(
                       <PositionRow
@@ -77,6 +79,7 @@ export default async function PortfolioPage() {
                         shares={p.yesShares}
                         price={p.market.status === "resolved" ? (p.market.outcome === "yes" ? 1 : 0) : py}
                         status={p.market.status}
+                        debtCents={takeDebt()}
                         lang={lang}
                       />
                     );
@@ -90,6 +93,7 @@ export default async function PortfolioPage() {
                         shares={p.noShares}
                         price={p.market.status === "resolved" ? (p.market.outcome === "no" ? 1 : 0) : 1 - py}
                         status={p.market.status}
+                        debtCents={takeDebt()}
                         lang={lang}
                       />
                     );
@@ -171,6 +175,7 @@ function PositionRow({
   shares,
   price,
   status,
+  debtCents,
   lang,
 }: {
   slug: string;
@@ -179,6 +184,7 @@ function PositionRow({
   shares: number;
   price: number;
   status: string;
+  debtCents?: number;
   lang?: Lang;
 }) {
   const t = getT(lang ?? "en");
@@ -197,7 +203,14 @@ function PositionRow({
       </td>
       <td className="num px-4 py-3 text-right">{fmtShares(shares, lang)}</td>
       <td className="num px-4 py-3 text-right">{fmtCents(price)}</td>
-      <td className="num px-4 py-3 text-right font-semibold">{fmtMonos(Math.round(shares * price * 100), { lang })}</td>
+      <td className="num px-4 py-3 text-right font-semibold">
+        {fmtMonos(Math.round(shares * price * 100), { lang })}
+        {/* position loan rides the whole position — surface it once, on the
+            first side row, so gross value stays honest */}
+        {(debtCents ?? 0) > 0 && (
+          <div className="num text-[11px] font-medium text-no-strong">−{fmtMonos(debtCents!, { lang })} {t.kindLoan.toLowerCase()}</div>
+        )}
+      </td>
     </tr>
   );
 }
@@ -217,6 +230,11 @@ function KindBadge({ kind, lang }: { kind: string; lang?: Lang }) {
     bonus: { label: t.kindBonus, tone: "ink" },
     game: { label: t.kindGame, tone: "ink" },
     liq: { label: t.kindLiq, tone: "no" },
+    duel: { label: t.kindDuel, tone: "warn" },
+    loan: { label: t.kindLoan, tone: "warn" },
+    repay: { label: t.kindRepay, tone: "yes" },
+    burn: { label: t.kindBurn, tone: "mute" },
+    debt: { label: t.kindDebt, tone: "no" },
   };
   const { label, tone } = map[kind] ?? { label: kind, tone: "mute" as const };
   return <Badge tone={tone}>{label}</Badge>;

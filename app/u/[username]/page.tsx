@@ -31,13 +31,8 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   const achievements = await getAchievements(u.id);
   const isSelf = viewer?.id === u.id;
 
-  // Win rate over resolved positions: a position wins if it held the side the
-  // market resolved to.
-  const resolved = positions.filter((p) => p.market.status === "resolved");
-  const wins = resolved.filter((p) =>
-    (p.market.outcome === "yes" && p.yesShares > 0.001) || (p.market.outcome === "no" && p.noShares > 0.001)
-  ).length;
-  const winRate = resolved.length > 0 ? Math.round((wins / resolved.length) * 100) : null;
+  // (No win-rate stat: positions are deleted at settlement, so there's
+  // nothing left to compute it from — duel count is the honest substitute.)
 
   const achMeta: Record<string, { title: string; desc: string }> = {
     portfolio: { title: t.bonusPortfolio, desc: t.bonusPortfolioDesc },
@@ -96,7 +91,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
           value={`${playPnlCents >= 0 ? "+" : ""}${fmtMonos(playPnlCents, { lang })}`}
           tone={playPnlCents >= 0 ? "up" : "down"}
         />
-        <Stat label={t.winRate} value={winRate === null ? "—" : `${winRate}%`} />
+        <Stat label={t.duelsTitle} value={String(stats.duels)} />
         <Stat label={t.trades} value={String(stats.trades)} />
         <Stat label={t.markets} value={String(stats.markets)} />
       </div>

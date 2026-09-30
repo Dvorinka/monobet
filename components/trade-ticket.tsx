@@ -68,7 +68,8 @@ export function TradeTicket({
       return { shares: sh, avg: (spendCents * lev) / 100 / sh, toWin: sh * 100 };
     }
     if (sellShares <= 0) return null;
-    const refund = tradeCost(qYes, qNo, b, outcome, -sellShares);
+    // tradeCost of a negative delta is negative — negate for the refund.
+    const refund = -tradeCost(qYes, qNo, b, outcome, -sellShares);
     return { shares: sellShares, avg: refund / sellShares, toWin: Math.round(refund * 100) };
   }, [side, spendCents, sellShares, qYes, qNo, b, outcome, lev]);
 
@@ -170,7 +171,7 @@ export function TradeTicket({
         <div className="mt-3">
           <div className="text-[13px] font-medium text-mute mb-1.5">{t.leverage}</div>
           <Segmented
-            options={["1", "2", "3", "5", "10", "25", "50", "100"]
+            options={["1", "2", "3", "5", "10", "20"]
               .filter((v) => Number(v) <= maxLeverage)
               .map((v) => ({ value: v, label: `${v}×` }))}
             value={leverage}

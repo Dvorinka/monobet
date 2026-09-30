@@ -244,6 +244,11 @@ const en = {
   kindRefund: "Refund",
   kindGame: "Game",
   kindLiq: "Liquidated",
+  kindDuel: "Duel",
+  kindLoan: "Loan",
+  kindRepay: "Repayment",
+  kindBurn: "Fee",
+  kindDebt: "Debt",
 
   // leaderboard
   lbTitle: "Leaderboard",
@@ -976,6 +981,11 @@ const cs: Dict = {
   kindRefund: "Vrácení",
   kindGame: "Hra",
   kindLiq: "Likvidace",
+  kindDuel: "Duel",
+  kindLoan: "Půjčka",
+  kindRepay: "Splátka",
+  kindBurn: "Poplatek",
+  kindDebt: "Dluh",
 
   lbTitle: "Žebříček",
   lbTrader: "Obchodník",

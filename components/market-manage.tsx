@@ -48,12 +48,12 @@ export function MarketManagePanel({
   const [imageUrl, setImageUrl] = useState(market.imageUrl ?? "");
   const [catModal, setCatModal] = useState(false);
   const [extraCats, setExtraCats] = useState<string[]>([]);
-  const [opensAt, setOpensAt] = useState(
-    market.opensAt ? new Date(market.opensAt).toISOString().slice(0, 16) : ""
-  );
-  const [closesAt, setClosesAt] = useState(
-    market.closesAt ? new Date(market.closesAt).toISOString().slice(0, 16) : ""
-  );
+  // datetime-local speaks local wall-time — render the instant in local terms
+  // or every edit silently shifts the schedule by the UTC offset.
+  const toLocalInput = (d: string | Date) =>
+    new Date(new Date(d).getTime() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  const [opensAt, setOpensAt] = useState(market.opensAt ? toLocalInput(market.opensAt) : "");
+  const [closesAt, setClosesAt] = useState(market.closesAt ? toLocalInput(market.closesAt) : "");
   const [reason, setReason] = useState("");
 
   const questionLocked = betCount > 0;
@@ -128,8 +128,11 @@ export function MarketManagePanel({
                   context,
                   category,
                   imageUrl,
-                  opensAt: opensAt || undefined,
-                  closesAt: closesAt || undefined,
+                  // Send real instants (ISO) — a raw datetime-local string
+                  // would parse in the server's timezone, not the user's.
+                  // Empty string clears the field on purpose.
+                  opensAt: opensAt ? new Date(opensAt).toISOString() : "",
+                  closesAt: closesAt ? new Date(closesAt).toISOString() : "",
                 }),
               t.savedToast
             );

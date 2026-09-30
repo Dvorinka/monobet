@@ -39,12 +39,12 @@ export function DuelsPanel({ duels, me, lang }: { duels: DuelRow[]; me: string; 
   const [claim, setClaim] = useState("");
   const [stake, setStake] = useState("10");
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) =>
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string, onOk?: () => void) =>
     start(async () => {
       const r = await fn();
       if (r.ok) {
         toast.success(ok);
-        if (fn === createDuel) setClaim("");
+        onOk?.();
         router.refresh();
       } else toast.error(r.error);
     });
@@ -86,7 +86,8 @@ export function DuelsPanel({ duels, me, lang }: { duels: DuelRow[]; me: string; 
             onClick={() =>
               run(
                 () => createDuel({ opponent: opp, claim, stakeCents: Math.round(parseFloat(stake || "0") * 100) }),
-                t.duelCreatedToast
+                t.duelCreatedToast,
+                () => { setClaim(""); setOpp(""); }
               )
             }
           >

@@ -119,6 +119,24 @@ async function lockUser(tx: Tx, userId: string) {
   return rows[0];
 }
 
+// Zero-amount ledger row the header bell reads — for events the user didn't
+// trigger themselves (settlements, invites, admin actions).
+async function ping(tx: Pick<Tx, "select" | "insert">, userId: string, memo: string, marketId: string | null = null) {
+  const [w] = await tx
+    .select({ balanceCents: schema.user.balanceCents })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+    .limit(1);
+  await tx.insert(schema.ledger).values({
+    userId,
+    amountCents: 0,
+    balanceAfterCents: w?.balanceCents ?? 0,
+    kind: "notify",
+    marketId,
+    memo,
+  });
+}
+
 // Adds `addCents` of principal at `rateBps` — existing debt is accrued first
 // and the rate is blended by principal so one field covers everything.
 async function addDebt(tx: Tx, userId: string, addCents: number, rateBps: number, memo: string) {
@@ -190,8 +208,15 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
   // a cancelled run stops the cadence. Options clone with fresh uniform
   // pricing; labels, images and leverage carry over.
   if (parent?.recurDays && parentResolved) {
-    const nextClose = new Date((parent.closesAt?.getTime() ?? Date.now()) + parent.recurDays * 24 * 3600 * 1000);
-    const nextOpen = parent.opensAt ? new Date(parent.opensAt.getTime() + parent.recurDays * 24 * 3600 * 1000) : null;
+    const recurMs = parent.recurDays * 24 * 3600 * 1000;
+    // Same roll-forward rule as binary clones — no zombie markets.
+    let periods = 1;
+    let nextClose = new Date((parent.closesAt?.getTime() ?? Date.now()) + recurMs);
+    while (nextClose.getTime() <= Date.now()) {
+      nextClose = new Date(nextClose.getTime() + recurMs);
+      periods++;
+    }
+    const nextOpen = parent.opensAt ? new Date(parent.opensAt.getTime() + periods * recurMs) : null;
     const [clone] = await tx
       .insert(schema.market)
       .values({
@@ -211,7 +236,7 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
         imageUrl: parent.imageUrl,
       })
       .returning({ id: schema.market.id });
-    const kids = sibs.length; // same option set — just reset to uniform odds
+    const kids = sibs.length;
     const base = parent.question.replace(/[?？!.\s]+$/g, "");
     const originals = await tx
       .select()
@@ -219,7 +244,15 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
       .where(eq(schema.market.parentId, parent.id))
       .orderBy(asc(schema.market.sortIndex));
     for (const [i, o] of originals.entries()) {
-      const pi = Math.min(0.99, Math.max(0.01, 1 / kids));
+      // Seed each option from its own opening price — flat uniform odds on a
+      // lopsided group is free money for the first trader of every cycle.
+      const [seed] = await tx
+        .select({ yesPrice: schema.pricePoint.yesPrice })
+        .from(schema.pricePoint)
+        .where(eq(schema.pricePoint.marketId, o.id))
+        .orderBy(asc(schema.pricePoint.createdAt))
+        .limit(1);
+      const pi = Math.min(0.99, Math.max(0.01, toNum(seed?.yesPrice ?? String(1 / kids))));
       const [child] = await tx
         .insert(schema.market)
         .values({
@@ -252,7 +285,10 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
 // Leverage: the user posts `spend` as collateral and the house lends the rest,
 // so `notional = spend × leverage` worth of shares. The loan lives on the
 // position row as debtCents and is repaid out of sells/resolves/refunds.
-const TRADE_LEVERAGES = [1, 2, 3, 5, 10, 25, 50, 100];
+// Cap at 20×: at lev ≥ 21 the entry value (notional) already sits below the
+// 1.05× liquidation cushion on the loan, so the same-tx sweep would kill the
+// position on arrival — every such buy would just mint free volume.
+const TRADE_LEVERAGES = [1, 2, 3, 5, 10, 20];
 
 // If a leveraged position's liquidation value drops to the debt (5% cushion),
 // force-sell it into the book, repay the loan, hand back any leftover equity.
@@ -262,28 +298,47 @@ async function checkLiquidations(tx: Tx, marketId: string) {
   const m = await lockMarket(tx, marketId);
   let qy = toNum(m.qYes);
   let qn = toNum(m.qNo);
-  const rows = await tx
-    .select()
-    .from(schema.position)
-    .where(and(eq(schema.position.marketId, marketId), sql`${schema.position.debtCents} > 0`))
-    .for("update");
   let touched = false;
-  for (const p of rows) {
-    const y = toNum(p.yesShares);
-    const n = toNum(p.noShares);
-    const valueCents = liquidationValueCents(qy, qn, m.b, y, n);
-    if (!shouldLiquidate(valueCents, p.debtCents)) continue;
-    qy -= y;
-    qn -= n;
-    const equity = Math.max(0, valueCents - p.debtCents);
-    if (equity > 0) {
+  // Iterate to a fixpoint — a liquidation late in the scan can push an
+  // earlier-passed position under the cushion, so loop until a pass frees
+  // nothing. Bounded: every pass deletes at least one position.
+  for (;;) {
+    const rows = await tx
+      .select()
+      .from(schema.position)
+      .where(and(eq(schema.position.marketId, marketId), sql`${schema.position.debtCents} > 0`))
+      .for("update");
+    let passTouched = false;
+    for (const p of rows) {
+      const y = toNum(p.yesShares);
+      const n = toNum(p.noShares);
+      const valueCents = liquidationValueCents(qy, qn, m.b, y, n);
+      if (!shouldLiquidate(valueCents, p.debtCents)) continue;
+      qy -= y;
+      qn -= n;
+      const equity = Math.max(0, valueCents - p.debtCents);
       await lockUser(tx, p.userId);
-      await credit(tx, p.userId, equity, "liq", marketId, `Liquidated: ${m.question.slice(0, 60)}`);
+      if (equity > 0) {
+        await credit(tx, p.userId, equity, "liq", marketId, `Liquidated: ${m.question.slice(0, 60)}`);
+      } else {
+        // A wipeout is silent without a row — tell them the position died.
+        const [w] = await tx.select({ balanceCents: schema.user.balanceCents }).from(schema.user).where(eq(schema.user.id, p.userId)).limit(1);
+        await tx.insert(schema.ledger).values({
+          userId: p.userId,
+          amountCents: 0,
+          balanceAfterCents: w?.balanceCents ?? 0,
+          kind: "liq",
+          marketId,
+          memo: `Liquidated (total loss): ${m.question.slice(0, 60)}`,
+        });
+      }
+      await tx
+        .delete(schema.position)
+        .where(and(eq(schema.position.marketId, marketId), eq(schema.position.userId, p.userId)));
+      passTouched = true;
+      touched = true;
     }
-    await tx
-      .delete(schema.position)
-      .where(and(eq(schema.position.marketId, marketId), eq(schema.position.userId, p.userId)));
-    touched = true;
+    if (!passTouched) break;
   }
   if (touched) {
     await tx.update(schema.market).set({ qYes: String(qy), qNo: String(qn) }).where(eq(schema.market.id, marketId));
@@ -323,6 +378,8 @@ export async function placeTrade(input: {
       let cashDelta: number; // negative = pay, positive = receive
       let debtDelta = 0; // new loan principal on leveraged buys
       let debtRepay = 0; // loan repaid out of sell proceeds
+      let grossSellCents = 0; // sell proceeds before the loan takes its cut
+      let notionalCents = 0; // buy: full position size incl. borrowed funds
 
       if (side === "buy") {
         const spend = Math.round(input.spendCents ?? 0);
@@ -334,6 +391,7 @@ export async function placeTrade(input: {
         // if a repayment landed between page load and this trade.
         assertCreditLine(cur, leverage);
         const notional = spend * leverage;
+        notionalCents = notional;
         shares = sharesForSpend(qYes, qNo, b, outcome, notional / 100);
         if (shares <= 0) throw new Error("Trade too small");
         cashDelta = -spend; // collateral only — the loan makes up the rest
@@ -347,13 +405,15 @@ export async function placeTrade(input: {
           .where(and(eq(schema.position.marketId, marketId), eq(schema.position.userId, u.id)))
           .limit(1);
         const held = toNum(outcome === "yes" ? pos?.yesShares ?? "0" : pos?.noShares ?? "0");
-        if (held + 1e-6 < -shares) throw new Error("Not enough shares");
+        if (held + 1e-9 < -shares) throw new Error("Not enough shares");
+        shares = Math.max(shares, -held); // clamp float dust — never oversell
         const payout = -tradeCost(qYes, qNo, b, outcome, shares); // sell delta is negative — negate for proceeds
         cashDelta = Math.round(payout * 100); // nearest cent
         if (cashDelta <= 0) throw new Error("Nothing to refund");
         // Proceeds service the loan first; the seller keeps the remainder.
         debtRepay = Math.min(cashDelta, pos?.debtCents ?? 0);
         cashDelta -= debtRepay;
+        grossSellCents = Math.round(payout * 100);
       }
 
       const shareDelta = shares;
@@ -405,12 +465,15 @@ export async function placeTrade(input: {
         .limit(1);
       const wasFirst = !prior;
 
+      // Volume counts the real position size moved: notional on buys, gross
+      // payout on sells — loan mechanics stay out of the trending signal.
+      const volCents = side === "buy" ? notionalCents : grossSellCents;
       const [updated] = await tx
         .update(schema.market)
         .set({
           qYes: String(newQYes),
           qNo: String(newQNo),
-          volumeCents: sql`${schema.market.volumeCents} + ${Math.abs(cashDelta)}`,
+          volumeCents: sql`${schema.market.volumeCents} + ${volCents}`,
           traderCount: wasFirst ? sql`${schema.market.traderCount} + 1` : schema.market.traderCount,
         })
         .where(eq(schema.market.id, marketId))
@@ -793,6 +856,7 @@ export async function proposeMarket(input: {
       : recurDays
         ? new Date(Date.now() + recurDays * 24 * 3600 * 1000)
         : null;
+    if (closesAt && Number.isNaN(closesAt.getTime())) throw new Error("Bad close date");
     // Scheduled open — trades reject until opens_at. Must precede the close.
     const opensAt = input.opensAt ? new Date(input.opensAt) : null;
     if (opensAt && Number.isNaN(opensAt.getTime())) throw new Error("Bad open date");
@@ -807,10 +871,12 @@ export async function proposeMarket(input: {
 
     // Options may carry an image: "Democratic Party | https://…/logo.png" —
     // data URLs come from the form's upload/paste cell.
+    // optionProbs aligns with the raw outcome lines — carry it through the
+    // parse so deduping a label can't shift every later option's odds.
     const parsed = (input.outcomes ?? [])
-      .map((o) => o.trim())
-      .filter(Boolean)
-      .map((line) => {
+      .map((o, i) => ({ line: o.trim(), prob: input.optionProbs?.[i] }))
+      .filter((x) => x.line)
+      .map(({ line, prob }) => {
         const [label, url] = line.split("|").map((s) => s.trim());
         if (url) {
           const isData = /^data:image\/(jpeg|png|webp);base64,/.test(url) || /^data:image\/svg\+xml[;,]/.test(url);
@@ -818,7 +884,7 @@ export async function proposeMarket(input: {
           if (!isData && !isUrl) throw new Error(`Bad image URL for "${label}"`);
           if (isData && url.length > 450_000) throw new Error(`Image too large for "${label}"`);
         }
-        return { label, imageUrl: url || null };
+        return { label, imageUrl: url || null, prob };
       });
     const seen = new Set<string>();
     const options = parsed.filter((o) => (seen.has(o.label.toLowerCase()) ? false : (seen.add(o.label.toLowerCase()), true)));
@@ -852,8 +918,9 @@ export async function proposeMarket(input: {
         for (const [i, opt] of options.entries()) {
           const { label } = opt;
           // Per-option opening odds — clamped 1–99%, falling back to the
-          // shared slider value when a probability is missing.
-          const pi = Math.min(0.99, Math.max(0.01, (input.optionProbs?.[i] ?? p * 100) / 100));
+          // shared slider value when a probability is missing or junk.
+          const raw = opt.prob ?? p * 100;
+          const pi = Math.min(0.99, Math.max(0.01, (Number.isFinite(raw) ? raw : p * 100) / 100));
           const [child] = await tx
             .insert(schema.market)
             .values({
@@ -969,36 +1036,67 @@ export async function updateMarket(input: {
     if (input.imageUrl && !/^(https?:\/\/|\/)\S+$/.test(input.imageUrl.trim()) && !/^data:image\/(jpeg|png|webp);base64,|^data:image\/svg\+xml[;,]/.test(input.imageUrl.trim())) throw new Error("Bad image URL");
 
     const question = input.question.trim();
-    if (question !== m[0].question) {
-      const bets = await getMarketBetCount(m[0].id);
-      if (bets > 0) throw new Error("Question is locked once bets are placed");
-    }
-    await db
-      .update(schema.market)
-      .set({
-        question,
-        description: input.description.trim(),
-        context: input.context !== undefined ? input.context.trim().slice(0, 2000) : m[0].context,
-        category: input.category,
-        imageUrl: input.imageUrl !== undefined ? input.imageUrl.trim() || null : m[0].imageUrl,
-        closesAt: input.closesAt ? new Date(input.closesAt) : null,
-        opensAt: input.opensAt ? new Date(input.opensAt) : m[0].opensAt,
-        b: admin && input.b && input.b > 0 ? input.b : m[0].b,
-      })
-      .where(eq(schema.market.id, input.marketId));
-    // Group children inherit the parent's category and schedule — keep them
-    // in sync or a rescheduled group leaves options trading under the old
-    // window (each child's own closesAt is what placeTrade checks).
-    if (m[0].kind === "group") {
-      const sync: Record<string, unknown> = {};
-      if (input.category !== m[0].category) sync.category = input.category;
-      // The parent treats a missing closesAt as "clear" — mirror that so the
-      // options never diverge from the parent's schedule.
-      sync.closesAt = input.closesAt ? new Date(input.closesAt) : null;
-      if (input.opensAt !== undefined) sync.opensAt = input.opensAt ? new Date(input.opensAt) : null;
-      if (Object.keys(sync).length)
-        await db.update(schema.market).set(sync).where(eq(schema.market.parentId, input.marketId));
-    }
+    if (question.length < 10) throw new Error("Question too short (min 10 chars)");
+    if (question.length > 200) throw new Error("Question too long (max 200)");
+    if (input.description.length > 5000) throw new Error("Description too long");
+    const categoryInput = normalizeCategory(input.category);
+
+    // Schedule: undefined keeps the stored value, "" clears it, a string must
+    // parse. Options take the parent's schedule — never edited directly.
+    const isOpt = m[0].kind === "option";
+    const closesAt =
+      isOpt || input.closesAt === undefined ? m[0].closesAt : input.closesAt ? new Date(input.closesAt) : null;
+    const opensAt =
+      isOpt || input.opensAt === undefined ? m[0].opensAt : input.opensAt ? new Date(input.opensAt) : null;
+    if (closesAt && Number.isNaN(closesAt.getTime())) throw new Error("Bad close date");
+    if (opensAt && Number.isNaN(opensAt.getTime())) throw new Error("Bad open date");
+    if (opensAt && closesAt && opensAt >= closesAt) throw new Error("Open must be before close");
+
+    const questionLocked = question !== m[0].question;
+    const bChanged = admin && input.b && input.b > 0 && input.b !== m[0].b;
+    const bets = questionLocked || bChanged ? await getMarketBetCount(m[0].id) : 0;
+    if (questionLocked && bets > 0) throw new Error("Question is locked once bets are placed");
+    // Repricing b mid-flight revalues every open position + its loan ratio —
+    // lock it once the book has trades.
+    if (bChanged && bets > 0) throw new Error("Liquidity is locked once bets are placed");
+
+    await db.transaction(async (tx) => {
+      // Category must resolve to a real row — match case-insensitively, else
+      // create it the same way the propose form does (it's a user feature).
+      let category = categoryInput;
+      const [catRow] = await tx
+        .select({ name: schema.category.name })
+        .from(schema.category)
+        .where(sql`lower(${schema.category.name}) = lower(${categoryInput})`)
+        .limit(1);
+      if (catRow) category = catRow.name;
+      else {
+        const [max] = await tx.select({ n: sql<number>`coalesce(max(${schema.category.sortIndex}),0)::int` }).from(schema.category);
+        await tx.insert(schema.category).values({ name: category, sortIndex: (max?.n ?? 0) + 1, creatorId: u.id });
+      }
+      await tx
+        .update(schema.market)
+        .set({
+          question,
+          description: input.description.trim(),
+          context: input.context !== undefined ? input.context.trim().slice(0, 2000) : m[0].context,
+          category,
+          imageUrl: input.imageUrl !== undefined ? input.imageUrl.trim() || null : m[0].imageUrl,
+          closesAt,
+          opensAt,
+          b: bChanged ? input.b! : m[0].b,
+        })
+        .where(eq(schema.market.id, input.marketId));
+      // Group children inherit the parent's category and schedule in the same
+      // transaction — a divergent option would keep trading under the old
+      // window (its own closesAt is what placeTrade checks).
+      if (m[0].kind === "group") {
+        await tx
+          .update(schema.market)
+          .set({ category, closesAt, opensAt })
+          .where(eq(schema.market.parentId, input.marketId));
+      }
+    });
     revalidatePath(`/market/${m[0].slug}`);
     revalidatePath("/admin");
     revalidatePath("/");
@@ -1031,6 +1129,11 @@ async function settleMarketTx(
       await lockUser(tx, p.userId);
       await credit(tx, p.userId, payout, "payout", m.id, `Payout: ${m.question.slice(0, 60)}`);
       paidOut += payout;
+    } else {
+      // Held shares but took nothing — losing holders get a bell row too,
+      // otherwise their position just silently vanishes.
+      await lockUser(tx, p.userId);
+      await ping(tx, p.userId, `Resolved ${outcome.toUpperCase()} — your shares lost: ${m.question.slice(0, 60)}`, m.id);
     }
   }
   await tx.delete(schema.position).where(eq(schema.position.marketId, m.id));
@@ -1051,8 +1154,8 @@ async function settleMarketTx(
     marketId: m.id,
     yesPrice: outcome === "yes" ? "1" : "0",
   });
-  // Fan out to watchers + the creator — position holders already got
-  // payout rows, so only notify users who didn't receive money.
+  // Fan out to watchers + the creator — position holders already got a
+  // payout or a loss row, so only notify users who held nothing.
   const paidUsers = new Set(positions.map((p) => p.userId));
   const watchers = await tx
     .select({ userId: schema.watchlist.userId })
@@ -1062,27 +1165,36 @@ async function settleMarketTx(
   for (const uid of notifyIds) {
     if (paidUsers.has(uid)) continue;
     const [w] = await tx
-      .select({ balanceCents: schema.user.balanceCents, notifResolve: schema.user.notifResolve })
+      .select({ notifResolve: schema.user.notifResolve })
       .from(schema.user)
       .where(eq(schema.user.id, uid))
       .limit(1);
     if (!w || !w.notifResolve) continue;
-    await tx.insert(schema.ledger).values({
-      userId: uid,
-      amountCents: 0,
-      balanceAfterCents: w.balanceCents,
-      kind: "notify",
-      marketId: m.id,
-      memo: `Resolved ${outcome.toUpperCase()}: ${m.question.slice(0, 80)}`,
-    });
+    await ping(tx, uid, `Resolved ${outcome.toUpperCase()}: ${m.question.slice(0, 80)}`, m.id);
   }
   await syncGroupStatus(tx, m);
 
   // Recurring markets: open a fresh copy closing recurDays after this close.
   // Groups recur from syncGroupStatus once every option has settled.
   if (m.recurDays && !m.parentId && m.kind !== "group") {
-    const nextClose = new Date((m.closesAt?.getTime() ?? Date.now()) + m.recurDays * 24 * 3600 * 1000);
-    const nextOpen = m.opensAt ? new Date(m.opensAt.getTime() + m.recurDays * 24 * 3600 * 1000) : null;
+    const recurMs = m.recurDays * 24 * 3600 * 1000;
+    // Roll forward — a late resolution must not birth an already-closed clone.
+    let periods = 1;
+    let nextClose = new Date((m.closesAt?.getTime() ?? Date.now()) + recurMs);
+    while (nextClose.getTime() <= Date.now()) {
+      nextClose = new Date(nextClose.getTime() + recurMs);
+      periods++;
+    }
+    const nextOpen = m.opensAt ? new Date(m.opensAt.getTime() + periods * recurMs) : null;
+    // Seed the clone with this market's opening price — flat 50% on a 90%
+    // daily market is free money for the first trader of every cycle.
+    const [seed] = await tx
+      .select({ yesPrice: schema.pricePoint.yesPrice })
+      .from(schema.pricePoint)
+      .where(eq(schema.pricePoint.marketId, m.id))
+      .orderBy(asc(schema.pricePoint.createdAt))
+      .limit(1);
+    const seedP = Math.min(0.99, Math.max(0.01, toNum(seed?.yesPrice ?? "0.5")));
     const [clone] = await tx
       .insert(schema.market)
       .values({
@@ -1095,6 +1207,8 @@ async function settleMarketTx(
         kind: "binary",
         creatorId: m.creatorId,
         b: m.b,
+        qYes: qForProb(seedP, m.b).toFixed(6),
+        qNo: "0",
         recurDays: m.recurDays,
         maxLeverage: m.maxLeverage,
         imageUrl: m.imageUrl,
@@ -1102,7 +1216,7 @@ async function settleMarketTx(
         closesAt: nextClose,
       })
       .returning({ id: schema.market.id });
-    await tx.insert(schema.pricePoint).values({ marketId: clone.id, yesPrice: "0.5" });
+    await tx.insert(schema.pricePoint).values({ marketId: clone.id, yesPrice: seedP.toFixed(5) });
   }
   return paidOut;
 }
@@ -1114,6 +1228,7 @@ export async function resolveMarket(input: {
 }): Promise<{ ok: boolean; error?: string; paidOut?: number }> {
   try {
     const u = await requireUser();
+    if (input.outcome !== "yes" && input.outcome !== "no") throw new Error("Bad outcome");
     let paidOut = 0;
     await db.transaction(async (tx) => {
       const m = await lockMarket(tx, input.marketId);
@@ -1157,13 +1272,16 @@ export async function proposeResolution(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
+    if (input.outcome !== "yes" && input.outcome !== "no") throw new Error("Bad outcome");
     await db.transaction(async (tx) => {
       const m = await lockMarket(tx, input.marketId);
       if (m.kind === "group" || m.status !== "live") throw new Error("Not resolvable");
       const closed = !!m.closesAt && m.closesAt <= new Date();
       if (!closed && !isAdmin(u) && m.creatorId !== u.id) throw new Error("Market hasn't closed yet");
-      // A new proposal resets the vote tally.
-      await tx.delete(schema.resolutionVote).where(eq(schema.resolutionVote.marketId, m.id));
+      // Only a *changed* proposal resets the tally — re-submitting the same
+      // outcome must not wipe dispute votes, or the dispute gate is void.
+      if (m.proposedOutcome !== input.outcome)
+        await tx.delete(schema.resolutionVote).where(eq(schema.resolutionVote.marketId, m.id));
       await tx
         .update(schema.market)
         .set({
@@ -1189,6 +1307,7 @@ export async function voteResolution(input: {
 }): Promise<{ ok: boolean; error?: string; resolved?: boolean }> {
   try {
     const u = await requireUser();
+    if (input.vote !== "confirm" && input.vote !== "dispute") throw new Error("Bad vote");
     let resolved = false;
     await db.transaction(async (tx) => {
       const m = await lockMarket(tx, input.marketId);
@@ -1284,6 +1403,9 @@ export async function deleteMarket(marketId: string): Promise<{ ok: boolean; err
       }
       // Deleting the parent cascades children; for singles it's just the row.
       await tx.delete(schema.market).where(eq(schema.market.id, m.id));
+      // An option row leaving the group can empty it — roll the parent up so
+      // it doesn't sit "live" with nothing left to trade.
+      await syncGroupStatus(tx, m);
       return m.slug;
     });
     revalidatePath("/");
@@ -1774,14 +1896,7 @@ export async function wallPray(input: { note?: string }): Promise<{
       });
       // A full absolution deserves a bell — it clears the whole debt.
       if (miracle)
-        await tx.insert(schema.ledger).values({
-          userId: u.id,
-          amountCents: 0,
-          balanceAfterCents: cur.balanceCents - fee,
-          kind: "notify",
-          marketId: null,
-          memo: `The wall answered — all debt forgiven (${(debt / 100).toFixed(2)}Ɱ cleared)`,
-        });
+        await ping(tx, u.id, `The wall answered — all debt forgiven (${(debt / 100).toFixed(2)}Ɱ cleared)`);
       return { cleared, fee, left, silent, miracle, nextAt: now.getTime() + WALL_COOLDOWN_MS };
     });
     revalidatePath("/rewards");
@@ -1822,13 +1937,23 @@ export async function cancelMarket(marketId: string): Promise<{ ok: boolean; err
         .for("update");
       for (const p of positions) {
         const refund = Math.max(0, Math.round((toNum(p.yesShares) * py + toNum(p.noShares) * (1 - py)) * 100) - p.debtCents);
+        await lockUser(tx, p.userId);
         if (refund > 0) {
-          await lockUser(tx, p.userId);
           await credit(tx, p.userId, refund, "refund", m.id, `Refund: ${m.question.slice(0, 60)}`);
+        } else {
+          // No refund due — still tell the holder their position is gone.
+          await ping(tx, p.userId, `Cancelled — position closed with no refund: ${m.question.slice(0, 60)}`, m.id);
         }
       }
       await tx.delete(schema.position).where(eq(schema.position.marketId, marketId));
-      await tx.update(schema.market).set({ status: "cancelled" }).where(eq(schema.market.id, marketId));
+      await tx.update(schema.market).set({
+        status: "cancelled",
+        resolvedAt: new Date(),
+        proposedOutcome: null,
+        proposedById: null,
+        proposedAt: null,
+      }).where(eq(schema.market.id, marketId));
+      await tx.delete(schema.resolutionVote).where(eq(schema.resolutionVote.marketId, marketId));
       await syncGroupStatus(tx, m);
       revalidatePath(`/market/${m.slug}`);
     });
@@ -1889,6 +2014,9 @@ export async function editComment(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
+    if (u.commentsBanned) throw new Error("Comments are disabled for your account");
+    if (u.commentBanUntil && u.commentBanUntil > new Date())
+      throw new Error("You are timed out from commenting");
     const body = input.body.trim();
     if (!body) throw new Error("Empty comment");
     if (body.length > 1000) throw new Error("Comment too long (max 1000)");
@@ -2321,6 +2449,9 @@ export async function claimReferral(input: { ref: string }): Promise<{ ok: boole
     if (!/^[a-z0-9_.-]+$/.test(ref)) throw new Error("Invalid referral link");
     if (ref === (u.username ?? "").toLowerCase()) throw new Error("Can't refer yourself");
     await db.transaction(async (tx) => {
+      // Lock before the already-used check — two concurrent claims could
+      // otherwise both pass and double-mint both bonuses.
+      await lockUser(tx, u.id);
       const [used] = await tx
         .select({ id: schema.rewardClaim.id })
         .from(schema.rewardClaim)
@@ -2391,20 +2522,14 @@ export async function createDuel(input: {
       const [opp] = await tx
         .select({ id: schema.user.id, username: schema.user.username, balanceCents: schema.user.balanceCents })
         .from(schema.user)
-        .where(sql`lower(${schema.user.username}) = lower(${input.opponent.trim()})`)
+        .where(sql`lower(${schema.user.username}) = lower(${input.opponent.trim().replace(/^@/, "")})`)
         .limit(1);
       if (!opp) throw new Error("No such user");
       if (opp.id === u.id) throw new Error("Pick someone else");
       await lockUser(tx, u.id);
       await credit(tx, u.id, -stake, "duel", null, `Duel stake vs @${opp.username}: ${claim.slice(0, 60)}`);
       await tx.insert(schema.challenge).values({ creatorId: u.id, opponentId: opp.id, claim, stakeCents: stake });
-      await tx.insert(schema.ledger).values({
-        userId: opp.id,
-        amountCents: 0,
-        balanceAfterCents: opp.balanceCents,
-        kind: "notify",
-        memo: `Duel invite from @${u.username ?? u.name}: ${claim.slice(0, 70)}`,
-      });
+      await ping(tx, opp.id, `Duel invite from @${u.username ?? u.name}: ${claim.slice(0, 70)}`);
     });
     revalidatePath("/duels");
     return { ok: true };
@@ -2426,10 +2551,12 @@ export async function respondDuel(input: {
       if (input.accept) {
         await lockUser(tx, u.id);
         await credit(tx, u.id, -c.stakeCents, "duel", null, `Duel stake: ${c.claim.slice(0, 70)}`);
+        await ping(tx, c.creatorId, `@${u.username ?? u.name} accepted your duel: ${c.claim.slice(0, 60)}`);
         await tx.update(schema.challenge).set({ status: "accepted" }).where(eq(schema.challenge.id, c.id));
       } else {
         await lockUser(tx, c.creatorId);
         await credit(tx, c.creatorId, c.stakeCents, "duel", null, `Duel declined: ${c.claim.slice(0, 60)}`);
+        await ping(tx, c.creatorId, `@${u.username ?? u.name} declined your duel: ${c.claim.slice(0, 60)}`);
         await tx.update(schema.challenge).set({ status: "declined" }).where(eq(schema.challenge.id, c.id));
       }
     });
@@ -2477,6 +2604,10 @@ export async function proposeDuelWinner(input: {
         if (c.pendingWinnerId === input.winnerId) {
           await lockUser(tx, input.winnerId);
           await credit(tx, input.winnerId, c.stakeCents * 2, "duel", null, `Duel won: ${c.claim.slice(0, 60)}`);
+          // Both participants hear the verdict — the loser gets no credit row.
+          await ping(tx, input.winnerId, `Duel won — pot is yours: ${c.claim.slice(0, 60)}`);
+          const loserId = input.winnerId === c.creatorId ? c.opponentId : c.creatorId;
+          await ping(tx, loserId, `Duel lost: ${c.claim.slice(0, 60)}`);
           await tx
             .update(schema.challenge)
             .set({ status: "settled", winnerId: input.winnerId, settledAt: new Date(), pendingWinnerId: null, pendingById: null })
@@ -2519,11 +2650,16 @@ export async function adminSettleDuel(input: {
       if (input.winnerId) {
         await lockUser(tx, input.winnerId);
         await credit(tx, input.winnerId, c.stakeCents * 2, "duel", null, `Duel won (admin): ${c.claim.slice(0, 55)}`);
+        await ping(tx, input.winnerId, `Duel settled by admin — you won: ${c.claim.slice(0, 55)}`);
+        const loserId = input.winnerId === c.creatorId ? c.opponentId : c.creatorId;
+        await ping(tx, loserId, `Duel settled by admin — you lost: ${c.claim.slice(0, 55)}`);
       } else {
         await lockUser(tx, c.creatorId);
         await credit(tx, c.creatorId, c.stakeCents, "duel", null, `Duel refunded: ${c.claim.slice(0, 60)}`);
         await lockUser(tx, c.opponentId);
         await credit(tx, c.opponentId, c.stakeCents, "duel", null, `Duel refunded: ${c.claim.slice(0, 60)}`);
+        await ping(tx, c.creatorId, `Duel refunded by admin: ${c.claim.slice(0, 60)}`);
+        await ping(tx, c.opponentId, `Duel refunded by admin: ${c.claim.slice(0, 60)}`);
       }
       await tx
         .update(schema.challenge)
@@ -2593,18 +2729,17 @@ export async function inviteToSquad(username: string): Promise<{ ok: boolean; er
     if (!target) throw new Error("No such user");
     if (target.id === u.id) throw new Error("That's you");
     if (target.squadId === me.squadId) throw new Error("Already in your squad");
+    // Squads are exclusive — don't offer a chair to someone already seated.
+    if (target.squadId) throw new Error("Already in a squad");
     const [sq] = await db.select().from(schema.squad).where(eq(schema.squad.id, me.squadId)).limit(1);
-    await db
+    const inserted = await db
       .insert(schema.squadInvite)
       .values({ squadId: me.squadId, inviterId: u.id, inviteeId: target.id })
-      .onConflictDoNothing();
-    await db.insert(schema.ledger).values({
-      userId: target.id,
-      balanceAfterCents: target.balanceCents,
-      kind: "notify",
-      amountCents: 0,
-      memo: `@${u.username ?? u.name} invited you to squad “${sq.name}” — see your profile`,
-    });
+      .onConflictDoNothing()
+      .returning({ id: schema.squadInvite.id });
+    // Duplicate invite → no new row → no second bell ping.
+    if (!inserted.length) return { ok: true };
+    await ping(db, target.id, `@${u.username ?? u.name} invited you to squad “${sq.name}” — see your profile`);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed" };
@@ -2626,6 +2761,12 @@ export async function respondSquadInvite(input: {
         .for("update");
       if (!inv) throw new Error("Invite not found");
       if (input.accept) {
+        const cur = await lockUser(tx, u.id);
+        // Stale invite after already joining a squad — delete it, don't hop.
+        if (cur.squadId) {
+          await tx.delete(schema.squadInvite).where(eq(schema.squadInvite.id, inv.id));
+          throw new Error("You're already in a squad");
+        }
         await tx.update(schema.user).set({ squadId: inv.squadId }).where(eq(schema.user.id, u.id));
         await tx.delete(schema.squadInvite).where(eq(schema.squadInvite.inviteeId, u.id));
       } else {
@@ -2657,8 +2798,9 @@ export async function setNotifPrefs(input: {
 
 // ---------- blackjack ----------
 // Interactive round: the shoe and both hands live on blackjack_round so the
-// client only ever asks "hit"/"stand". Collateral is charged at deal; a loss
-// parks the levered remainder on house debt like every other game.
+// client only ever asks "hit"/"stand". Stake + funding fee are charged at
+// deal; the worst case forfeits both — no debt, same margin rules as the
+// other games.
 
 const BJ_FALLBACK_DEALER: Persona = { name: "The House", avatar: "", quipWin: "The house always collects.", quipLose: "Well played." };
 const BJ_ROUND_TTL_MS = 60 * 60_000; // abandoned hands settle as a push

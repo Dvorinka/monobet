@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { db, schema } from "@/lib/db";
 import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS } from "@/lib/rewards";
-import { eq, desc, asc, and, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
+import { eq, ne, desc, asc, and, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { yesPrice } from "@/lib/lmsr";
 import type { MarketStatus } from "@/lib/db/schema";
 
@@ -184,7 +184,7 @@ export async function getRecentTrades(marketId: string, limit = 25) {
     .limit(limit);
 }
 
-export async function getComments(marketId: string, viewerId?: string) {
+export async function getComments(marketId: string, viewerId?: string, viewerIsAdmin = false) {
   const rows = await db
     .select({
       id: schema.comment.id,
@@ -208,6 +208,10 @@ export async function getComments(marketId: string, viewerId?: string) {
     .where(eq(schema.comment.marketId, marketId))
     .orderBy(asc(schema.comment.createdAt))
     .limit(200);
+  // Hidden comments are UI-masked only — strip the payload for non-admins so
+  // moderated content doesn't ship to every client in the RSC payload.
+  if (!viewerIsAdmin)
+    for (const r of rows) if (r.hidden) { r.body = ""; r.imageUrl = null; }
   return rows;
 }
 
@@ -283,7 +287,9 @@ export async function getUserLedger(userId: string, limit = 50) {
   return db
     .select()
     .from(schema.ledger)
-    .where(eq(schema.ledger.userId, userId))
+    // 'notify' rows are zero-amount bell items — they'd read as noise in the
+    // cash-flow list, so this query skips them; getNotifications serves them.
+    .where(and(eq(schema.ledger.userId, userId), ne(schema.ledger.kind, "notify")))
     .orderBy(desc(schema.ledger.createdAt))
     .limit(limit);
 }
@@ -544,6 +550,7 @@ export async function getPublicProfile(username: string) {
       trades: sql<number>`(select count(*)::int from ${schema.trade} where ${schema.trade.userId} = ${u.id})`,
       markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.creatorId} = ${u.id} and ${schema.market.parentId} is null)`,
       comments: sql<number>`(select count(*)::int from ${schema.comment} where ${schema.comment.userId} = ${u.id})`,
+      duels: sql<number>`(select count(*)::int from ${schema.challenge} where ${schema.challenge.creatorId} = ${u.id} or ${schema.challenge.opponentId} = ${u.id})`,
     })
     .from(schema.user)
     .where(eq(schema.user.id, u.id));
@@ -582,7 +589,7 @@ export async function getPublicProfile(username: string) {
 
   return {
     user: u,
-    stats: stats ?? { trades: 0, markets: 0, comments: 0 },
+    stats: stats ?? { trades: 0, markets: 0, comments: 0, duels: 0 },
     positions,
     created,
     netWorthCents,
@@ -1051,7 +1058,8 @@ export async function getDuels(userId: string) {
   return rows;
 }
 
-// Disputed duels for the admin tiebreak panel.
+// Duels needing admin eyes: disputed ones, plus accepted duels where neither
+// side has proposed a winner — without this they'd sit invisible forever.
 export async function getDisputedDuels() {
   return db
     .select({
@@ -1060,7 +1068,12 @@ export async function getDisputedDuels() {
       opponentName: sql<string>`(select username from ${schema.user} u3 where u3.id = ${schema.challenge.opponentId})`,
     })
     .from(schema.challenge)
-    .where(eq(schema.challenge.status, "disputed"))
+    .where(
+      or(
+        eq(schema.challenge.status, "disputed"),
+        and(eq(schema.challenge.status, "accepted"), isNull(schema.challenge.pendingWinnerId))
+      )
+    )
     .orderBy(desc(schema.challenge.createdAt))
     .limit(20);
 }

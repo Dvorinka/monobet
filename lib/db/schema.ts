@@ -258,7 +258,11 @@ export type LedgerKind =
   | "game"
   | "liq"
   | "notify"
-  | "duel";
+  | "duel"
+  | "loan"
+  | "repay"
+  | "burn"
+  | "debt";
 
 export const ledger = pgTable(
   "ledger",
