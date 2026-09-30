@@ -359,8 +359,8 @@ export function MultiPriceChart({
               {hoverPts.map(({ s, p }) => (
                 <circle pointerEvents="none" key={s.key} cx={x(new Date(p.t).getTime())} cy={y(p.p)} r="4" fill={s.color} stroke="var(--color-surface)" strokeWidth="2" />
               ))}
-              {/* Polymarket-style hover: a small % tag rides each line's dot —
-                  no floating panel covering the chart. Labels nudge apart when
+              {/* Polymarket-style hover: a dark chip rides each line's dot —
+                  colored dot + % inside a black pill. Labels nudge apart when
                   lines bunch up; the timestamp sits in the dead band under the
                   plot, out of the lines' way. */}
               {(() => {
@@ -373,9 +373,10 @@ export function MultiPriceChart({
                     focused: !focusKey || s.key === focusKey,
                   }))
                   .sort((a, b) => a.y - b.y);
-                const GAP = 12;
-                const lo = PAD_T + 4;
-                const hi = H - PAD_B - 4;
+                const CHIP_H = 18;
+                const GAP = CHIP_H + 3;
+                const lo = PAD_T + CHIP_H / 2 + 1;
+                const hi = H - PAD_B - CHIP_H / 2 - 1;
                 for (let i = 1; i < items.length; i++) items[i].y = Math.max(items[i].y, items[i - 1].y + GAP);
                 if (items.length && items[items.length - 1].y > hi) {
                   items[items.length - 1].y = hi;
@@ -385,24 +386,20 @@ export function MultiPriceChart({
                   items[0].y = lo;
                   for (let i = 1; i < items.length; i++) items[i].y = Math.max(items[i].y, items[i - 1].y + GAP);
                 }
-                const right = hoverX > W - PAD_R - 64;
-                return items.map((it) => (
-                  <text
-                    key={it.key}
-                    x={right ? hoverX - 9 : hoverX + 9}
-                    y={it.y + 3.5}
-                    textAnchor={right ? "end" : "start"}
-                    fontSize="11"
-                    fontWeight="700"
-                    fill={it.color}
-                    opacity={it.focused ? 1 : 0.3}
-                    className="num"
-                    pointerEvents="none"
-                    style={{ paintOrder: "stroke", stroke: "var(--color-surface)", strokeWidth: 3.5, strokeLinejoin: "round" }}
-                  >
-                    {it.pct}%
-                  </text>
-                ));
+                const right = hoverX > W - PAD_R - 76;
+                return items.map((it) => {
+                  const cw = 17 + String(it.pct).length * 7 + 7;
+                  const cx = right ? hoverX - 8 - cw : hoverX + 8;
+                  return (
+                    <g key={it.key} opacity={it.focused ? 1 : 0.35} pointerEvents="none">
+                      <rect x={cx} y={it.y - CHIP_H / 2} width={cw} height={CHIP_H} rx={5} fill="#141a16" />
+                      <circle cx={cx + 8.5} cy={it.y} r={2.75} fill={it.color} />
+                      <text x={cx + 14.5} y={it.y + 3.5} fontSize="11" fontWeight="700" fill="#f2f6f2" className="num">
+                        {it.pct}%
+                      </text>
+                    </g>
+                  );
+                });
               })()}
               <text
                 x={Math.min(W - PAD_R - 28, Math.max(PAD_L + 28, hoverX))}
