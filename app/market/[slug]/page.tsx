@@ -116,23 +116,16 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
     // rail never renders empty.
     const related = sameCat.length > 0
       ? sameCat
-      : (await listMarkets({ status: "live" })).filter((m) => m.id !== market.id).slice(0, 6);
+      : (await listMarkets({ status: "live", limit: 8 })).filter((m) => m.id !== market.id).slice(0, 6);
     return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} liked={liked} likes={likes.get(market.id) ?? 0} selOpt={selOpt} selSide={selSide} />;
   }
 
-  const parent = market.parentId ? await getMarketById(market.parentId) : null;
-  // Options price off the group's shared book — softmax over live siblings.
-  const optionSibs = market.parentId
-    ? (await getGroupOptions(market.parentId)).filter((o) => o.status === "live")
-    : null;
-  const optIdx = optionSibs?.findIndex((s) => s.id === market.id) ?? -1;
-  const sharedQ =
-    optionSibs && optIdx >= 0
-      ? multiCoords(optionSibs.map((s) => ({ qYes: Number(s.qYes), qNo: Number(s.qNo) })))
-      : undefined;
   const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
 
-  const [history, trades, comments, position, related, betCount, categories, res, liked, likes, holders, creator, posBadges, notes] = await Promise.all([
+  const [parent, optionSibs, history, trades, comments, position, related, betCount, categories, res, liked, likes, holders, creator, posBadges, notes] = await Promise.all([
+    market.parentId ? getMarketById(market.parentId) : null,
+    // Options price off the group's shared book — softmax over live siblings.
+    market.parentId ? getGroupOptions(market.parentId).then((o) => o.filter((s) => s.status === "live")) : null,
     getPriceHistory(market.id),
     getRecentTrades(market.id),
     getComments(market.id, user?.id, !!user && isAdmin(user)),
@@ -150,6 +143,11 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
     // published ones (they land in the card above the rules).
     canManage ? getCommunityNotes(market.id) : getCommunityNotes(market.id, { publishedOnly: true }),
   ]);
+  const optIdx = optionSibs?.findIndex((s) => s.id === market.id) ?? -1;
+  const sharedQ =
+    optionSibs && optIdx >= 0
+      ? multiCoords(optionSibs.map((s) => ({ qYes: Number(s.qYes), qNo: Number(s.qNo) })))
+      : undefined;
   const canDelete = !!user && (isAdmin(user) || (market.creatorId === user.id && betCount === 0));
   const publishedNotes = notes.filter((n) => n.published);
 

@@ -86,6 +86,7 @@ export async function listMarkets(opts: {
   includePendingForUser?: string;
   includeOptions?: boolean;
   ids?: string[];
+  limit?: number;
 }) {
   const { category, q, sort, status = "live" } = opts;
   // Explicit id filter (watchlist) — empty list means "no results", not "all".
@@ -116,7 +117,7 @@ export async function listMarkets(opts: {
         ? [asc(schema.market.closesAt)]
         : [desc(schema.market.volumeCents), desc(schema.market.createdAt)];
 
-  return db.select().from(schema.market).where(and(...conds)).orderBy(...order).limit(100);
+  return db.select().from(schema.market).where(and(...conds)).orderBy(...order).limit(opts.limit ?? 100);
 }
 
 // generateMetadata and the page both hit this — cache() makes it one query.
@@ -134,14 +135,15 @@ export async function getMarketById(id: string) {
   return rows[0] ?? null;
 }
 
-// Options of a multi-outcome group, in creation order.
-export async function getGroupOptions(parentId: string) {
+// Options of a multi-outcome group, in creation order. cache() dedupes the
+// generateMetadata + page double-fetch on option pages.
+export const getGroupOptions = cache(async (parentId: string) => {
   return db
     .select()
     .from(schema.market)
     .where(eq(schema.market.parentId, parentId))
     .orderBy(asc(schema.market.sortIndex), asc(schema.market.createdAt), asc(schema.market.id));
-}
+});
 
 // Batch: children for a set of group ids, grouped in JS. Avoids N+1 on the grid.
 export async function getGroupOptionsFor(parentIds: string[]) {
@@ -342,23 +344,27 @@ export async function getUserLedger(userId: string, limit = 50) {
     .limit(limit);
 }
 
-export async function getLeaderboard() {
+// cache(): the leaderboard page, getSquads, and ensureSeason can all want the
+// board in one request — compute it once per request, not three times.
+export const getLeaderboard = cache(async () => {
   // ponytail: JS aggregation; user count is a friend group, not a city.
-  const users = await db
-    .select({
-      id: schema.user.id,
-      username: schema.user.username,
-      name: schema.user.name,
-      image: schema.user.image,
-      balanceCents: schema.user.balanceCents,
-      createdAt: schema.user.createdAt,
-      squadId: schema.user.squadId,
-    })
-    .from(schema.user);
-  const positions = await db
-    .select({ position: schema.position, market: schema.market })
-    .from(schema.position)
-    .innerJoin(schema.market, eq(schema.position.marketId, schema.market.id));
+  const [users, positions] = await Promise.all([
+    db
+      .select({
+        id: schema.user.id,
+        username: schema.user.username,
+        name: schema.user.name,
+        image: schema.user.image,
+        balanceCents: schema.user.balanceCents,
+        createdAt: schema.user.createdAt,
+        squadId: schema.user.squadId,
+      })
+      .from(schema.user),
+    db
+      .select({ position: schema.position, market: schema.market })
+      .from(schema.position)
+      .innerJoin(schema.market, eq(schema.position.marketId, schema.market.id)),
+  ]);
 
   const optPrices = await optionPriceMap(positions.map((r) => r.market));
   const valueByUser = new Map<string, number>();
@@ -379,7 +385,7 @@ export async function getLeaderboard() {
       netWorthCents: u.balanceCents + Math.round(valueByUser.get(u.id) ?? 0),
     }))
     .sort((a, b) => b.netWorthCents - a.netWorthCents);
-}
+});
 
 export async function getPendingMarkets() {
   return db
@@ -597,51 +603,51 @@ export async function getPublicProfile(username: string) {
     .limit(1);
   if (!u) return null;
 
-  const [sq] = u.squadId
-    ? await db.select({ name: schema.squad.name }).from(schema.squad).where(eq(schema.squad.id, u.squadId)).limit(1)
-    : [null];
-
-  const [stats] = await db
-    .select({
-      trades: sql<number>`(select count(*)::int from ${schema.trade} where ${schema.trade.userId} = ${u.id})`,
-      markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.creatorId} = ${u.id} and ${schema.market.parentId} is null)`,
-      comments: sql<number>`(select count(*)::int from ${schema.comment} where ${schema.comment.userId} = ${u.id})`,
-      duels: sql<number>`(select count(*)::int from ${schema.challenge} where ${schema.challenge.creatorId} = ${u.id} or ${schema.challenge.opponentId} = ${u.id})`,
-    })
-    .from(schema.user)
-    .where(eq(schema.user.id, u.id));
-
-  const positions = await getUserPositions(u.id);
-  // Top-level markets only — group options share creatorId but collapse into
-  // their parent's row here. No cap: profiles should list everything created.
-  const created = await db
-    .select()
-    .from(schema.market)
-    .where(and(eq(schema.market.creatorId, u.id), isNull(schema.market.parentId)))
-    .orderBy(desc(schema.market.createdAt));
+  // One wave after the user row — squad, stats, positions, created markets,
+  // leaderboard rank, faucet income, and game history are all independent.
+  const [[sq], [stats], positions, created, lb, [faucet], games] = await Promise.all([
+    u.squadId
+      ? db.select({ name: schema.squad.name }).from(schema.squad).where(eq(schema.squad.id, u.squadId)).limit(1)
+      : Promise.resolve([null] as { name: string }[] | null[]),
+    db
+      .select({
+        trades: sql<number>`(select count(*)::int from ${schema.trade} where ${schema.trade.userId} = ${u.id})`,
+        markets: sql<number>`(select count(*)::int from ${schema.market} where ${schema.market.creatorId} = ${u.id} and ${schema.market.parentId} is null)`,
+        comments: sql<number>`(select count(*)::int from ${schema.comment} where ${schema.comment.userId} = ${u.id})`,
+        duels: sql<number>`(select count(*)::int from ${schema.challenge} where ${schema.challenge.creatorId} = ${u.id} or ${schema.challenge.opponentId} = ${u.id})`,
+      })
+      .from(schema.user)
+      .where(eq(schema.user.id, u.id)),
+    getUserPositions(u.id),
+    // Top-level markets only — group options share creatorId but collapse into
+    // their parent's row here. No cap: profiles should list everything created.
+    db
+      .select()
+      .from(schema.market)
+      .where(and(eq(schema.market.creatorId, u.id), isNull(schema.market.parentId)))
+      .orderBy(desc(schema.market.createdAt)),
+    getLeaderboard(),
+    // Play PnL = net worth minus faucet income — isolates trading/game skill.
+    db
+      .select({ cents: sql<number>`coalesce(sum(${schema.ledger.amountCents}),0)::int` })
+      .from(schema.ledger)
+      .where(
+        and(
+          eq(schema.ledger.userId, u.id),
+          sql`${schema.ledger.amountCents} > 0`,
+          inArray(schema.ledger.kind, ["signup", "claim", "weekly", "ad", "bonus", "grant"])
+        )
+      ),
+    db
+      .select({ id: schema.ledger.id, amountCents: schema.ledger.amountCents, memo: schema.ledger.memo, createdAt: schema.ledger.createdAt })
+      .from(schema.ledger)
+      .where(and(eq(schema.ledger.userId, u.id), eq(schema.ledger.kind, "game")))
+      .orderBy(desc(schema.ledger.createdAt))
+      .limit(12),
+  ]);
 
   const netWorthCents = u.balanceCents + positions.reduce((s, p) => s + p.valueCents, 0);
-  const lb = await getLeaderboard();
   const rank = lb.findIndex((r) => r.id === u.id) + 1;
-
-  // Play PnL = net worth minus faucet income — isolates trading/game skill.
-  const [faucet] = await db
-    .select({ cents: sql<number>`coalesce(sum(${schema.ledger.amountCents}),0)::int` })
-    .from(schema.ledger)
-    .where(
-      and(
-        eq(schema.ledger.userId, u.id),
-        sql`${schema.ledger.amountCents} > 0`,
-        inArray(schema.ledger.kind, ["signup", "claim", "weekly", "ad", "bonus", "grant"])
-      )
-    );
-
-  const games = await db
-    .select({ id: schema.ledger.id, amountCents: schema.ledger.amountCents, memo: schema.ledger.memo, createdAt: schema.ledger.createdAt })
-    .from(schema.ledger)
-    .where(and(eq(schema.ledger.userId, u.id), eq(schema.ledger.kind, "game")))
-    .orderBy(desc(schema.ledger.createdAt))
-    .limit(12);
 
   return {
     user: u,
@@ -794,7 +800,7 @@ export async function getAchievements(userId: string): Promise<Achievement[]> {
     .limit(1);
   if (!u) return [];
 
-  const [claims, counts, podium] = await Promise.all([
+  const [claims, counts, podium, positions] = await Promise.all([
     db.select({ kind: schema.rewardClaim.kind }).from(schema.rewardClaim).where(eq(schema.rewardClaim.userId, userId)),
     db
       .select({
@@ -809,8 +815,8 @@ export async function getAchievements(userId: string): Promise<Achievement[]> {
       .from(schema.seasonResult)
       .where(eq(schema.seasonResult.userId, userId))
       .limit(1),
+    getUserPositions(userId),
   ]);
-  const positions = await getUserPositions(userId);
   const netWorth = u.balanceCents + positions.reduce((s, p) => s + p.valueCents, 0);
   const claimed = new Set(claims.map((c) => c.kind));
   const c = counts[0] ?? { trades: 0, markets: 0, comments: 0 };

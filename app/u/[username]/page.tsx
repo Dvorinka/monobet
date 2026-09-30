@@ -28,8 +28,11 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   if (!profile) notFound();
   const t = getT(lang);
   const { user: u, stats, positions, created, netWorthCents, rank, playPnlCents, games, squadName } = profile;
-  const achievements = await getAchievements(u.id);
   const isSelf = viewer?.id === u.id;
+  const [achievements, invites] = await Promise.all([
+    getAchievements(u.id),
+    isSelf ? getSquadInvites(u.id) : Promise.resolve([] as Awaited<ReturnType<typeof getSquadInvites>>),
+  ]);
 
   // (No win-rate stat: positions are deleted at settlement, so there's
   // nothing left to compute it from — duel count is the honest substitute.)
@@ -100,7 +103,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
         <div className="mt-4">
           <ProfileSettings
             squadName={squadName}
-            invites={await getSquadInvites(u.id)}
+            invites={invites}
             notifResolve={u.notifResolve}
             notifClosing={u.notifClosing}
             lang={lang}
