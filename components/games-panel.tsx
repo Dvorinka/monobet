@@ -1039,26 +1039,32 @@ export const GAME_COMPONENTS = {
 
 export type GameSlug = keyof typeof GAME_COMPONENTS;
 
-// Bonnie Blue win easter egg — one big milky blob centered on screen; on the
-// way out the whole sheet of liquid sticks and slides down off the screen.
+// Bonnie Blue win easter egg — a cream pie hits mid-screen: one irregular
+// splat with radiating fingers and stray droplets, then the mass sticks and
+// slides down off the screen.
 function BonnieSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   return (
-    <div className="anim-bonnie-sheet fixed inset-0 z-[100] overflow-hidden" role="status" aria-live="polite">
-      <div className="absolute inset-0 grid place-items-center">
-        <div aria-hidden className="anim-bonnie-blob bg-[#fbfbf7] shadow-[0_30px_120px_rgba(0,0,0,0.25)]"
-          style={{ width: "78vmin", height: "78vmin", borderRadius: "47% 53% 51% 49% / 52% 46% 54% 48%" }} />
-      </div>
-      {/* sticky drips that stretch as the sheet slides down */}
-      <div aria-hidden className="absolute inset-x-0 top-full -mt-[8vmin] flex justify-center gap-[6vmin]">
-        {[26, 40, 20, 34, 24].map((h, i) => (
-          <div key={i} className="anim-bonnie-drip w-[4vmin] bg-[#fbfbf7] rounded-b-full" style={{ height: `${h}vmin`, animationDelay: `${i * 45}ms` }} />
-        ))}
-      </div>
-      <div className="relative h-full grid place-items-center">
-        <div className="anim-win-pop text-center px-6">
-          <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-ink/60">{t.bonnieWin}</div>
-          <div className="num text-5xl font-black text-ink mt-1">+{fmtMonos(amountCents, { lang })}</div>
+    <div className="fixed inset-0 z-[100] grid place-items-center overflow-hidden pointer-events-none" role="status" aria-live="polite">
+      <div className="anim-pie-out relative" style={{ width: "44vmin", height: "44vmin" }}>
+        <svg aria-hidden viewBox="0 0 100 100" className="anim-pie-in absolute inset-0 w-full h-full" style={{ filter: "drop-shadow(0 16px 34px rgba(60,45,15,0.28))" }}>
+          <g fill="#f7f1e3">
+            <ellipse cx="48" cy="52" rx="31" ry="26" transform="rotate(-8 48 52)" />
+            <ellipse cx="52" cy="20" rx="6" ry="14" transform="rotate(6 52 20)" />
+            <ellipse cx="77" cy="33" rx="5" ry="12" transform="rotate(50 77 33)" />
+            <ellipse cx="80" cy="63" rx="6" ry="15" transform="rotate(84 80 63)" />
+            <ellipse cx="62" cy="82" rx="5" ry="13" transform="rotate(164 62 82)" />
+            <ellipse cx="27" cy="76" rx="6" ry="11" transform="rotate(212 27 76)" />
+            <ellipse cx="17" cy="41" rx="5" ry="13" transform="rotate(282 17 41)" />
+            <ellipse cx="38" cy="16" rx="4" ry="9" transform="rotate(330 38 16)" />
+            <circle cx="89" cy="17" r="3.4" /><circle cx="10" cy="70" r="3" /><circle cx="72" cy="92" r="2.6" /><circle cx="15" cy="12" r="2.8" /><circle cx="92" cy="53" r="2.4" />
+          </g>
+        </svg>
+        <div className="anim-pie-in relative h-full grid place-items-center text-center px-6">
+          <div>
+            <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-[#6b5a33]">{t.bonnieWin}</div>
+            <div className="num text-5xl font-black text-[#3d3119] mt-1">+{fmtMonos(amountCents, { lang })}</div>
+          </div>
         </div>
       </div>
     </div>
