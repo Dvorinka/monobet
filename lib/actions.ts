@@ -876,10 +876,10 @@ export async function grantBalance(input: {
 const LIQUIDITY_OPTIONS = [100, 300, 900] as const;
 // New books default to deep liquidity — early trades move the price 3× less.
 const DEFAULT_LIQUIDITY = 900;
-// House-provided seed shown as starting volume: the LMSR subsidy the house
-// stakes in every new book (b·ln2 of worst-case loss). A real deposit that
-// damps early swings — no fake trades, no fake trader count.
-const houseSeedCents = (b: number) => Math.round(b * Math.LN2);
+// House-provided seed shown as starting volume. Priced at 10× the bare LMSR
+// subsidy (b·ln2) so fresh books don't look empty — a real deposit that damps
+// early swings, no fake trades, no fake trader count.
+const houseSeedCents = (b: number) => Math.round(b * Math.LN2 * 10);
 const NEW_CATEGORY = "__new__";
 
 function normalizeCategory(raw: string): string {
