@@ -2,10 +2,24 @@
 
 import { useMemo, useRef, useState } from "react";
 import { getT, LOCALES, type Lang } from "@/lib/i18n";
+import { fmtMonos } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 type Pt = { t: string; p: number };
 export type Series = { key: string; label: string; color: string; points: Pt[] };
+
+// A real trade pinned to the chart — dot sits at the post-trade price on the
+// option's own series (key) and shows who traded what on hover.
+export type ChartMarker = {
+  t: string;
+  p: number;
+  key?: string;
+  side: string;
+  outcome: string;
+  username: string | null;
+  amountCents: number;
+  image?: string | null;
+};
 
 const RANGES = [
   { key: "1H", ms: 3600_000 },
@@ -87,6 +101,7 @@ export function MultiPriceChart({
   live,
   lang,
   focusKey,
+  trades,
 }: {
   series: Series[];
   now: number;
@@ -95,11 +110,13 @@ export function MultiPriceChart({
   // The option selected in the list below — its line stays bold while the
   // rest fade to faint colored ghosts.
   focusKey?: string | null;
+  trades?: ChartMarker[];
 }) {
   const t = getT(lang ?? "en");
   const locale = LOCALES[lang ?? "en"];
   const [range, setRange] = useState<(typeof RANGES)[number]["key"]>("ALL");
   const [hoverT, setHoverT] = useState<number | null>(null);
+  const [mark, setMark] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const r = RANGES.find((x) => x.key === range)!;
@@ -135,6 +152,13 @@ export function MultiPriceChart({
   }, [data, t0, t1]);
 
   const span = Math.max(t1 - t0, 1);
+  const markers = useMemo(() => {
+    const colorOf = new Map(data.map((s) => [s.key, { color: s.color, label: s.label }]));
+    return (trades ?? [])
+      .filter((m) => { const ms = new Date(m.t).getTime(); return ms >= t0 && ms <= t1 && m.key && colorOf.has(m.key); })
+      .map((m) => ({ ...m, series: colorOf.get(m.key!)! }));
+  }, [trades, t0, t1, data]);
+  const markSize = (cents: number) => 2.8 + Math.min(3.5, Math.log10(Math.max(cents, 1) / 100 + 1) * 2);
   const x = (v: number) => PAD_L + ((v - t0) / span) * (W - PAD_L - PAD_R);
   const y = (p: number) => PAD_T + (1 - Math.min(1, Math.max(0, p))) * (H - PAD_T - PAD_B);
 
@@ -261,17 +285,59 @@ export function MultiPriceChart({
               })}
           </g>
 
+          {markers.map((m, i) => {
+            const mx = x(new Date(m.t).getTime());
+            const my = y(m.p);
+            const outCol = m.outcome === "yes" ? "var(--color-yes)" : "var(--color-no)";
+            const focused = !focusKey || m.key === focusKey;
+            return (
+              <g key={i} opacity={focused ? 1 : 0.25}>
+                <circle
+                  cx={mx} cy={my} r={markSize(m.amountCents)}
+                  fill={m.side === "buy" ? outCol : "var(--color-surface)"}
+                  stroke={outCol} strokeWidth="1.8"
+                  opacity={mark === null || mark === i ? 0.95 : 0.5}
+                />
+                <circle cx={mx} cy={my} r={10} fill="transparent" onPointerEnter={() => setMark(i)} onPointerLeave={() => setMark(null)} />
+              </g>
+            );
+          })}
+
           {hoverPts && (
             <g>
-              <line x1={hoverX} x2={hoverX} y1={PAD_T} y2={H - PAD_B} stroke="var(--color-faint)" strokeDasharray="3 3" />
+              <line pointerEvents="none" x1={hoverX} x2={hoverX} y1={PAD_T} y2={H - PAD_B} stroke="var(--color-faint)" strokeDasharray="3 3" />
               {hoverPts.map(({ s, p }) => (
-                <circle key={s.key} cx={x(new Date(p.t).getTime())} cy={y(p.p)} r="4" fill={s.color} stroke="var(--color-surface)" strokeWidth="2" />
+                <circle pointerEvents="none" key={s.key} cx={x(new Date(p.t).getTime())} cy={y(p.p)} r="4" fill={s.color} stroke="var(--color-surface)" strokeWidth="2" />
               ))}
             </g>
           )}
         </svg>
 
-        {hoverPts && (
+        {mark !== null && markers[mark] && (
+          <div
+            className="pointer-events-none absolute z-10 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-ink shadow-lg"
+            style={{
+              left: `${Math.min(88, Math.max(12, (x(new Date(markers[mark].t).getTime()) / W) * 100))}%`,
+              top: "0", transform: "translateX(-50%)",
+            }}
+          >
+            <div className="flex items-center gap-1.5 text-[11.5px] whitespace-nowrap">
+              <span className="font-semibold">@{markers[mark].username ?? "?"}</span>
+              <span className="text-mute">{markers[mark].side === "buy" ? t.bought : t.sold}</span>
+              <span className={cn("font-bold", markers[mark].outcome === "yes" ? "text-yes-strong" : "text-no-strong")}>
+                {(markers[mark].outcome === "yes" ? t.yes : t.no).toUpperCase()}
+              </span>
+              <span className="text-[10.5px] font-medium text-mute max-w-28 truncate">{markers[mark].series.label}</span>
+              <span className="num font-bold">{fmtMonos(markers[mark].amountCents, { lang })}</span>
+            </div>
+            <div className="num mt-0.5 text-[10px] font-medium text-mute whitespace-nowrap">
+              {new Date(markers[mark].t).toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              {" · "}{Math.round(markers[mark].p * 100)}%
+            </div>
+          </div>
+        )}
+
+        {mark === null && hoverPts && (
           <div
             className="pointer-events-none absolute z-10 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-ink shadow-lg"
             style={{ left: `${(hoverX / W) * 100}%`, top: "0", transform: "translateX(-50%)" }}

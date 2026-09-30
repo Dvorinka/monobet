@@ -220,6 +220,15 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
           <div className="mt-5 rounded-[14px] border border-line bg-surface p-4">
             <PriceChart
               points={history.map((h) => ({ t: h.t.toISOString(), p: Number(h.p) }))}
+              trades={trades.map((tr) => ({
+                t: tr.createdAt.toISOString(),
+                p: Number(tr.yesPriceAfter),
+                side: tr.side,
+                outcome: tr.outcome,
+                username: tr.username,
+                amountCents: tr.amountCents,
+                image: tr.image,
+              }))}
               // eslint-disable-next-line react-hooks/purity -- server component renders once per request
               now={Date.now()}
               live={market.status === "live"}
@@ -654,6 +663,16 @@ async function GroupMarketView({
         adminGate={!isAdmin(user)}
         parentClosed={!!market.closesAt && market.closesAt <= new Date()}
         chartSeries={series}
+        chartTrades={trades.map((tr) => ({
+          t: tr.createdAt.toISOString(),
+          p: Number(tr.yesPriceAfter),
+          key: tr.marketId,
+          side: tr.side,
+          outcome: tr.outcome,
+          username: tr.username,
+          amountCents: tr.amountCents,
+          image: tr.image,
+        }))}
         // eslint-disable-next-line react-hooks/purity -- server component renders once per request
         chartNow={Date.now()}
         chartLive={anyLive}

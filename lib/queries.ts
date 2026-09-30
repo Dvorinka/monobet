@@ -123,9 +123,12 @@ export async function getGroupTrades(parentId: string, limit = 25) {
       outcome: schema.trade.outcome,
       shares: schema.trade.shares,
       amountCents: schema.trade.amountCents,
+      yesPriceAfter: schema.trade.yesPriceAfter,
       createdAt: schema.trade.createdAt,
       username: schema.user.username,
       name: schema.user.name,
+      image: schema.user.image,
+      marketId: schema.trade.marketId,
       label: schema.market.label,
     })
     .from(schema.trade)
@@ -168,9 +171,11 @@ export async function getRecentTrades(marketId: string, limit = 25) {
       outcome: schema.trade.outcome,
       shares: schema.trade.shares,
       amountCents: schema.trade.amountCents,
+      yesPriceAfter: schema.trade.yesPriceAfter,
       createdAt: schema.trade.createdAt,
       username: schema.user.username,
       name: schema.user.name,
+      image: schema.user.image,
     })
     .from(schema.trade)
     .innerJoin(schema.user, eq(schema.trade.userId, schema.user.id))

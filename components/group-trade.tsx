@@ -7,7 +7,7 @@ import { OptionChip } from "@/components/market-icon";
 import { Sparkline } from "@/components/sparkline";
 import { TradeTicket } from "@/components/trade-ticket";
 import { ResolutionPanel, type NoteView } from "@/components/resolution-panel";
-import { MultiPriceChart, type Series } from "@/components/multi-chart";
+import { MultiPriceChart, type Series, type ChartMarker } from "@/components/multi-chart";
 import { yesPrice } from "@/lib/lmsr";
 import { fmtMonos } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
@@ -57,6 +57,7 @@ export function GroupTrade({
   parentClosed,
   chartSeries,
   chartNow,
+  chartTrades,
   chartLive,
   chartFooter,
   left,
@@ -85,6 +86,7 @@ export function GroupTrade({
   // line can be spotlighted while the rest fade — function props can't cross
   // the server boundary, so the page passes plain data instead.
   chartSeries?: Series[];
+  chartTrades?: ChartMarker[];
   chartNow: number;
   chartLive?: boolean;
   chartFooter?: React.ReactNode;
@@ -147,6 +149,7 @@ export function GroupTrade({
                 series={chartSeries}
                 now={chartNow}
                 live={chartLive}
+                trades={chartTrades}
                 focusKey={sel?.id ?? null}
                 lang={lang}
               />
