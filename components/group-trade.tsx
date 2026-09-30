@@ -8,7 +8,7 @@ import { Sparkline } from "@/components/sparkline";
 import { TradeTicket } from "@/components/trade-ticket";
 import { ResolutionPanel, type NoteView } from "@/components/resolution-panel";
 import { MultiPriceChart, type Series, type ChartMarker } from "@/components/multi-chart";
-import { yesPrice } from "@/lib/lmsr";
+import { multiCoords, multiPrices } from "@/lib/lmsr";
 import { fmtMonos } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn, slugifyLabel } from "@/lib/utils";
@@ -105,7 +105,13 @@ export function GroupTrade({
   const [focusId, setFocusId] = useState<string | null>(() => live.find(byOpt)?.id ?? live[0]?.id ?? null);
 
   const sel = live.find((o) => o.id === selId) ?? live[0];
+  const selIdx = sel ? live.indexOf(sel) : -1;
   const selPos = sel ? positions[sel.id] : undefined;
+
+  // Options share one book — softmax over live siblings, so the percentages
+  // sum to 100% (mutually exclusive outcomes).
+  const coords = multiCoords(live.map((o) => ({ qYes: o.qYes, qNo: o.qNo })));
+  const probs = multiPrices(coords, live[0]?.b ?? 300);
 
   const select = (o: GroupOption, s?: "yes" | "no") => {
     if (!s && o.id === selId) {
@@ -135,12 +141,14 @@ export function GroupTrade({
       lang={lang}
       defaultOutcome={side}
       opensAt={sel.opensAt}
+      sharedQ={coords}
+      sharedIndex={selIdx}
       title={
         <div className="mb-3 flex items-center gap-2.5">
           <OptionChip label={sel.label} index={sel.index} imageUrl={sel.imageUrl} />
           <span className="min-w-0 flex-1 text-[14px] font-semibold truncate">{sel.label}</span>
           <span className="num text-[15px] font-bold shrink-0">
-            {Math.round(yesPrice(sel.qYes, sel.qNo, sel.b) * 100)}%
+            {Math.round((probs[selIdx] ?? 0) * 100)}%
           </span>
         </div>
       }
@@ -159,6 +167,10 @@ export function GroupTrade({
                 live={chartLive}
                 trades={chartTrades}
                 focusKey={focusId}
+                onSelectKey={(key) => {
+                  const o = live.find((x) => x.id === key);
+                  if (o) select(o);
+                }}
                 lang={lang}
               />
             ) : (
@@ -177,8 +189,8 @@ export function GroupTrade({
             <span className="hidden sm:block" />
           </div>
           <div className="divide-y divide-line-2">
-            {live.map((o) => {
-              const py = yesPrice(o.qYes, o.qNo, o.b);
+            {live.map((o, i) => {
+              const py = probs[i];
               const active = sel?.id === o.id;
               return (
                 <div

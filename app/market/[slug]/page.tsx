@@ -31,6 +31,7 @@ import {
   getNotesFor,
 } from "@/lib/queries";
 import { getCurrentUser, isAdmin } from "@/lib/session";
+import { multiCoords, multiPrices } from "@/lib/lmsr";
 import { getLang } from "@/lib/lang-server";
 import { getT, type Dict } from "@/lib/i18n";
 import { fmtMonos, fmtDate, fmtShares } from "@/lib/money";
@@ -63,10 +64,22 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const m = await getMarketBySlug(slug);
-  const pct = m ? Math.round(marketYesPrice(m) * 100) : 0;
+  // Options price off the group's shared book; a group parent has no single %.
+  let pct = 0;
+  if (m?.parentId) {
+    const sibs = (await getGroupOptions(m.parentId)).filter((o) => o.status === "live");
+    const i = sibs.findIndex((s) => s.id === m.id);
+    if (i >= 0) pct = Math.round(multiPrices(multiCoords(sibs.map((s) => ({ qYes: Number(s.qYes), qNo: Number(s.qNo) }))), m.b)[i] * 100);
+  } else if (m && m.kind !== "group") {
+    pct = Math.round(marketYesPrice(m) * 100);
+  }
   return {
     title: m?.question ?? "Market",
-    description: m ? `${pct}% YES · ${fmtMonos(m.volumeCents)} traded on MonoBet — play-money markets` : "MonoBet market",
+    description: m
+      ? m.kind === "group"
+        ? `${fmtMonos(m.volumeCents)} traded on MonoBet — play-money markets`
+        : `${pct}% YES · ${fmtMonos(m.volumeCents)} traded on MonoBet — play-money markets`
+      : "MonoBet market",
     openGraph: m ? { title: m.question } : undefined,
   };
 }
@@ -108,6 +121,15 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
   }
 
   const parent = market.parentId ? await getMarketById(market.parentId) : null;
+  // Options price off the group's shared book — softmax over live siblings.
+  const optionSibs = market.parentId
+    ? (await getGroupOptions(market.parentId)).filter((o) => o.status === "live")
+    : null;
+  const optIdx = optionSibs?.findIndex((s) => s.id === market.id) ?? -1;
+  const sharedQ =
+    optionSibs && optIdx >= 0
+      ? multiCoords(optionSibs.map((s) => ({ qYes: Number(s.qYes), qNo: Number(s.qNo) })))
+      : undefined;
   const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
 
   const [history, trades, comments, position, related, betCount, categories, res, liked, likes, holders, creator, posBadges, notes] = await Promise.all([
@@ -142,7 +164,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
       : { label: t.no.toUpperCase(), shares: no, tone: "no" };
   }
 
-  const py = marketYesPrice(market);
+  const py = sharedQ ? multiPrices(sharedQ, market.b)[optIdx] : marketYesPrice(market);
   const heldYes = Number(position?.yesShares ?? 0);
   const heldNo = Number(position?.noShares ?? 0);
   const posValue = Math.round((heldYes * py + heldNo * (1 - py)) * 100);
@@ -281,6 +303,8 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               maxLeverage={market.maxLeverage}
               lang={lang}
               opensAt={market.opensAt}
+              sharedQ={sharedQ}
+              sharedIndex={optIdx}
             />
           </div>
 
@@ -448,6 +472,8 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               maxLeverage={market.maxLeverage}
               lang={lang}
               opensAt={market.opensAt}
+              sharedQ={sharedQ}
+              sharedIndex={optIdx}
             />
           </div>
 

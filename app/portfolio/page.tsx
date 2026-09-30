@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getCurrentUser } from "@/lib/session";
-import { getUserPositions, getUserTrades, getUserLedger, marketYesPrice } from "@/lib/queries";
+import { getUserPositions, getUserTrades, getUserLedger } from "@/lib/queries";
 import { fmtMonos, fmtCents, fmtShares, timeAgo } from "@/lib/money";
 import { Badge, Card } from "@/components/ui/primitives";
 import { AnimatedMoney } from "@/components/animated-number";
@@ -65,7 +65,7 @@ export default async function PortfolioPage() {
               </thead>
               <tbody className="divide-y divide-line-2">
                 {positions.flatMap((p) => {
-                  const py = marketYesPrice(p.market);
+                  const py = p.py;
                   const rows = [];
                   let debtShown = false;
                   const takeDebt = () => (debtShown ? 0 : ((debtShown = true), p.debtCents));

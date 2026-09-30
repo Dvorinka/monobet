@@ -4,6 +4,7 @@ import { CategoryTabs } from "@/components/category-tabs";
 import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicker } from "@/components/trade-ticker";
 import { MarketCard } from "@/components/market-card";
+import { Sk, MarketCardSkeleton } from "@/components/skeletons";
 import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor, listCategories, getWatchlistIds, getLikedIds, getLikeCounts, getExpiredLive, maybeNotifyClosing } from "@/lib/queries";
 import { fmtMonos } from "@/lib/money";
 import { getCurrentUser, isAdmin } from "@/lib/session";
@@ -49,12 +50,10 @@ export default async function Home({
 function ResultsSkeleton() {
   return (
     <div aria-busy>
-      <div className="py-5">
-        <div className="h-7 w-44 rounded-md bg-surface-2 animate-pulse" />
-      </div>
+      <Sk className="my-5 h-7 w-44" />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-44 rounded-[14px] border border-line bg-surface-2/60 animate-pulse" />
+          <MarketCardSkeleton key={i} />
         ))}
       </div>
     </div>

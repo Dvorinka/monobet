@@ -7,7 +7,7 @@ import {
   Layers,
 } from "lucide-react";
 import type { MarketRow } from "@/lib/queries";
-import { marketYesPrice } from "@/lib/queries";
+import { marketYesPrice, groupPrices } from "@/lib/queries";
 import { MarketIcon, OptionChip } from "@/components/market-icon";
 import { fmtMonos, fmtDate } from "@/lib/money";
 import { Sparkline } from "@/components/sparkline";
@@ -127,6 +127,8 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
   const parentExpired = !!market.closesAt && market.closesAt <= new Date();
   const live = options.filter((o) => o.status === "live");
   const closed = options.filter((o) => o.status !== "live");
+  // Shared book — the group's probabilities are exclusive and sum to 100%.
+  const livePrices = groupPrices(live);
   const volume = options.reduce((s, o) => s + o.volumeCents, 0);
   const traders = options.reduce((s, o) => s + o.traderCount, 0);
   // Color index must match the option's position in the full list — same color
@@ -151,7 +153,7 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
 
       <div className="mt-3 -mx-1 divide-y divide-line-2">
         {live.slice(0, 4).map((o) => (
-          <OptionRow key={o.id} option={o} parentSlug={market.slug} index={idxOf.get(o.id) ?? 0} lang={lang} expired={parentExpired} />
+          <OptionRow key={o.id} option={o} parentSlug={market.slug} index={idxOf.get(o.id) ?? 0} lang={lang} expired={parentExpired} price={livePrices.get(o.id)} />
         ))}
         {live.length > 4 && (
           <Link href={`/market/${market.slug}`} className="block px-1 pt-2 text-[12px] font-semibold text-brand-strong hover:underline">
@@ -193,9 +195,9 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
   );
 }
 
-function OptionRow({ option: o, parentSlug, index, lang, expired }: { option: MarketRow; parentSlug: string; index: number; lang?: Lang; expired?: boolean }) {
+function OptionRow({ option: o, parentSlug, index, lang, expired, price }: { option: MarketRow; parentSlug: string; index: number; lang?: Lang; expired?: boolean; price?: number }) {
   const t = getT(lang ?? "en");
-  const py = marketYesPrice(o);
+  const py = price ?? marketYesPrice(o);
   const resolved = o.status === "resolved";
   return (
     <Link

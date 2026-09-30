@@ -1,14 +1,14 @@
 "use server";
 
 import { db, schema } from "@/lib/db";
-import { eq, and, sql, desc, asc, isNull } from "drizzle-orm";
+import { eq, ne, and, sql, desc, asc, isNull, inArray } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
 import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, type Persona } from "@/lib/games";
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
-import { yesPrice, tradeCost, sharesForSpend, qForProb } from "@/lib/lmsr";
-import { loanFor, liquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "@/lib/liq";
+import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb } from "@/lib/lmsr";
+import { loanFor, liquidationValueCents, groupLiquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "@/lib/liq";
 import { accruedDebtCents, LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT, LOAN_OFFER_TTL_MS, rollRateBps, DEBT_CAP_CENTS } from "@/lib/loans";
 import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
 import {
@@ -117,6 +117,23 @@ async function lockUser(tx: Tx, userId: string) {
     .limit(1);
   if (!rows[0]) throw new Error("User not found");
   return rows[0];
+}
+
+// Live-sibling softmax mark for an option — the shared book's price. Binary
+// markets and orphan options fall back to the standalone binary price.
+async function optionMarkPrice(tx: Tx, m: typeof schema.market.$inferSelect): Promise<number> {
+  if (!m.parentId) return marketYesPrice(m);
+  const sibs = await tx
+    .select()
+    .from(schema.market)
+    .where(and(eq(schema.market.parentId, m.parentId), eq(schema.market.status, "live")));
+  const i = sibs.findIndex((s) => s.id === m.id);
+  if (i < 0) return marketYesPrice(m);
+  const prices = multiPrices(
+    multiCoords(sibs.map((s) => ({ qYes: toNum(s.qYes), qNo: toNum(s.qNo) }))),
+    m.b
+  );
+  return prices[i];
 }
 
 // Zero-amount ledger row the header bell reads — for events the user didn't
@@ -243,16 +260,23 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
       .from(schema.market)
       .where(eq(schema.market.parentId, parent.id))
       .orderBy(asc(schema.market.sortIndex));
+    // Seed each clone from its own opening price — flat uniform odds on a
+    // lopsided group is free money for the first trader of every cycle.
+    // Options share one book, so the seeds normalize back to a 100% split.
+    const seeds = await Promise.all(
+      originals.map(async (o) => {
+        const [seed] = await tx
+          .select({ yesPrice: schema.pricePoint.yesPrice })
+          .from(schema.pricePoint)
+          .where(eq(schema.pricePoint.marketId, o.id))
+          .orderBy(asc(schema.pricePoint.createdAt))
+          .limit(1);
+        return Math.max(0.001, toNum(seed?.yesPrice ?? String(1 / kids)));
+      })
+    );
+    const seedSum = seeds.reduce((a, s) => a + s, 0);
     for (const [i, o] of originals.entries()) {
-      // Seed each option from its own opening price — flat uniform odds on a
-      // lopsided group is free money for the first trader of every cycle.
-      const [seed] = await tx
-        .select({ yesPrice: schema.pricePoint.yesPrice })
-        .from(schema.pricePoint)
-        .where(eq(schema.pricePoint.marketId, o.id))
-        .orderBy(asc(schema.pricePoint.createdAt))
-        .limit(1);
-      const pi = Math.min(0.99, Math.max(0.01, toNum(seed?.yesPrice ?? String(1 / kids))));
+      const pi = Math.min(0.999, seeds[i] / seedSum);
       const [child] = await tx
         .insert(schema.market)
         .values({
@@ -268,7 +292,7 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
           sortIndex: i,
           creatorId: parent.creatorId,
           b: parent.b,
-          qYes: qForProb(pi, parent.b).toFixed(6),
+          qYes: multiQForProb(pi, parent.b).toFixed(6),
           qNo: "0",
           volumeCents: houseSeedCents(parent.b),
           opensAt: nextOpen,
@@ -347,6 +371,76 @@ async function checkLiquidations(tx: Tx, marketId: string) {
   }
 }
 
+// Same sweep for a group book: one option's trade moves every sibling's
+// price, so the whole family's leveraged positions get checked. `book` is
+// the locked live siblings with post-trade coordinates — a liquidation sells
+// the position back: YES shares come off that option's coordinate, NO shares
+// (the complement bundle) come off every sibling's via the shared math.
+async function checkGroupLiquidations(
+  tx: Tx,
+  book: { m: typeof schema.market.$inferSelect; qYes: number; qNo: number; dirty: boolean }[]
+) {
+  const b = book[0]?.m.b ?? 300;
+  let touched = false;
+  for (;;) {
+    let passTouched = false;
+    for (let i = 0; i < book.length; i++) {
+      const { m } = book[i];
+      const rows = await tx
+        .select()
+        .from(schema.position)
+        .where(and(eq(schema.position.marketId, m.id), sql`${schema.position.debtCents} > 0`))
+        .for("update");
+      for (const p of rows) {
+        const y = toNum(p.yesShares);
+        const n = toNum(p.noShares);
+        const coords = multiCoords(book);
+        const valueCents = groupLiquidationValueCents(coords, b, i, y, n);
+        if (!shouldLiquidate(valueCents, p.debtCents)) continue;
+        book[i].qYes -= y;
+        book[i].qNo -= n;
+        book[i].dirty = true;
+        const equity = Math.max(0, valueCents - p.debtCents);
+        await lockUser(tx, p.userId);
+        if (equity > 0) {
+          await credit(tx, p.userId, equity, "liq", m.id, `Liquidated: ${m.question.slice(0, 60)}`);
+        } else {
+          // A wipeout is silent without a row — tell them the position died.
+          const [w] = await tx.select({ balanceCents: schema.user.balanceCents }).from(schema.user).where(eq(schema.user.id, p.userId)).limit(1);
+          await tx.insert(schema.ledger).values({
+            userId: p.userId,
+            amountCents: 0,
+            balanceAfterCents: w?.balanceCents ?? 0,
+            kind: "liq",
+            marketId: m.id,
+            memo: `Liquidated (total loss): ${m.question.slice(0, 60)}`,
+          });
+        }
+        await tx
+          .delete(schema.position)
+          .where(and(eq(schema.position.marketId, m.id), eq(schema.position.userId, p.userId)));
+        passTouched = true;
+        touched = true;
+      }
+    }
+    if (!passTouched) break;
+  }
+  if (touched) {
+    // Liquidations reprice the whole book — persist every moved coordinate
+    // and give each sibling a fresh point so the lines stay consistent.
+    const prices = multiPrices(multiCoords(book), b);
+    for (const [i, s] of book.entries()) {
+      if (s.dirty) {
+        await tx
+          .update(schema.market)
+          .set({ qYes: s.qYes.toFixed(6), qNo: s.qNo.toFixed(6) })
+          .where(eq(schema.market.id, s.m.id));
+      }
+      await tx.insert(schema.pricePoint).values({ marketId: s.m.id, yesPrice: prices[i].toFixed(5) });
+    }
+  }
+}
+
 export async function placeTrade(input: {
   marketId: string;
   outcome: "yes" | "no";
@@ -364,7 +458,28 @@ export async function placeTrade(input: {
     let result!: { shares: number; costCents: number; price: number };
 
     await db.transaction(async (tx) => {
-      const m = await lockMarket(tx, marketId);
+      // Options trade on the group's shared book — a trade on one moves every
+      // sibling's price, so lock the whole live family in id order. Binary
+      // markets keep the single-row lock.
+      const [peek] = await tx
+        .select()
+        .from(schema.market)
+        .where(eq(schema.market.id, marketId))
+        .limit(1);
+      if (!peek) throw new Error("Market not found");
+      let m = peek;
+      let sibs: (typeof schema.market.$inferSelect)[] | null = null;
+      if (peek.parentId) {
+        sibs = await tx
+          .select()
+          .from(schema.market)
+          .where(and(eq(schema.market.parentId, peek.parentId), eq(schema.market.status, "live")))
+          .orderBy(asc(schema.market.id))
+          .for("update");
+        m = sibs.find((s) => s.id === marketId) ?? m; // absent ⇒ not live
+      } else {
+        m = await lockMarket(tx, marketId);
+      }
       if (m.kind === "group") throw new Error("Trade one of this market's options");
       if (m.status !== "live") throw new Error("Market is not live");
       if (m.opensAt && new Date(m.opensAt) > new Date()) throw new Error("Trading is not open yet");
@@ -374,6 +489,11 @@ export async function placeTrade(input: {
       const qYes = toNum(m.qYes);
       const qNo = toNum(m.qNo);
       const b = m.b;
+      // Mutable copy of the locked siblings — trades and liquidation sweeps
+      // move these coordinates; dirty rows persist at the end.
+      const book = sibs?.map((s) => ({ m: s, qYes: toNum(s.qYes), qNo: toNum(s.qNo), dirty: false }));
+      const k = sibs ? sibs.findIndex((s) => s.id === m.id) : -1;
+      const coords = book ? multiCoords(book) : null;
 
       let shares: number;
       let cashDelta: number; // negative = pay, positive = receive
@@ -393,7 +513,11 @@ export async function placeTrade(input: {
         assertCreditLine(cur, leverage);
         const notional = spend * leverage;
         notionalCents = notional;
-        shares = sharesForSpend(qYes, qNo, b, outcome, notional / 100);
+        // One live option left → its YES is already certain; nothing to price.
+        if (book && book.length <= 1) throw new Error("Sole surviving option — group is awaiting resolution");
+        shares = coords
+          ? multiSharesForSpend(coords, b, k, outcome, notional / 100)
+          : sharesForSpend(qYes, qNo, b, outcome, notional / 100);
         if (shares <= 0) throw new Error("Trade too small");
         cashDelta = -spend; // collateral only — the loan makes up the rest
         debtDelta = loanFor(spend, leverage);
@@ -408,7 +532,10 @@ export async function placeTrade(input: {
         const held = toNum(outcome === "yes" ? pos?.yesShares ?? "0" : pos?.noShares ?? "0");
         if (held + 1e-9 < -shares) throw new Error("Not enough shares");
         shares = Math.max(shares, -held); // clamp float dust — never oversell
-        const payout = -tradeCost(qYes, qNo, b, outcome, shares); // sell delta is negative — negate for proceeds
+        // sell delta is negative — negate for proceeds
+        const payout = -(coords
+          ? multiTradeCost(coords, b, k, outcome, shares)
+          : tradeCost(qYes, qNo, b, outcome, shares));
         cashDelta = Math.round(payout * 100); // nearest cent
         if (cashDelta <= 0) throw new Error("Nothing to refund");
         // Proceeds service the loan first; the seller keeps the remainder.
@@ -421,7 +548,16 @@ export async function placeTrade(input: {
       const absShares = Math.abs(shareDelta);
       const newQYes = outcome === "yes" ? qYes + shareDelta : qYes;
       const newQNo = outcome === "no" ? qNo + shareDelta : qNo;
-      const newPrice = yesPrice(newQYes, newQNo, b);
+      let newPrice = yesPrice(newQYes, newQNo, b);
+      let groupPrices: number[] | null = null;
+      if (book) {
+        // A YES moves the option's own coordinate; a NO is the complement
+        // bundle and moves every sibling's.
+        if (outcome === "yes") book[k].qYes += shareDelta;
+        else book[k].qNo += shareDelta;
+        groupPrices = multiPrices(multiCoords(book), b);
+        newPrice = groupPrices[k];
+      }
 
       await credit(
         tx,
@@ -472,8 +608,8 @@ export async function placeTrade(input: {
       const [updated] = await tx
         .update(schema.market)
         .set({
-          qYes: String(newQYes),
-          qNo: String(newQNo),
+          qYes: String(book ? book[k].qYes : newQYes),
+          qNo: String(book ? book[k].qNo : newQNo),
           volumeCents: sql`${schema.market.volumeCents} + ${volCents}`,
           traderCount: wasFirst ? sql`${schema.market.traderCount} + 1` : schema.market.traderCount,
         })
@@ -489,14 +625,32 @@ export async function placeTrade(input: {
         amountCents: Math.abs(cashDelta),
         yesPriceAfter: newPrice.toFixed(5),
       });
-      await tx.insert(schema.pricePoint).values({ marketId, yesPrice: newPrice.toFixed(5) });
+      if (book && groupPrices) {
+        // Every sibling repriced — one point each so all chart lines step
+        // together.
+        for (const [j, s] of book.entries()) {
+          await tx.insert(schema.pricePoint).values({ marketId: s.m.id, yesPrice: groupPrices[j].toFixed(5) });
+        }
+      } else {
+        await tx.insert(schema.pricePoint).values({ marketId, yesPrice: newPrice.toFixed(5) });
+      }
 
       // The book just moved — flush any leveraged position that can't cover
       // its loan at the new prices.
-      await checkLiquidations(tx, marketId);
+      if (book) await checkGroupLiquidations(tx, book);
+      else await checkLiquidations(tx, marketId);
 
       result = { shares: absShares, costCents: Math.abs(cashDelta), price: newPrice };
       revalidatePath(`/market/${updated.slug}`);
+      if (m.parentId) {
+        // Traders land on the group page — refresh it too.
+        const [parent] = await tx
+          .select({ slug: schema.market.slug })
+          .from(schema.market)
+          .where(eq(schema.market.id, m.parentId))
+          .limit(1);
+        if (parent) revalidatePath(`/market/${parent.slug}`);
+      }
     });
 
     revalidatePath("/");
@@ -926,12 +1080,17 @@ export async function proposeMarket(input: {
           })
           .returning({ id: schema.market.id, slug: schema.market.slug });
         const base = question.replace(/[?？!.\s]+$/g, "");
+        // Options are exclusive — the shared book needs probabilities summing
+        // to 1, so the submitted per-option odds act as weights. Missing or
+        // junk values fall back to the shared slider.
+        const weights = options.map((opt) => {
+          const raw = opt.prob ?? p * 100;
+          return Math.max(0.1, Number.isFinite(raw) ? raw : p * 100);
+        });
+        const wSum = weights.reduce((a, w) => a + w, 0);
         for (const [i, opt] of options.entries()) {
           const { label } = opt;
-          // Per-option opening odds — clamped 1–99%, falling back to the
-          // shared slider value when a probability is missing or junk.
-          const raw = opt.prob ?? p * 100;
-          const pi = Math.min(0.99, Math.max(0.01, (Number.isFinite(raw) ? raw : p * 100) / 100));
+          const pi = weights[i] / wSum;
           const [child] = await tx
             .insert(schema.market)
             .values({
@@ -947,7 +1106,7 @@ export async function proposeMarket(input: {
               sortIndex: i,
               creatorId: u.id,
               b,
-              qYes: qForProb(pi, b).toFixed(6),
+              qYes: multiQForProb(pi, b).toFixed(6),
               qNo: "0",
               volumeCents: houseSeedCents(b),
               opensAt,
@@ -1189,6 +1348,38 @@ async function settleMarketTx(
   }
   await syncGroupStatus(tx, m);
 
+  // Options are mutually exclusive under the shared book: a YES winner
+  // settles the whole group — every live sibling auto-resolves NO and pays
+  // its no-holders. A NO resolution just drops the option's coordinate, so
+  // the survivors get a fresh point each at the renormalized prices.
+  if (m.parentId) {
+    const sibs = await tx
+      .select()
+      .from(schema.market)
+      .where(
+        and(
+          eq(schema.market.parentId, m.parentId),
+          eq(schema.market.status, "live"),
+          ne(schema.market.id, m.id)
+        )
+      )
+      .orderBy(asc(schema.market.id))
+      .for("update");
+    if (outcome === "yes") {
+      for (const sib of sibs) {
+        paidOut += await settleMarketTx(tx, sib, "no", `Sibling "${m.label ?? m.question.slice(0, 40)}" won`);
+      }
+    } else {
+      const prices = multiPrices(
+        multiCoords(sibs.map((s) => ({ qYes: toNum(s.qYes), qNo: toNum(s.qNo) }))),
+        m.b
+      );
+      for (const [j, s] of sibs.entries()) {
+        await tx.insert(schema.pricePoint).values({ marketId: s.id, yesPrice: prices[j].toFixed(5) });
+      }
+    }
+  }
+
   // Recurring markets: open a fresh copy closing recurDays after this close.
   // Groups recur from syncGroupStatus once every option has settled.
   if (m.recurDays && !m.parentId && m.kind !== "group") {
@@ -1400,9 +1591,27 @@ export async function deleteMarket(marketId: string): Promise<{ ok: boolean; err
         if (m.creatorId !== u.id) throw new Error("Only the creator can delete this market");
         if ((bets?.n ?? 0) > 0) throw new Error("Cannot delete — bets were already placed");
       } else {
-        // Admin nuke: refund open positions at mark before wiping.
+        // Admin nuke: refund open positions at mark before wiping. Options
+        // price off their group's shared book — softmax over live siblings.
+        const parentIds = [...new Set(targets.map((t) => t.parentId).filter((x): x is string => !!x))];
+        const sibRows = parentIds.length
+          ? await tx
+              .select()
+              .from(schema.market)
+              .where(and(inArray(schema.market.parentId, parentIds), eq(schema.market.status, "live")))
+          : [];
+        const marks = new Map<string, number>();
+        for (const pid of parentIds) {
+          const group = sibRows.filter((s) => s.parentId === pid);
+          if (!group.length) continue;
+          const ps = multiPrices(
+            multiCoords(group.map((s) => ({ qYes: toNum(s.qYes), qNo: toNum(s.qNo) }))),
+            group[0].b
+          );
+          group.forEach((s, i) => marks.set(s.id, ps[i]));
+        }
         for (const t of targets) {
-          const py = marketYesPrice(t);
+          const py = t.parentId ? marks.get(t.id) ?? marketYesPrice(t) : marketYesPrice(t);
           const positions = await tx
             .select()
             .from(schema.position)
@@ -1970,7 +2179,7 @@ export async function cancelMarket(marketId: string): Promise<{ ok: boolean; err
       if (!isAdmin(u) && m.creatorId !== u.id) throw new Error("Only the creator or an admin can cancel");
       if (m.kind === "group") throw new Error("Cancel the group's options instead");
       if (m.status === "resolved" || m.status === "cancelled") throw new Error("Already closed");
-      const py = marketYesPrice(m);
+      const py = await optionMarkPrice(tx, m);
       const positions = await tx
         .select()
         .from(schema.position)
@@ -1996,6 +2205,22 @@ export async function cancelMarket(marketId: string): Promise<{ ok: boolean; err
       }).where(eq(schema.market.id, marketId));
       await tx.delete(schema.resolutionVote).where(eq(schema.resolutionVote.marketId, marketId));
       await syncGroupStatus(tx, m);
+      if (m.parentId) {
+        // The cancelled option leaves the book — the survivors' probabilities
+        // renormalize, so give each a fresh history point.
+        const sibs = await tx
+          .select()
+          .from(schema.market)
+          .where(and(eq(schema.market.parentId, m.parentId), eq(schema.market.status, "live")))
+          .orderBy(asc(schema.market.id));
+        const prices = multiPrices(
+          multiCoords(sibs.map((s) => ({ qYes: toNum(s.qYes), qNo: toNum(s.qNo) }))),
+          m.b
+        );
+        for (const [j, s] of sibs.entries()) {
+          await tx.insert(schema.pricePoint).values({ marketId: s.id, yesPrice: prices[j].toFixed(5) });
+        }
+      }
       revalidatePath(`/market/${m.slug}`);
     });
     revalidatePath("/");
