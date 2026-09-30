@@ -579,7 +579,7 @@ async function GroupMarketView({
         <span className="mx-1.5">/</span>
         <Link href={`/?cat=${market.category}`} className="hover:text-ink">{market.category}</Link>
         <span className="mx-1.5">/</span>
-        <span className="text-ink-2">{options.length} {t.options}</span>
+        <span className="text-ink-2 truncate max-w-72 inline-block align-bottom">{market.question}</span>
       </div>
 
       <div className="mt-6 flex items-start gap-4">

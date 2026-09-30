@@ -115,12 +115,19 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
   const [open, setOpen] = useState(false);
   const [left, setLeft] = useState<number | null>(null);
   const [adKey, setAdKey] = useState(0);
+  const [vid, setVid] = useState<number | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
   const remaining = useRemaining(nextAt);
   const ready = remaining <= 0;
 
+  const AD_VIDEO_COUNT = 18;
   const startAd = () => {
+    setVid((v) => {
+      let n = Math.floor(Math.random() * AD_VIDEO_COUNT);
+      if (v !== null && n === v) n = (n + 1) % AD_VIDEO_COUNT;
+      return n;
+    });
     setAdKey((k) => k + 1);
     setLeft(Math.ceil(AD_WATCH_MS / 1000));
     setOpen(true);
@@ -135,7 +142,8 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
   const adDone = left !== null && left <= 0;
   const total = Math.ceil(AD_WATCH_MS / 1000);
   const elapsed = left === null ? 0 : total - left;
-  const canSkip = open && left !== null && !adDone && elapsed >= total - 2;
+  // Skippable after 10s — skipping redeems the reward and closes the modal.
+  const canSkip = open && left !== null && !adDone && elapsed >= Math.min(10, total - 1);
 
   const claim = () =>
     start(async () => {
@@ -177,7 +185,12 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => adDone && setOpen(false)}>
           <div className="w-full max-w-3xl rounded-2xl overflow-hidden border border-line bg-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="relative aspect-video">
-              <iframe key={adKey} src="/ads/player.html" className="absolute inset-0 w-full h-full border-0" title="Ad" />
+              <iframe
+                key={adKey}
+                src={`/ads/player.html?v=${vid ?? 0}&r=${adKey}`}
+                className="absolute inset-0 w-full h-full border-0"
+                title="Ad"
+              />
               {canSkip && (
                 <button
                   disabled={pending}
@@ -304,32 +317,56 @@ function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps:
       </div>
 
       {/* Pick-a-card rate gamble — the dealt offers are server-signed, the
-          pick binds the loan to that card's rate. */}
+          pick binds the loan to that card's rate. Declining before the pick
+          costs nothing; once a card flips the loan is booked instantly. */}
       {offer && (
         <div className="mt-3">
-          <p className="text-[12px] font-medium text-mute mb-1.5">{t.loanPickCard}</p>
+          <p className="text-[12px] font-medium text-mute mb-1.5">
+            {reveal ? t.loanTakenHeader : t.loanPickCard}
+          </p>
           <div className="flex gap-2">
             {Array.from({ length: LOAN_OFFER_COUNT }, (_, i) => {
               const revealed = reveal !== null;
               const mine = reveal?.picked === i;
               const rate = revealed ? reveal.offers[i] : null;
+              const lo = revealed ? Math.min(...reveal.offers) : 0;
+              const hi = revealed ? Math.max(...reveal.offers) : 0;
+              const tier = rate === null ? "" : rate === lo ? "best" : rate === hi ? "worst" : "mid";
               return (
                 <button
                   key={i}
                   disabled={pending || revealed}
                   onClick={() => pick(i)}
-                  className={`flex-1 h-16 rounded-lg border text-center transition-all cursor-pointer disabled:cursor-default ${
+                  className={`flex-1 rounded-lg border text-center transition-all cursor-pointer disabled:cursor-default ${
+                    revealed ? "h-20 py-2" : "h-16"
+                  } ${
                     revealed
-                      ? mine
-                        ? "border-brand bg-brand-soft"
-                        : "border-line-2 bg-surface-2 opacity-60"
+                      ? tier === "best"
+                        ? "border-yes bg-yes-soft"
+                        : tier === "worst"
+                          ? "border-no bg-no-soft"
+                          : "border-warn bg-warn-soft"
                       : "border-line bg-surface-2 hover:border-brand/50 hover:bg-brand-soft/40 active:scale-[0.97]"
-                  }`}
+                  } ${mine ? "ring-2 ring-brand scale-[1.04] z-10" : revealed ? "opacity-75" : ""}`}
                 >
                   {revealed && rate != null ? (
-                    <span className={`num block text-[15px] font-bold ${mine ? "text-brand-strong" : "text-mute"}`}>
-                      {(rate / 100).toFixed(1)}%
-                      <span className="block text-[10px] font-medium">APR</span>
+                    <span className="block">
+                      <span
+                        className={`num block text-[16px] font-bold ${
+                          tier === "best" ? "text-yes-strong" : tier === "worst" ? "text-no-strong" : "text-warn-strong"
+                        }`}
+                      >
+                        {(rate / 100).toFixed(1)}%
+                        <span className="text-[10px] font-medium"> APR</span>
+                      </span>
+                      <span
+                        className={`block text-[10px] font-semibold uppercase tracking-wide mt-0.5 ${
+                          tier === "best" ? "text-yes-strong" : tier === "worst" ? "text-no-strong" : "text-warn-strong"
+                        }`}
+                      >
+                        {tier === "best" ? t.loanTierBest : tier === "worst" ? t.loanTierWorst : t.loanTierMid}
+                        {mine ? ` · ${t.loanTierYours}` : ""}
+                      </span>
                     </span>
                   ) : (
                     <span className="mx-auto block h-9 w-7 rounded-[4px] bg-[repeating-linear-gradient(45deg,var(--color-line-2)_0px,var(--color-line-2)_3px,transparent_3px,transparent_7px)] ring-1 ring-line-2" />
@@ -338,6 +375,18 @@ function LoanCard({ debtCents, rateBps, t, lang }: { debtCents: number; rateBps:
               );
             })}
           </div>
+          {!reveal && (
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <p className="text-[11px] text-faint leading-snug">{t.loanCommitNote}</p>
+              <button
+                disabled={pending}
+                onClick={() => setOffer(null)}
+                className="shrink-0 h-7 px-3 rounded-md border border-line-2 text-[11.5px] font-semibold text-mute hover:text-ink hover:bg-surface-2 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {t.loanDecline}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
