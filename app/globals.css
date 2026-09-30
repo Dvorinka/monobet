@@ -185,7 +185,8 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .anim-draw, .anim-fade, .anim-ping, .anim-rise, .anim-ticker, .anim-shimmer, .live-dot,
-  .anim-pie-in, .anim-pie-out, .anim-plane-crash, .anim-crash-flash, .anim-plane-veil, .anim-island-zoom {
+  .anim-pie-in, .anim-pie-out, .anim-plane-crash, .anim-crash-flash, .anim-plane-veil, .anim-island-zoom,
+  .anim-pride-stripe, .anim-confetti, .anim-pride-veil {
     animation: none;
   }
   .anim-pie-in { opacity: 1; transform: none; }
@@ -235,6 +236,25 @@ body {
   100% { opacity: 0; }
 }
 .anim-plane-veil { animation: plane-veil 2.5s ease both; }
+
+/* Clavicular — a pride flag floods the screen on a win: stripes ripple in
+   sequence like cloth on a pole while confetti drifts down over it. */
+@keyframes pride-stripe {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  50% { transform: translateY(-1.4vh) scaleY(1.02); }
+}
+.anim-pride-stripe { animation: pride-stripe 1.05s ease-in-out infinite; }
+@keyframes confetti-fall {
+  0% { transform: translate3d(0, -4vh, 0) rotate(0deg); opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translate3d(var(--drift, 0px), 108vh, 0) rotate(620deg); opacity: 0; }
+}
+.anim-confetti { animation: confetti-fall 2.35s cubic-bezier(0.3, 0.35, 0.6, 1) both; }
+@keyframes pride-veil {
+  0%, 85% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.anim-pride-veil { animation: pride-veil 2.5s ease both; }
 
 /* The Wall — a night scene: dark sky over old stone, votive candles burning
    along the ledge, prayer slips tucked into the mortar. */

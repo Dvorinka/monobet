@@ -10,13 +10,14 @@ export const MAX_GAME_WAGER_CENTS = 100_000_00;
 export type Persona = { id?: string; name: string; avatar: string; quipWin: string; quipLose: string };
 
 // Special personas keyed by name — admin can add/remove dealers freely, but
-// these names carry behavior: a win overlay ("splash"/"plane") and/or a
-// rigged table (rigged dealers get a re-roll against player wins).
-export type DealerFx = { winFx?: "splash" | "plane"; rigged?: boolean };
+// these names carry behavior: a win overlay ("splash"/"plane"/"pride") and/or
+// a rigged table (rigged dealers get a re-roll against player wins).
+export type DealerFx = { winFx?: "splash" | "plane" | "pride"; rigged?: boolean };
 export function dealerFx(p?: Persona | null): DealerFx {
   const n = p?.name.toLowerCase().replace(/[^a-z.]/g, "") ?? "";
   if (n === "bonnieblue") return { winFx: "splash" };
   if (n === "j.epst." || n === "jepst" || n === "j.epst") return { winFx: "plane", rigged: true };
+  if (n === "clavicular") return { winFx: "pride" };
   return {};
 }
 
