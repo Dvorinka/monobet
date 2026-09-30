@@ -259,7 +259,7 @@ function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
   const [dealer, setDealer] = useState<Persona | null>(null);
 
   const flip = () =>
-    run(() => playCoinFlip({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), pick })).then(
+    run(() => playCoinFlip({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lockedLev(lev, inDebt)), pick })).then(
       (r) => {
         if (!r || !r.landed) return;
         playSfx("flip", 0.5);
@@ -366,7 +366,7 @@ function DiceCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
     setDealer(null);
     playSfx("roll", 0.45);
     const cyc = setInterval(() => setFace(1 + Math.floor(Math.random() * 6)), 70);
-    run(() => playDice({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), over })).then((r) => {
+    run(() => playDice({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lockedLev(lev, inDebt)), over })).then((r) => {
       if (r?.dealer) setDealer(r.dealer);
       setTimeout(() => {
         clearInterval(cyc);
@@ -471,7 +471,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
     const token = tokenRef.current;
     if (!token) return;
     run(() =>
-      stopTimerRound({ dealerId, token, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })
+      stopTimerRound({ dealerId, token, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lockedLev(lev, inDebt)) })
     ).then((r) => {
       setPhase("done");
       if (!r) return;
@@ -553,7 +553,7 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
   useEffect(() => () => cancelAnimationFrame(raf.current), []);
 
   const play = () =>
-    run(() => playLimbo({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), target })).then(
+    run(() => playLimbo({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lockedLev(lev, inDebt)), target })).then(
       (r) => {
         if (r?.roll == null) return;
         const roll = r.roll;
@@ -667,7 +667,7 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
   const [dealer, setDealer] = useState<Persona | null>(null);
 
   const spin = () =>
-    run(() => playWheel({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then((r) => {
+    run(() => playWheel({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lockedLev(lev, inDebt)) })).then((r) => {
       if (r?.index == null) return;
       playSfx("spin", 0.5);
       setNet(null);
@@ -778,7 +778,7 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
   );
 
   const spin = () =>
-    run(() => playSlots({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then(
+    run(() => playSlots({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lockedLev(lev, inDebt)) })).then(
       (r) => {
         if (!r?.reels) return;
         playSfx("roll", 0.45);
@@ -931,7 +931,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
   };
 
   const deal = () =>
-    run(() => blackjackDeal({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), sides: { pp, t3 } })).then((r) => {
+    run(() => blackjackDeal({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lockedLev(lev, inDebt)), sides: { pp, t3 } })).then((r) => {
       if (!r?.state) return;
       playSfx("flip", 0.4);
       setNet(null);
