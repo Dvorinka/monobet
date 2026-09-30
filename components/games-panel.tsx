@@ -486,7 +486,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
   const [err, setErr] = useState<number | null>(null);
   const [net, setNet] = useState<Net>(null);
   const [dealer, setDealer] = useState<Persona | null>(null);
-  const tokenRef = useRef<string | null>(null);
+  const tokenRef = useRef<Promise<string | null> | null>(null);
   const t0 = useRef(0);
   const targetMs = Number(target) * 1000;
 
@@ -507,28 +507,40 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
     return () => clearInterval(id);
   }, [phase]);
 
-  const start = () =>
-    run(() => startTimerRound({ targetMs: Number(target) * 1000 })).then((r) => {
-      if (!r?.token) return;
-      tokenRef.current = r.token;
-      setNet(null);
-      setDealer(null);
-      setErr(null);
-      setDisp(0);
-      t0.current = performance.now();
-      setPhase("running");
+  const start = () => {
+    // Start the clock immediately — the signed round token arrives in the
+    // background and is only needed when the player stops.
+    setNet(null);
+    setDealer(null);
+    setErr(null);
+    setDisp(0);
+    t0.current = performance.now();
+    setPhase("running");
+    tokenRef.current = run(() => startTimerRound({ targetMs: Number(target) * 1000 })).then(
+      (r) => r?.token ?? null
+    );
+    tokenRef.current.then((token) => {
+      if (!token) setPhase("idle");
     });
+  };
 
   const stop = () => {
-    const token = tokenRef.current;
-    if (!token) return;
+    const p = tokenRef.current;
+    if (!p) return;
+    const mine = Math.round(performance.now() - t0.current);
     const bc = Math.round(parseFloat(bet || "0") * 100);
-    run(() =>
-      stopTimerRound({ dealerId, token, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })
-    ).then((r) => {
-      setPhase("done");
+    // Show the measured stop instantly; the server confirms the same number.
+    setPhase("done");
+    setDisp(mine);
+    setErr(Math.abs(mine - targetMs));
+    p.then((token) => {
+      if (!token) return null;
+      return run(() =>
+        stopTimerRound({ dealerId, token, betCents: bc, leverage: Number(lockedLev(lev, inDebt)), elapsedMs: mine })
+      );
+    }).then((r) => {
       if (!r) return;
-      setDisp(r.elapsedMs ?? 0);
+      setDisp(r.elapsedMs ?? mine);
       setErr(r.errMs ?? null);
       setDealer(r.dealer ?? null);
       setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });

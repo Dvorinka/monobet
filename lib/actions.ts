@@ -2687,6 +2687,7 @@ export async function stopTimerRound(input: {
   token: string;
   betCents: number;
   leverage: number;
+  elapsedMs: number;
   dealerId?: string;
 }): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
   try {
@@ -2694,9 +2695,15 @@ export async function stopTimerRound(input: {
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     const { t: target, i: issued } = openTimerRound(input.token, u.id);
-    const elapsed = Date.now() - issued;
-    if (elapsed < 400) throw new Error("Stopped suspiciously fast");
-    if (elapsed > target + 4000) throw new Error("Round expired — press Stop sooner");
+    // The client reports the time it measured on its own clock — network
+    // latency must not leak into the score. The server clock still bounds the
+    // round: a claimed elapsed can never exceed the round's real lifetime.
+    const serverElapsed = Date.now() - issued;
+    if (serverElapsed > target + 8000) throw new Error("Round expired — press Stop sooner");
+    const client = Math.round(Number(input.elapsedMs));
+    if (!Number.isFinite(client) || client < 400) throw new Error("Stopped suspiciously fast");
+    if (client > serverElapsed + 400) throw new Error("Clock mismatch");
+    const elapsed = Math.min(client, serverElapsed);
     const err = Math.abs(elapsed - target);
     let mult = timerMult(err, target);
     let won = mult > 0;
