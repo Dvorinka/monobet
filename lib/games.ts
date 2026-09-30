@@ -116,6 +116,25 @@ export function limboWinChance(target: number) {
 export const WHEEL_SEGMENTS = [0, 1.5, 0.5, 0, 2.5, 0, 0.8, 0, 5, 0, 1.2, 0.6] as const;
 export const WHEEL_STEP = 360 / WHEEL_SEGMENTS.length;
 
+// Duels — claim is the classic agreed bet; the rest are server-resolved
+// minigames where both sides make one move and the better result takes the
+// pot. Game rounds are free; only the locked stake is real money.
+export const DUEL_KINDS = ["claim", "rps", "roll", "wheel", "slots"] as const;
+export type DuelKind = (typeof DUEL_KINDS)[number];
+export const RPS_MOVES = ["rock", "paper", "scissors"] as const;
+export type RpsMove = (typeof RPS_MOVES)[number];
+// rock > scissors > paper > rock — index beats (index + 1) % 3 loses
+export const RPS_BEATS: Record<RpsMove, RpsMove> = { rock: "scissors", paper: "rock", scissors: "paper" };
+// Game kinds carry a canonical English label as their claim text — the panel
+// localizes the label from `kind`, ledger memos just need something readable.
+export const DUEL_NAMES: Record<DuelKind, string> = {
+  claim: "Custom bet",
+  rps: "Rock Paper Scissors",
+  roll: "High roll",
+  wheel: "Wheel spin",
+  slots: "Slots draw",
+};
+
 // Slots: three reels drawn from a weighted 5-symbol strip (18 slots).
 // Triples pay the table below; a lone pair refunds 80% of the stake.
 // RTP ≈ 0.42 (triples) + 0.44 (pairs) ≈ 0.86.

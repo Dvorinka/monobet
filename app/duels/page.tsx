@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
-import { getDuels } from "@/lib/queries";
+import { getDuels, listDuelOpponents } from "@/lib/queries";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { DuelsPanel } from "@/components/duels-panel";
@@ -12,7 +12,7 @@ export default async function DuelsPage() {
   const [user, lang] = await Promise.all([getCurrentUser(), getLang()]);
   if (!user) redirect("/login");
   const t = getT(lang);
-  const duels = await getDuels(user.id);
+  const [duels, opponents] = await Promise.all([getDuels(user.id), listDuelOpponents(user.id)]);
 
   return (
     <div className="mx-auto max-w-3xl px-4 pt-8 pb-10">
@@ -20,7 +20,7 @@ export default async function DuelsPage() {
         <Swords className="size-5" /> {t.duelsTitle}
       </h1>
       <p className="text-[13px] text-mute mt-1">{t.duelsSub}</p>
-      <DuelsPanel duels={duels} me={user.id} lang={lang} />
+      <DuelsPanel duels={duels} me={user.id} opponents={opponents} balanceCents={user.balanceCents} lang={lang} />
     </div>
   );
 }

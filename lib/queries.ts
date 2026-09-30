@@ -1105,6 +1105,16 @@ export async function listDealers() {
 }
 
 // Duels involving this user — opponent/creator names joined for display.
+// Everyone but the requester — the site is small enough that a full list
+// beats a search box for picking a duel opponent.
+export async function listDuelOpponents(userId: string) {
+  return db
+    .select({ id: schema.user.id, username: schema.user.username, name: schema.user.name, image: schema.user.image })
+    .from(schema.user)
+    .where(and(sql`${schema.user.id} <> ${userId}`, isNull(schema.user.bannedAt)))
+    .orderBy(asc(schema.user.username));
+}
+
 export async function getDuels(userId: string) {
   const rows = await db
     .select({
