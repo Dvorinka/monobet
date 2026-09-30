@@ -310,13 +310,15 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
 // Leverage: the user posts `spend` as collateral and the house lends the rest,
 // so `notional = spend × leverage` worth of shares. The loan lives on the
 // position row as debtCents and is repaid out of sells/resolves/refunds.
-// Cap at 20×: at lev ≥ 21 the entry value (notional) already sits below the
-// 1.05× liquidation cushion on the loan, so the same-tx sweep would kill the
-// position on arrival — every such buy would just mint free volume.
-const TRADE_LEVERAGES = [1, 2, 3, 5, 10, 20];
+// Caps above 20x work because the liquidation cushion scales down with the
+// market's cap (see liqCushion): the buffer stays a fixed share of the
+// collateral instead of exceeding it. Buys whose own price impact would
+// still kill the position are rejected at trade time, not silently swept.
+const TRADE_LEVERAGES = [1, 2, 3, 5, 10, 20, 50, 100];
 
-// If a leveraged position's liquidation value drops to the debt (5% cushion),
-// force-sell it into the book, repay the loan, hand back any leftover equity.
+// If a leveraged position's liquidation value drops to the debt (cushion set
+// by the market's leverage cap — see liqCushion), force-sell it into the
+// book, repay the loan, hand back any leftover equity.
 // Runs inside the trade tx after the book moved — sequential sells keep the
 // q's honest as each liquidation moves the price.
 async function checkLiquidations(tx: Tx, marketId: string) {
@@ -338,7 +340,7 @@ async function checkLiquidations(tx: Tx, marketId: string) {
       const y = toNum(p.yesShares);
       const n = toNum(p.noShares);
       const valueCents = liquidationValueCents(qy, qn, m.b, y, n);
-      if (!shouldLiquidate(valueCents, p.debtCents)) continue;
+      if (!shouldLiquidate(valueCents, p.debtCents, m.maxLeverage)) continue;
       qy -= y;
       qn -= n;
       const equity = Math.max(0, valueCents - p.debtCents);
@@ -396,7 +398,7 @@ async function checkGroupLiquidations(
         const n = toNum(p.noShares);
         const coords = multiCoords(book);
         const valueCents = groupLiquidationValueCents(coords, b, i, y, n);
-        if (!shouldLiquidate(valueCents, p.debtCents)) continue;
+        if (!shouldLiquidate(valueCents, p.debtCents, m.maxLeverage)) continue;
         book[i].qYes -= y;
         book[i].qNo -= n;
         book[i].dirty = true;
@@ -557,6 +559,25 @@ export async function placeTrade(input: {
         else book[k].qNo += shareDelta;
         groupPrices = multiPrices(multiCoords(book), b);
         newPrice = groupPrices[k];
+      }
+
+      // High leverage can be born dead: the buy's own price impact drops the
+      // merged position's liquidation value under the cushion, so the same-tx
+      // sweep would kill it on arrival and mint free volume. Reject instead.
+      if (debtDelta > 0) {
+        const [pos] = await tx
+          .select()
+          .from(schema.position)
+          .where(and(eq(schema.position.marketId, marketId), eq(schema.position.userId, u.id)))
+          .limit(1);
+        const py = toNum(pos?.yesShares ?? "0") + (outcome === "yes" ? shares : 0);
+        const pn = toNum(pos?.noShares ?? "0") + (outcome === "no" ? shares : 0);
+        const debt = (pos?.debtCents ?? 0) + debtDelta;
+        const liqValue = book
+          ? groupLiquidationValueCents(multiCoords(book), b, k, py, pn)
+          : liquidationValueCents(newQYes, newQNo, b, py, pn);
+        if (shouldLiquidate(liqValue, debt, m.maxLeverage))
+          throw new Error("Too much leverage for this book — price impact would liquidate it instantly");
       }
 
       await credit(

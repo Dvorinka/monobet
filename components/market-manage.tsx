@@ -8,6 +8,7 @@ import { Button, Card, Input, Textarea, Select } from "@/components/ui/primitive
 import { ImageCell, IconPicker } from "@/components/image-cell";
 import { MarketIcon } from "@/components/market-icon";
 import { CategoryModal } from "@/components/category-modal";
+import { DateTimePicker } from "@/components/date-time-picker";
 import { resolveMarket, cancelMarket, updateMarket } from "@/lib/actions";
 import { fmtMonos } from "@/lib/money";
 import { optionColor } from "@/lib/option-style";
@@ -287,13 +288,13 @@ export function MarketManagePanel({
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
                 {t.opensLabel}
               </label>
-              <Input type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} />
+              <DateTimePicker value={opensAt} onChange={setOpensAt} lang={lang} />
             </div>
             <div>
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
                 {t.closes}
               </label>
-              <Input type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} />
+              <DateTimePicker value={closesAt} onChange={setClosesAt} lang={lang} />
             </div>
             {market.kind !== "option" && (
               <div>
@@ -317,7 +318,7 @@ export function MarketManagePanel({
                 {t.maxLev}
               </label>
               <Select value={String(maxLeverage)} onChange={(e) => setMaxLeverage(Number(e.target.value))}>
-                {[1, 2, 3, 5, 10, 20].map((v) => (
+                {[1, 2, 3, 5, 10, 20, 50, 100].map((v) => (
                   <option key={v} value={v}>
                     {v === 1 ? `${t.maxLevNone} (1×)` : `${v}×`}
                   </option>

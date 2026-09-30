@@ -6,6 +6,12 @@ export const loanFor = (spendCents: number, leverage: number) => spendCents * (l
 
 // Liquidate when the position's liquidation value drops to 105% of its debt.
 export const LIQ_CUSHION = 1.05;
+// The 5% cushion fits leverage up to 20x — entry equity is debt/(L-1) ≥ 5% of
+// the loan. Higher caps would be born under water, so the buffer shrinks
+// proportionally: at 100x it's 0.05·19/99 ≈ 0.96% of the debt.
+export function liqCushion(maxLeverage: number): number {
+  return 1 + (LIQ_CUSHION - 1) * Math.min(1, 19 / Math.max(1, maxLeverage - 1));
+}
 
 // Cents the book pays if the position is sold fully right now: YES out first,
 // then NO against the post-YES state (same order checkLiquidations applies).
@@ -23,8 +29,8 @@ export function liquidationValueCents(
   );
 }
 
-export function shouldLiquidate(valueCents: number, debtCents: number): boolean {
-  return valueCents <= debtCents * LIQ_CUSHION;
+export function shouldLiquidate(valueCents: number, debtCents: number, maxLeverage = 20): boolean {
+  return valueCents <= debtCents * liqCushion(maxLeverage);
 }
 
 // Cents the group book pays to close `yesShares`/`noShares` on option `i`:

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loanFor, LIQ_CUSHION, liquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "./liq";
+import { loanFor, LIQ_CUSHION, liqCushion, liquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "./liq";
 import { tradeCost, sharesForSpend } from "./lmsr";
 
 const B = 300;
@@ -55,6 +55,24 @@ describe("shouldLiquidate", () => {
     const debt = 1000;
     expect(shouldLiquidate(Math.floor(debt * LIQ_CUSHION), debt)).toBe(true);
     expect(shouldLiquidate(Math.ceil(debt * LIQ_CUSHION) + 1, debt)).toBe(false);
+  });
+
+  it("keeps the 5% cushion on markets capped at 20x or below", () => {
+    expect(liqCushion(20)).toBe(LIQ_CUSHION);
+    expect(liqCushion(10)).toBe(LIQ_CUSHION);
+    expect(liqCushion(1)).toBe(LIQ_CUSHION);
+  });
+
+  it("shrinks the cushion so high-leverage positions are born alive", () => {
+    // Entry equity = debt/(L-1) — the cushion must sit below it or every
+    // position at the cap would liquidate the moment it opens.
+    expect(liqCushion(50)).toBeCloseTo(1 + 0.05 * 19 / 49, 10);
+    expect(liqCushion(100)).toBeCloseTo(1 + 0.05 * 19 / 99, 10);
+    expect(liqCushion(100)).toBeLessThan(100 / 99); // entry ratio at 100x
+    // Ɱ10 collateral at 100x: debt Ɱ990, entry value ≈ notional Ɱ1000.
+    const debt = loanFor(1000, 100);
+    expect(shouldLiquidate(100_000, debt, 100)).toBe(false); // born alive
+    expect(shouldLiquidate(Math.floor(debt * liqCushion(100)), debt, 100)).toBe(true);
   });
 });
 

@@ -7,6 +7,7 @@ import { Button, Input, Select, Textarea, Card, Segmented } from "@/components/u
 import { proposeMarket } from "@/lib/actions";
 import { CategoryModal } from "@/components/category-modal";
 import { ImageCell, IconPicker } from "@/components/image-cell";
+import { DateTimePicker } from "@/components/date-time-picker";
 import { Plus, X } from "lucide-react";
 import { getT, type Lang } from "@/lib/i18n";
 import { optionColor } from "@/lib/option-style";
@@ -346,28 +347,14 @@ export function MarketForm({
             <label className="text-[13px] font-medium text-mute" htmlFor="o">
               {t.tradingOpens}
             </label>
-            <Input
-              id="o"
-              type="datetime-local"
-              value={opensAt}
-              onChange={(e) => setOpensAt(e.target.value)}
-              className="mt-1"
-              lang={lang}
-            />
+            <DateTimePicker id="o" value={opensAt} onChange={setOpensAt} lang={lang} />
             <p className="mt-1 text-[11.5px] text-faint">{t.opensHint}</p>
           </div>
           <div>
             <label className="text-[13px] font-medium text-mute" htmlFor="t">
               {t.bettingCloses}
             </label>
-            <Input
-              id="t"
-              type="datetime-local"
-              value={closesAt}
-              onChange={(e) => setClosesAt(e.target.value)}
-              className="mt-1"
-              lang={lang}
-            />
+            <DateTimePicker id="t" value={closesAt} onChange={setClosesAt} lang={lang} />
           </div>
         </div>
 
@@ -489,7 +476,7 @@ export function MarketForm({
             {t.maxLev}
           </label>
           <Select id="maxlev" value={String(maxLeverage)} onChange={(e) => setMaxLeverage(Number(e.target.value))} className="mt-1">
-            {[1, 2, 3, 5, 10, 20].map((v) => (
+            {[1, 2, 3, 5, 10, 20, 50, 100].map((v) => (
               <option key={v} value={v}>
                 {v === 1 ? `${t.maxLevNone} (1×)` : `${v}×`}
               </option>

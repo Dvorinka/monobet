@@ -354,7 +354,7 @@ const en = {
 
   // games & leverage
   games: "Games",
-  gamesSub: "Play-money arcade — variable bets, leverage up to 10×.",
+  gamesSub: "Play-money arcade — variable bets, leverage up to 100×.",
   recentGames: "Recent games",
   noGames: "No rounds yet — pick a game above.",
   leverage: "Leverage",
@@ -402,7 +402,7 @@ const en = {
   errBetTooLarge: "Bet too large",
   errTooFast: "Too fast — wait a few minutes",
   gHouseTitle: "Same rules, every game",
-  gHouseSub: "Leverage scales your wager — and what you can lose — up to 10×. Payouts carry a small house edge; it's all play money anyway.",
+  gHouseSub: "Leverage scales your wager — and what you can lose — up to 100×. Payouts carry a small house edge; it's all play money anyway.",
 
   // auth
   welcomeBack: "Welcome back",
@@ -1158,7 +1158,7 @@ const cs: Dict = {
 
   // games & leverage
   games: "Hry",
-  gamesSub: "Arkáda za virtuální Mony — variabilní sázky, páka až 10×.",
+  gamesSub: "Arkáda za virtuální Mony — variabilní sázky, páka až 100×.",
   recentGames: "Poslední hry",
   noGames: "Zatím žádná kola — vyber si hru výše.",
   leverage: "Páka",
@@ -1206,7 +1206,7 @@ const cs: Dict = {
   errBetTooLarge: "Příliš vysoká sázka",
   errTooFast: "Příliš rychlé — počkej pár minut",
   gHouseTitle: "Stejná pravidla ve všech hrách",
-  gHouseSub: "Páka násobí sázku — i to, co můžeš prohrát — až 10×. Výplaty mají malou výhodu banku; je to jen hra.",
+  gHouseSub: "Páka násobí sázku — i to, co můžeš prohrát — až 100×. Výplaty mají malou výhodu banku; je to jen hra.",
 
   welcomeBack: "Vítejte zpět",
   createAccount: "Vytvořte si účet",
