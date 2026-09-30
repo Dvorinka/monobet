@@ -3263,13 +3263,14 @@ type BjState = {
   status: string;
   result?: string | null;
   netCents?: number | null;
+  betCents?: number;
   feeCents?: number;
   tavCents?: number;
   sides?: Record<string, BjSide> | null;
   doubled?: boolean;
 };
 
-function bjState(r: { id: string; player: number[]; dealer: number[]; persona: Persona; status: string; result: string | null; netCents: number | null; feeCents?: number; loanCents?: number; tavCents?: number; sides?: Record<string, BjSide> | null; doubled?: boolean }, hideDealer: boolean): BjState {
+function bjState(r: { id: string; player: number[]; dealer: number[]; persona: Persona; status: string; result: string | null; netCents: number | null; betCents?: number; feeCents?: number; loanCents?: number; tavCents?: number; sides?: Record<string, BjSide> | null; doubled?: boolean }, hideDealer: boolean): BjState {
   const p = handTotal(r.player);
   const d = handTotal(r.dealer);
   return {
@@ -3283,6 +3284,7 @@ function bjState(r: { id: string; player: number[]; dealer: number[]; persona: P
     status: r.status,
     result: r.result,
     netCents: r.netCents,
+    betCents: r.betCents,
     // The column is still named loan_cents; under margin rules it stores the
     // funding fee paid at deal time.
     feeCents: r.feeCents ?? r.loanCents ?? 0,
