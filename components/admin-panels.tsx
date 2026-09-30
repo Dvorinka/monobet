@@ -413,7 +413,18 @@ export function CategoriesPanel({
     setOrder(categories.map((c) => c.name));
   }
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  // Insertion index into `order` — reordering happens once, on drop. Moving
+  // rows during dragover makes them jump under the cursor and oscillate.
+  const [overIdx, setOverIdx] = useState<number | null>(null);
   const byName = new Map(categories.map((c) => [c.name, c]));
+  // Indicator position; the two spots adjacent to the dragged row are no-ops.
+  const lineAt =
+    dragIdx === null || overIdx === null || overIdx === dragIdx || overIdx === dragIdx + 1 ? null : overIdx;
+
+  const finishDrag = () => {
+    setDragIdx(null);
+    setOverIdx(null);
+  };
 
   const act = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string, after?: () => void) =>
     start(async () => {
@@ -424,6 +435,16 @@ export function CategoriesPanel({
         router.refresh();
       } else toast.error(r.error);
     });
+
+  const dropAt = () => {
+    if (dragIdx === null || overIdx === null) return;
+    const next = [...order];
+    const [moved] = next.splice(dragIdx, 1);
+    next.splice(overIdx > dragIdx ? overIdx - 1 : overIdx, 0, moved);
+    if (next.join() === order.join()) return;
+    setOrder(next);
+    act(() => reorderCategories({ names: next }), t.catReorder);
+  };
 
   return (
     <div className="p-4 space-y-2">
@@ -447,7 +468,15 @@ export function CategoriesPanel({
         </Button>
       </form>
 
-      <div className="divide-y divide-line-2">
+      <div
+        className="divide-y divide-line-2"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          dropAt();
+          finishDrag();
+        }}
+      >
         {order.map((name, i) => {
           const c = byName.get(name);
           if (!c) return null;
@@ -461,22 +490,19 @@ export function CategoriesPanel({
             }}
             onDragOver={(e) => {
               e.preventDefault();
-              if (dragIdx === null || dragIdx === i) return;
-              setOrder((o) => {
-                const next = [...o];
-                next.splice(i, 0, ...next.splice(dragIdx, 1));
-                return next;
-              });
-              setDragIdx(i);
+              const r = e.currentTarget.getBoundingClientRect();
+              setOverIdx(e.clientY < r.top + r.height / 2 ? i : i + 1);
             }}
             onDrop={(e) => {
               e.preventDefault();
-              if (dragIdx !== null)
-                act(() => reorderCategories({ names: order.map((n) => n) }), t.catReorder);
-              setDragIdx(null);
+              e.stopPropagation();
+              dropAt();
+              finishDrag();
             }}
-            onDragEnd={() => setDragIdx(null)}
-            className={`flex items-center gap-2 py-2 ${dragIdx === i ? "opacity-40" : ""}`}
+            onDragEnd={finishDrag}
+            className={`relative flex items-center gap-2 py-2 ${dragIdx === i ? "opacity-40" : ""} ${
+              lineAt === i ? "shadow-[inset_0_2px_0_0_var(--color-brand)]" : ""
+            } ${lineAt === order.length && i === order.length - 1 ? "shadow-[inset_0_-2px_0_0_var(--color-brand)]" : ""}`}
           >
             <GripVertical className="size-4 shrink-0 cursor-grab text-faint active:cursor-grabbing" />
             {editing === c.name ? (
