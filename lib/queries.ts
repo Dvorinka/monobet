@@ -986,6 +986,7 @@ export async function getWallPrayers(limit = 12) {
       note: schema.wallPrayer.note,
       feeCents: schema.wallPrayer.feeCents,
       clearedCents: schema.wallPrayer.clearedCents,
+      miracle: schema.wallPrayer.miracle,
       createdAt: schema.wallPrayer.createdAt,
       username: schema.user.username,
       name: schema.user.name,

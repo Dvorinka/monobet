@@ -23,6 +23,7 @@ export type WallPrayerRow = {
   note: string;
   feeCents: number;
   clearedCents: number;
+  miracle: boolean;
   createdAt: Date;
   username: string | null;
   name: string;
@@ -48,7 +49,7 @@ export function WallCard({
   const [pending, start] = useTransition();
   const [note, setNote] = useState("");
   const [vow, setVow] = useState(String(vowBps));
-  const [last, setLast] = useState<{ cleared: number; silent: boolean } | null>(null);
+  const [last, setLast] = useState<{ cleared: number; silent: boolean; miracle: boolean } | null>(null);
 
   const inDebt = debtCents > 0;
   const fee = Math.max(WALL_FEE_MIN_CENTS, Math.round(debtCents * WALL_FEE_DEBT_PCT));
@@ -60,7 +61,7 @@ export function WallCard({
       const r = await wallPray({ note });
       if (!r.ok) { toast.error(r.error); return; }
       playWallSfx();
-      setLast({ cleared: r.clearedCents ?? 0, silent: !!r.silent });
+      setLast({ cleared: r.clearedCents ?? 0, silent: !!r.silent, miracle: !!r.miracle });
       setNote("");
       router.refresh();
     });
@@ -134,12 +135,16 @@ export function WallCard({
 
             {last && (
               <div className={cn("mt-3 rounded-lg border px-3 py-2 text-[12.5px] font-semibold anim-rise",
-                last.silent || last.cleared === 0
-                  ? "border-line bg-surface-2 text-mute"
-                  : "border-yes/30 bg-yes-soft text-yes-strong")}>
-                {last.silent
-                  ? t.wallSilent
-                  : t.wallCleared(fmtMonos(last.cleared, { lang }))}
+                last.miracle
+                  ? "border-amber-400/50 bg-amber-50 text-amber-800 shadow-[0_0_24px_rgba(251,191,36,0.25)]"
+                  : last.silent || last.cleared === 0
+                    ? "border-line bg-surface-2 text-mute"
+                    : "border-yes/30 bg-yes-soft text-yes-strong")}>
+                {last.miracle
+                  ? t.wallMiracle(fmtMonos(last.cleared, { lang }))
+                  : last.silent
+                    ? t.wallSilent
+                    : t.wallCleared(fmtMonos(last.cleared, { lang }))}
               </div>
             )}
 
@@ -164,7 +169,9 @@ export function WallCard({
                   <span className="font-medium w-24 truncate">@{p.username ?? p.name}</span>
                   <span className="text-mute truncate flex-1">{p.note || "…"}</span>
                   <span className="num text-faint">−{fmtMonos(p.feeCents, { lang })}</span>
-                  {p.clearedCents > 0 ? (
+                  {p.miracle ? (
+                    <span className="num font-bold text-amber-600">+{fmtMonos(p.clearedCents, { lang })} {t.wallAbsolved}</span>
+                  ) : p.clearedCents > 0 ? (
                     <span className="num font-bold text-yes-strong">+{fmtMonos(p.clearedCents, { lang })} {t.wallForgiven}</span>
                   ) : (
                     <span className="text-[11px] font-medium text-faint">{t.wallSilentShort}</span>

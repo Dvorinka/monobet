@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, and, sql, desc, asc, isNull } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, dealerFx, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, VOW_CHOICES_BPS, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, dealerFx, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, VOW_CHOICES_BPS, type Persona } from "@/lib/games";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -1633,6 +1633,7 @@ export async function wallPray(input: { note?: string }): Promise<{
   ok: boolean;
   error?: string;
   silent?: boolean;
+  miracle?: boolean;
   clearedCents?: number;
   feeCents?: number;
   debtCents?: number;
@@ -1653,9 +1654,12 @@ export async function wallPray(input: { note?: string }): Promise<{
       // The candle burns — the fee is gone regardless of what the wall answers.
       await credit(tx, u.id, -fee, "burn", null, "Wall candle");
       const silent = randomInt(100) < WALL_SILENT_PCT;
+      const miracle = !silent && randomInt(1000) < WALL_MIRACLE_PER_MILLE;
       const cleared = silent
         ? 0
-        : Math.round(debt * (WALL_CLEAR_MIN_PCT + (randomInt(1000) / 1000) * (WALL_CLEAR_MAX_PCT - WALL_CLEAR_MIN_PCT)));
+        : miracle
+          ? debt
+          : Math.round(debt * (WALL_CLEAR_MIN_PCT + (randomInt(1000) / 1000) * (WALL_CLEAR_MAX_PCT - WALL_CLEAR_MIN_PCT)));
       const left = Math.max(0, debt - cleared);
       await tx
         .update(schema.user)
@@ -1671,12 +1675,13 @@ export async function wallPray(input: { note?: string }): Promise<{
         note: (input.note ?? "").slice(0, 140),
         feeCents: fee,
         clearedCents: cleared,
+        miracle,
       });
-      return { cleared, fee, left, silent, nextAt: now.getTime() + WALL_COOLDOWN_MS };
+      return { cleared, fee, left, silent, miracle, nextAt: now.getTime() + WALL_COOLDOWN_MS };
     });
     revalidatePath("/rewards");
     revalidatePath("/portfolio");
-    return { ok: true, silent: out.silent, clearedCents: out.cleared, feeCents: out.fee, debtCents: out.left, nextAt: out.nextAt };
+    return { ok: true, silent: out.silent, miracle: out.miracle, clearedCents: out.cleared, feeCents: out.fee, debtCents: out.left, nextAt: out.nextAt };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "The wall didn't answer" };
   }

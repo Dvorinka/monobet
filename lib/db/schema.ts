@@ -347,6 +347,7 @@ export const wallPrayer = pgTable("wall_prayer", {
   note: text("note").notNull().default(""),
   feeCents: bigint("fee_cents", { mode: "number" }).notNull(),
   clearedCents: bigint("cleared_cents", { mode: "number" }).notNull(),
+  miracle: boolean("miracle").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

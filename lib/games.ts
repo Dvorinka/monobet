@@ -28,6 +28,7 @@ export const WALL_FEE_DEBT_PCT = 0.02;
 export const WALL_CLEAR_MIN_PCT = 0.02;
 export const WALL_CLEAR_MAX_PCT = 0.08;
 export const WALL_SILENT_PCT = 18; // % of prayers the wall ignores
+export const WALL_MIRACLE_PER_MILLE = 15; // ‰ of answered prayers that clear all debt
 export const VOW_CHOICES_BPS = [0, 1000, 2000, 3000]; // 0/10/20/30% of wins
 
 // Coin flip: 50/50, house keeps ~2%.
