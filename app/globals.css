@@ -9,26 +9,27 @@
   --color-brand-soft: #e5f5ec;
   --color-brand-on: #ffffff;
 
+  --color-canvas: #eef1ee;
   --color-ink: #131a15;
   --color-ink-2: #3c453e;
-  --color-mute: #6d746e;
-  --color-faint: #9aa29c;
-  --color-line: #e5e9e6;
-  --color-line-2: #eef1ef;
+  --color-mute: #5f6862;
+  --color-faint: #878e87;
+  --color-line: #d8ddd9;
+  --color-line-2: #e4e8e5;
   --color-surface: #ffffff;
   --color-surface-2: #f5f7f5;
-  --color-surface-3: #ebeef0;
+  --color-surface-3: #e6eae8;
 
   --color-yes: #0f9d58;
-  --color-yes-soft: #e5f5ec;
+  --color-yes-soft: #dff1e6;
   --color-yes-strong: #0b7a44;
   --color-yes-on: #ffffff;
   --color-no: #e03c31;
-  --color-no-soft: #fdecea;
+  --color-no-soft: #fce4e0;
   --color-no-strong: #b8281f;
   --color-no-on: #ffffff;
 
-  --color-warn-soft: #fef3d7;
+  --color-warn-soft: #fceecf;
   --color-warn-strong: #92600a;
 
   --radius-card: 14px;
@@ -36,6 +37,7 @@
 
 /* Dark theme — same tokens, inverted values. Every component adapts. */
 .dark {
+  --color-canvas: #10140f;
   --color-brand: #34c47a;
   --color-brand-strong: #4fe096;
   --color-brand-soft: #12291d;
@@ -69,8 +71,16 @@ html {
   text-rendering: optimizeLegibility;
 }
 
+/* Light mode only: bordered surfaces (cards, chips, inputs) get a whisper of
+   shadow so they sit above the gray canvas instead of reading flat. */
+:root:not(.dark) .bg-surface[class*="border-line"] {
+  box-shadow: 0 1px 2px rgb(19 26 21 / 0.05), 0 1px 4px rgb(19 26 21 / 0.04);
+}
+
 body {
-  background: var(--color-surface);
+  /* Light mode paints the page on a gray-green canvas so white surface cards
+     read as elevated; dark keeps the canvas flat with its surfaces. */
+  background: var(--color-canvas);
   color: var(--color-ink);
   font-family: var(--font-sans);
   transition: background-color 200ms ease, color 200ms ease;
