@@ -1,6 +1,6 @@
 import { notFound, permanentRedirect } from "next/navigation";
 import Link from "next/link";
-import { Clock, Users, Scale, CheckCircle2, XCircle, Hourglass, StickyNote, Repeat } from "lucide-react";
+import { Clock, Users, Scale, CheckCircle2, XCircle, Hourglass, StickyNote, Repeat, ChevronDown } from "lucide-react";
 import type { Metadata } from "next";
 import {
   getMarketBySlug,
@@ -809,19 +809,50 @@ async function GroupMarketView({
                   holders.length > 0 ? (
                     <Card className="p-1.5">
                       {holders.map((h) => {
-                        const oi = options.findIndex((o) => o.id === h.marketId);
-                        const label = options[oi]?.label ?? options[oi]?.question ?? "";
-                        const col = optionColor(Math.max(0, oi));
-                        return (
-                          <div key={h.username ?? h.name} className="flex items-center gap-3 px-3 py-2">
+                        const labelFor = (marketId: string) => {
+                          const oi = options.findIndex((o) => o.id === marketId);
+                          return { label: options[oi]?.label ?? options[oi]?.question ?? "", col: optionColor(Math.max(0, oi)) };
+                        };
+                        const top = labelFor(h.marketId);
+                        const all = h.holdings ?? [{ marketId: h.marketId, side: h.side, shares: h.shares }];
+                        const row = (
+                          <>
                             <Avatar name={h.name} image={h.image} className="size-7" />
                             <Link href={`/u/${h.username ?? ""}`} className="text-[13px] font-medium truncate flex-1 hover:text-brand-strong">
                               @{h.username ?? h.name}
                             </Link>
-                            <span className="num text-[12.5px] font-semibold" style={{ color: h.side === "yes" ? col : "var(--no-strong)" }}>
-                              {fmtShares(h.shares, lang)} {h.side === "yes" ? label : `${t.no} ${label}`}
+                            <span className="num text-[12.5px] font-semibold" style={{ color: h.side === "yes" ? top.col : "var(--no-strong)" }}>
+                              {fmtShares(h.shares, lang)} {h.side === "yes" ? top.label : `${t.no} ${top.label}`}
                             </span>
-                          </div>
+                          </>
+                        );
+                        // Multi-position holders expand to show every option they hold.
+                        if (all.length < 2)
+                          return (
+                            <div key={h.username ?? h.name} className="flex items-center gap-3 px-3 py-2">
+                              {row}
+                            </div>
+                          );
+                        return (
+                          <details key={h.username ?? h.name} className="group px-3 py-2">
+                            <summary className="flex items-center gap-3 cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden">
+                              {row}
+                              <span className="num inline-flex items-center gap-0.5 text-[11px] font-semibold text-faint">
+                                +{all.length - 1}
+                                <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+                              </span>
+                            </summary>
+                            <div className="mt-1.5 pl-10 flex flex-col gap-1">
+                              {all.map((p) => {
+                                const { label, col } = labelFor(p.marketId);
+                                return (
+                                  <span key={`${p.marketId}-${p.side}`} className="num text-[12px] font-semibold" style={{ color: p.side === "yes" ? col : "var(--no-strong)" }}>
+                                    {fmtShares(p.shares, lang)} {p.side === "yes" ? label : `${t.no} ${label}`}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </details>
                         );
                       })}
                     </Card>

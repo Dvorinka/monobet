@@ -1130,8 +1130,9 @@ export async function getTopHolders(marketId: string, limit = 8) {
     .limit(limit);
 }
 
-// Largest open positions across a group's options — one row per trader showing
-// their dominant option. Feeds the Holders tab on group markets.
+// Largest open positions across a group's options — one row per trader, with
+// every option they hold attached so the row can expand. Feeds the Holders
+// tab on group markets.
 export async function getGroupHolders(optionIds: string[], limit = 12) {
   if (!optionIds.length) return [];
   const rows = await db
@@ -1151,22 +1152,34 @@ export async function getGroupHolders(optionIds: string[], limit = 12) {
         sql`(${schema.position.yesShares}::numeric > 0.01 OR ${schema.position.noShares}::numeric > 0.01)`
       )
     );
-  const best = new Map<string, { username: string | null; name: string; image: string | null; marketId: string; side: "yes" | "no"; shares: number }>();
+  type Holding = { marketId: string; side: "yes" | "no"; shares: number };
+  const best = new Map<
+    string,
+    { username: string | null; name: string; image: string | null; marketId: string; side: "yes" | "no"; shares: number; holdings: Holding[] }
+  >();
   for (const r of rows) {
+    const key = r.username ?? r.name;
+    const entry = best.get(key) ?? {
+      username: r.username,
+      name: r.name,
+      image: r.image,
+      marketId: r.marketId,
+      side: "yes" as const,
+      shares: 0,
+      holdings: [],
+    };
     const yes = Number(r.yesShares);
     const no = Number(r.noShares);
-    const shares = Math.max(yes, no);
-    const key = r.username ?? r.name;
-    const prev = best.get(key);
-    if (!prev || prev.shares < shares)
-      best.set(key, {
-        username: r.username,
-        name: r.name,
-        image: r.image,
-        marketId: r.marketId,
-        side: yes >= no ? "yes" : "no",
-        shares,
-      });
+    if (yes > 0.01) entry.holdings.push({ marketId: r.marketId, side: "yes", shares: yes });
+    if (no > 0.01) entry.holdings.push({ marketId: r.marketId, side: "no", shares: no });
+    best.set(key, entry);
+  }
+  for (const h of best.values()) {
+    h.holdings.sort((a, b) => b.shares - a.shares);
+    const top = h.holdings[0];
+    h.marketId = top.marketId;
+    h.side = top.side;
+    h.shares = top.shares;
   }
   return [...best.values()].sort((a, b) => b.shares - a.shares).slice(0, limit);
 }
