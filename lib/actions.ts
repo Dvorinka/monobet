@@ -2609,14 +2609,13 @@ async function maybeBless(userId: string, dealer: Persona): Promise<boolean> {
   return randomInt(100) < blessedChancePct(r?.n ?? 0);
 }
 
-// Winnings pay the house debt before they reach the balance — every win's
-// profit garnishes accrued debt automatically (the loan card's promise:
-// "rewards and winnings count"). The stake is never touched. Returns the
-// cents withheld.
+// A win's profit feeds the debt at the player's vow rate — Bez slibu (0%)
+// keeps the whole win, a 30% vow skims a third of the profit. The vow is the
+// debtor's chosen repayment share, not a decoration.
 async function garnishDebt(tx: Tx, userId: string, profitCents: number, label: string): Promise<number> {
   const u = await lockUser(tx, userId);
   const debt = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince);
-  const skim = Math.min(Math.max(0, Math.round(profitCents)), debt);
+  const skim = Math.min(Math.max(0, Math.round((profitCents * u.vowBps) / 10_000)), debt);
   if (skim <= 0) return 0;
   const left = debt - skim;
   await tx
@@ -3140,8 +3139,9 @@ export async function proposeDuelWinner(input: {
       if (c.pendingById && c.pendingById !== u.id) {
         // Counterparty already proposed — agreeing settles, disagreeing disputes.
         if (c.pendingWinnerId === input.winnerId) {
-          await lockUser(tx, input.winnerId);
-          await credit(tx, input.winnerId, c.stakeCents * 2, "duel", null, `Duel won: ${c.claim.slice(0, 60)}`);
+          // Profit is one stake — the vow skims its share off the pot.
+          const g = await garnishDebt(tx, input.winnerId, c.stakeCents, "Duel");
+          await credit(tx, input.winnerId, c.stakeCents * 2 - g, "duel", null, `Duel won: ${c.claim.slice(0, 60)}`);
           // Both participants hear the verdict — the loser gets no credit row.
           await ping(tx, input.winnerId, `Duel won — pot is yours: ${c.claim.slice(0, 60)}`);
           const loserId = input.winnerId === c.creatorId ? c.opponentId : c.creatorId;
@@ -3220,8 +3220,8 @@ export async function duelPlay(input: {
         return "tie";
       }
       const loser = winner === c.creatorId ? c.opponentId : c.creatorId;
-      await lockUser(tx, winner);
-      await credit(tx, winner, c.stakeCents * 2, "duel", null, `Duel won: ${c.claim.slice(0, 60)}`);
+      const g = await garnishDebt(tx, winner, c.stakeCents, "Duel");
+      await credit(tx, winner, c.stakeCents * 2 - g, "duel", null, `Duel won: ${c.claim.slice(0, 60)}`);
       await ping(tx, winner, `Duel won — pot is yours: ${c.claim.slice(0, 60)}`);
       await ping(tx, loser, `Duel lost: ${c.claim.slice(0, 60)}`);
       await tx
@@ -3253,8 +3253,8 @@ export async function adminSettleDuel(input: {
       if (input.winnerId && input.winnerId !== c.creatorId && input.winnerId !== c.opponentId)
         throw new Error("Pick a participant");
       if (input.winnerId) {
-        await lockUser(tx, input.winnerId);
-        await credit(tx, input.winnerId, c.stakeCents * 2, "duel", null, `Duel won (admin): ${c.claim.slice(0, 55)}`);
+        const g = await garnishDebt(tx, input.winnerId, c.stakeCents, "Duel");
+        await credit(tx, input.winnerId, c.stakeCents * 2 - g, "duel", null, `Duel won (admin): ${c.claim.slice(0, 55)}`);
         await ping(tx, input.winnerId, `Duel settled by admin — you won: ${c.claim.slice(0, 55)}`);
         const loserId = input.winnerId === c.creatorId ? c.opponentId : c.creatorId;
         await ping(tx, loserId, `Duel settled by admin — you lost: ${c.claim.slice(0, 55)}`);
