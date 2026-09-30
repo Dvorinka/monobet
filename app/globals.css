@@ -185,7 +185,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .anim-draw, .anim-fade, .anim-ping, .anim-rise, .anim-ticker, .anim-shimmer, .live-dot,
-  .anim-pie-in, .anim-pie-out, .anim-plane-crash, .anim-crash-flash, .anim-plane-veil {
+  .anim-pie-in, .anim-pie-out, .anim-plane-crash, .anim-crash-flash, .anim-plane-veil, .anim-island-zoom {
     animation: none;
   }
   .anim-pie-in { opacity: 1; transform: none; }
@@ -208,26 +208,33 @@ body {
 }
 .anim-pie-out { animation: pie-out 2.15s cubic-bezier(0.5, 0, 0.75, 0.4) both; }
 
-/* J. EPST. — plane crosses, pitches down, crashes into the island. */
+/* J. EPST. — jet sweeps in over the island photo, pitches into a dive,
+   and vanishes where the flash blooms on the hillside. */
 @keyframes plane-crash {
-  0% { transform: translate(-32vw, 2vh) rotate(0deg); opacity: 0; }
+  0% { transform: translate(-40vw, 12vh) rotate(-6deg); opacity: 0; }
   8% { opacity: 1; }
-  58% { transform: translate(58vw, -1vh) rotate(0deg); opacity: 1; }
-  74% { transform: translate(74vw, 34vh) rotate(62deg); opacity: 1; }
-  78%, 100% { transform: translate(74vw, 34vh) rotate(62deg); opacity: 0; }
+  50% { transform: translate(22vw, 20vh) rotate(-4deg); opacity: 1; }
+  68% { transform: translate(40vw, 30vh) rotate(18deg); opacity: 1; }
+  80% { transform: translate(44vw, 40vh) rotate(52deg); opacity: 1; }
+  86%, 100% { transform: translate(44vw, 40vh) rotate(52deg); opacity: 0; }
 }
-.anim-plane-crash { animation: plane-crash 2.3s cubic-bezier(0.35, 0.4, 0.6, 1) both; }
+.anim-plane-crash { animation: plane-crash 2.3s cubic-bezier(0.35, 0.4, 0.6, 1) both; transform-origin: 78% 55%; }
 @keyframes crash-flash {
-  0%, 72% { transform: scale(0); opacity: 0; }
-  78% { transform: scale(1); opacity: 1; }
-  100% { transform: scale(1.7); opacity: 0; }
+  0%, 76% { transform: scale(0); opacity: 0; }
+  82% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.8); opacity: 0; }
 }
 .anim-crash-flash { animation: crash-flash 2.3s ease-out both; }
+@keyframes island-zoom {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.12); }
+}
+.anim-island-zoom { animation: island-zoom 2.5s ease-out both; }
 @keyframes plane-veil {
-  0%, 82% { opacity: 1; }
+  0%, 84% { opacity: 1; }
   100% { opacity: 0; }
 }
-.anim-plane-veil { animation: plane-veil 2.4s ease both; }
+.anim-plane-veil { animation: plane-veil 2.5s ease both; }
 
 /* The Wall — stone brickwork with alternating joints. */
 .wall-bricks {

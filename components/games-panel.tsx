@@ -1155,21 +1155,73 @@ function BonnieSplash({ amountCents, lang }: { amountCents: number; lang?: Lang 
   );
 }
 
-// J. EPST. win easter egg — the jet crosses the night sky, then nose-dives
-// into the island and the flash blooms before the scene fades.
+// J. EPST. win easter egg — the jet crosses over the island's aerial photo
+// (pushing in like a chase cam), then nose-dives into the hillside; the
+// flash blooms at the impact point before the scene fades.
+function JetSvg() {
+  return (
+    <svg aria-hidden viewBox="0 0 440 140" className="anim-plane-crash absolute left-0 top-0 w-[34vmin] min-w-44" style={{ filter: "drop-shadow(0 10px 18px rgba(0,0,0,.45))" }}>
+      <defs>
+        <linearGradient id="epst-fus" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#ffffff" />
+          <stop offset=".55" stopColor="#eef1f6" />
+          <stop offset="1" stopColor="#b9c2d0" />
+        </linearGradient>
+        <linearGradient id="epst-wing" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#e6eaf1" />
+          <stop offset="1" stopColor="#aab4c4" />
+        </linearGradient>
+        <linearGradient id="epst-eng" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#f2f4f8" />
+          <stop offset="1" stopColor="#9aa6b8" />
+        </linearGradient>
+      </defs>
+      <path d="M236 78 L168 116 L196 118 L262 82 Z" fill="#8d99ac" />
+      <path d="M18 60 C18 44 42 34 92 30 L332 24 C376 22 414 34 428 52 C434 60 430 68 414 72 L96 82 C50 84 18 76 18 60 Z" fill="url(#epst-fus)" />
+      <path d="M22 56 C30 36 46 16 64 8 L78 8 L62 36 L52 58 Z" fill="url(#epst-fus)" />
+      <path d="M40 52 L20 40 L30 38 L56 48 Z" fill="#c3ccda" />
+      <path d="M58 46 L104 42 C112 42 114 52 106 56 L62 62 C52 62 50 50 58 46 Z" fill="url(#epst-eng)" />
+      <ellipse cx="104" cy="49" rx="5" ry="6" fill="#3a4556" />
+      <path d="M250 74 L176 124 L210 126 L286 78 Z" fill="url(#epst-wing)" />
+      <path d="M356 32 L392 38 L398 48 L366 46 Z" fill="#22303f" />
+      <path d="M348 34 L356 33 L362 46 L352 45 Z" fill="#22303f" />
+      <g fill="#2a3a4d">
+        {[330, 308, 286, 264, 242, 220, 198, 176, 154].map((x, i) => (
+          <ellipse key={x} cx={x} cy={44 + i} rx="4.5" ry="4" />
+        ))}
+      </g>
+      <rect x="394" y="40" width="2.5" height="22" rx="1" fill="#c0c8d4" opacity=".8" />
+      <path d="M30 68 C120 74 300 70 410 60 L410 64 C300 74 120 78 34 72 Z" fill="#cfd6e2" opacity=".7" />
+    </svg>
+  );
+}
+
 function PlaneSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   return (
     <div className="anim-plane-veil fixed inset-0 z-[100] overflow-hidden bg-[#0b1d33]" role="status" aria-live="polite">
-      <div className="absolute inset-0 bg-gradient-to-b from-[#0b1d33] via-[#123a5c] to-[#1a5a7a]" />
-      <div aria-hidden className="absolute bottom-0 inset-x-0 h-[30%] bg-gradient-to-t from-[#0d3b2e] to-transparent" />
-      <svg aria-hidden viewBox="0 0 240 60" className="anim-plane-crash absolute left-0 top-[24%] w-[26%] min-w-40 text-white/90" fill="currentColor">
-        <path d="M6 22 L60 8 L48 20 L56 30 L34 36 Z M48 20 L112 22 L114 30 L56 30 Z" />
-      </svg>
-      <div aria-hidden className="anim-crash-flash absolute rounded-full" style={{ right: "8%", bottom: "16%", width: "34vmin", height: "34vmin", background: "radial-gradient(closest-side, #fff7d6 0%, #fbbf24 40%, rgba(249,115,22,0.55) 68%, transparent 72%)" }} />
+      <div
+        aria-hidden
+        className="anim-island-zoom absolute -inset-[4%] bg-cover bg-center"
+        style={{ backgroundImage: "url(/fx/island.webp)" }}
+      />
+      <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(115% 85% at 50% 42%, transparent 52%, rgba(6,16,30,.55) 100%)" }} />
+      <JetSvg />
+      <div
+        aria-hidden
+        className="anim-crash-flash absolute rounded-full"
+        style={{
+          left: "58%",
+          top: "52%",
+          width: "32vmin",
+          height: "32vmin",
+          translate: "-50% -50%",
+          background: "radial-gradient(closest-side, #fff7d6 0%, #fbbf24 40%, rgba(249,115,22,0.55) 68%, transparent 72%)",
+        }}
+      />
       <div className="relative h-full grid place-items-center">
-        <div className="anim-win-pop text-center px-6">
-          <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-white/70">{t.bonnieWin}</div>
+        <div className="anim-win-pop text-center px-6 [text-shadow:0_2px_18px_rgba(0,0,0,.65)]">
+          <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-white/80">{t.bonnieWin}</div>
           <div className="num text-5xl font-black text-white mt-1">+{fmtMonos(amountCents, { lang })}</div>
         </div>
       </div>
@@ -1196,7 +1248,7 @@ export function GameView({
   const [splash, setSplash] = useState<{ amt: number; fx: "splash" | "plane" } | null>(null);
   useEffect(() => {
     if (splash == null) return;
-    const id = setTimeout(() => setSplash(null), 2400);
+    const id = setTimeout(() => setSplash(null), 2600);
     return () => clearTimeout(id);
   }, [splash]);
   const chip = (on: boolean) =>
