@@ -100,12 +100,20 @@ export function GroupTrade({
   const byOpt = (o: GroupOption) => o.id === initialOpt || o.slug === initialOpt || slugifyLabel(o.label) === initialOpt;
   const [selId, setSelId] = useState(() => live.find(byOpt)?.id ?? live[0]?.id ?? "");
   const [side, setSide] = useState<"yes" | "no">(initialSide === "no" ? "no" : "yes");
+  // Chart spotlight is separate from the ticket pick — re-clicking the active
+  // row unfocuses it so every line draws at full opacity again.
+  const [focusId, setFocusId] = useState<string | null>(() => live.find(byOpt)?.id ?? live[0]?.id ?? null);
 
   const sel = live.find((o) => o.id === selId) ?? live[0];
   const selPos = sel ? positions[sel.id] : undefined;
 
   const select = (o: GroupOption, s?: "yes" | "no") => {
+    if (!s && o.id === selId) {
+      setFocusId((f) => (f === o.id ? null : o.id));
+      return;
+    }
     setSelId(o.id);
+    setFocusId(o.id);
     if (s) setSide(s);
     // Shareable URL without a server fetch — slugged option label.
     window.history.replaceState(null, "", `/market/${slug}?opt=${slugifyLabel(o.label)}${s ? `&side=${s}` : ""}`);
@@ -150,7 +158,7 @@ export function GroupTrade({
                 now={chartNow}
                 live={chartLive}
                 trades={chartTrades}
-                focusKey={sel?.id ?? null}
+                focusKey={focusId}
                 lang={lang}
               />
             ) : (

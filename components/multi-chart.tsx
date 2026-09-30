@@ -22,16 +22,15 @@ export type ChartMarker = {
 };
 
 const RANGES = [
+  { key: "1M", ms: 60_000 },
   { key: "1H", ms: 3600_000 },
-  { key: "6H", ms: 6 * 3600_000 },
   { key: "1D", ms: 86400_000 },
-  { key: "1W", ms: 7 * 86400_000 },
   { key: "ALL", ms: Infinity },
 ] as const;
 
 const RANGE_LABEL: Record<Lang, Record<(typeof RANGES)[number]["key"], string>> = {
-  en: { "1H": "1H", "6H": "6H", "1D": "1D", "1W": "1W", ALL: "ALL" },
-  cs: { "1H": "1h", "6H": "6h", "1D": "1d", "1W": "1t", ALL: "Vše" },
+  en: { "1M": "1m", "1H": "1h", "1D": "1d", ALL: "ALL" },
+  cs: { "1M": "1m", "1H": "1h", "1D": "1d", ALL: "Vše" },
 };
 
 // True windowing: carry in the last price before the cutoff so lines start at
@@ -74,6 +73,7 @@ function smoothPath(coords: readonly (readonly [number, number])[]): string {
 
 function fmtTick(t: number, span: number, locale: string): string {
   const d = new Date(t);
+  if (span <= 300_000) return d.toLocaleTimeString(locale, { minute: "2-digit", second: "2-digit" });
   if (span <= 6 * 3600_000) return d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
   if (span <= 2 * 86400_000) return d.toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric" });
   return d.toLocaleDateString(locale, { month: "short", day: "numeric" });
@@ -158,7 +158,7 @@ export function MultiPriceChart({
       .filter((m) => { const ms = new Date(m.t).getTime(); return ms >= t0 && ms <= t1 && m.key && colorOf.has(m.key); })
       .map((m) => ({ ...m, series: colorOf.get(m.key!)! }));
   }, [trades, t0, t1, data]);
-  const markSize = (cents: number) => 2.8 + Math.min(3.5, Math.log10(Math.max(cents, 1) / 100 + 1) * 2);
+  const markSize = (cents: number) => 2 + Math.min(2.4, Math.log10(Math.max(cents, 1) / 100 + 1) * 1.4);
   const x = (v: number) => PAD_L + ((v - t0) / span) * (W - PAD_L - PAD_R);
   const y = (p: number) => PAD_T + (1 - Math.min(1, Math.max(0, p))) * (H - PAD_T - PAD_B);
 
@@ -224,6 +224,7 @@ export function MultiPriceChart({
           className="w-full select-none"
           onPointerMove={onMove}
           onPointerLeave={() => setHoverT(null)}
+          onClick={() => setMark(null)}
         >
           {[0, 0.25, 0.5, 0.75, 1].map((g) => (
             <g key={g}>
@@ -294,11 +295,16 @@ export function MultiPriceChart({
               <g key={i} opacity={focused ? 1 : 0.25}>
                 <circle
                   cx={mx} cy={my} r={markSize(m.amountCents)}
-                  fill={m.side === "buy" ? outCol : "var(--color-surface)"}
-                  stroke={outCol} strokeWidth="1.8"
-                  opacity={mark === null || mark === i ? 0.95 : 0.5}
+                  fill="var(--color-surface)"
+                  stroke={outCol} strokeWidth="1.6"
+                  strokeDasharray={m.side === "buy" ? undefined : "2 2"}
+                  opacity={mark === null || mark === i ? 0.95 : 0.45}
+                  className={mark === i ? "drop-shadow" : undefined}
                 />
-                <circle cx={mx} cy={my} r={10} fill="transparent" onPointerEnter={() => setMark(i)} onPointerLeave={() => setMark(null)} />
+                <circle
+                  cx={mx} cy={my} r={9} fill="transparent" className="cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setMark(mark === i ? null : i); }}
+                />
               </g>
             );
           })}

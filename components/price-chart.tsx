@@ -22,16 +22,15 @@ export type ChartMarker = {
   label?: string;
 };
 const RANGES = [
+  { key: "1M", ms: 60_000 },
   { key: "1H", ms: 3600_000 },
-  { key: "6H", ms: 6 * 3600_000 },
   { key: "1D", ms: 86400_000 },
-  { key: "1W", ms: 7 * 86400_000 },
   { key: "ALL", ms: Infinity },
 ] as const;
 
 const RANGE_LABEL: Record<Lang, Record<(typeof RANGES)[number]["key"], string>> = {
-  en: { "1H": "1H", "6H": "6H", "1D": "1D", "1W": "1W", ALL: "ALL" },
-  cs: { "1H": "1h", "6H": "6h", "1D": "1d", "1W": "1t", ALL: "Vše" },
+  en: { "1M": "1m", "1H": "1h", "1D": "1d", ALL: "ALL" },
+  cs: { "1M": "1m", "1H": "1h", "1D": "1d", ALL: "Vše" },
 };
 
 // True windowing: carry in the last price before the cutoff so the line starts
@@ -74,6 +73,7 @@ function smoothPath(coords: readonly (readonly [number, number])[]): string {
 
 function fmtTick(t: number, span: number, locale: string): string {
   const d = new Date(t);
+  if (span <= 300_000) return d.toLocaleTimeString(locale, { minute: "2-digit", second: "2-digit" });
   if (span <= 6 * 3600_000) return d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
   if (span <= 2 * 86400_000)
     return d.toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric" });
@@ -105,7 +105,7 @@ export function PriceChart({ points, now, live, lang, trades }: { points: Pt[]; 
     () => (trades ?? []).filter((m) => { const ms = new Date(m.t).getTime(); return ms >= t0 && ms <= t1; }),
     [trades, t0, t1]
   );
-  const markSize = (cents: number) => 2.8 + Math.min(3.5, Math.log10(Math.max(cents, 1) / 100 + 1) * 2);
+  const markSize = (cents: number) => 2 + Math.min(2.4, Math.log10(Math.max(cents, 1) / 100 + 1) * 1.4);
 
   const { linePath, areaPath, last } = useMemo(() => {
     if (data.length === 0) return { linePath: "", areaPath: "", last: null as Pt | null };
@@ -195,6 +195,7 @@ export function PriceChart({ points, now, live, lang, trades }: { points: Pt[]; 
           className="w-full select-none"
           onPointerMove={onMove}
           onPointerLeave={() => setHover(null)}
+          onClick={() => setMark(null)}
         >
           <defs>
             <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
@@ -243,14 +244,15 @@ export function PriceChart({ points, now, live, lang, trades }: { points: Pt[]; 
               <g key={i}>
                 <circle
                   cx={mx} cy={my} r={markSize(m.amountCents)}
-                  fill={m.side === "buy" ? col : "var(--color-surface)"}
-                  stroke={col} strokeWidth="1.8"
-                  opacity={mark === null || mark === i ? 0.95 : 0.5}
+                  fill="var(--color-surface)"
+                  stroke={col} strokeWidth="1.6"
+                  strokeDasharray={m.side === "buy" ? undefined : "2 2"}
+                  opacity={mark === null || mark === i ? 0.95 : 0.45}
+                  className={mark === i ? "drop-shadow" : undefined}
                 />
                 <circle
-                  cx={mx} cy={my} r={10} fill="transparent"
-                  onPointerEnter={() => setMark(i)}
-                  onPointerLeave={() => setMark(null)}
+                  cx={mx} cy={my} r={9} fill="transparent" className="cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setMark(mark === i ? null : i); }}
                 />
               </g>
             );

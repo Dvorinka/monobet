@@ -15,6 +15,8 @@ import {
   blackjackDeal,
   blackjackHit,
   blackjackStand,
+  blackjackDouble,
+  blackjackSurrender,
 } from "@/lib/actions";
 import {
   GAME_LEVERAGES,
@@ -871,6 +873,8 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
 // Interactive hand against an automated dealer persona — the shoe lives
 // server-side; the client only sends deal/hit/stand.
 
+type BjSide = { stake: number; winCents: number; label: string | null };
+
 type BjRound = {
   roundId: string;
   player: number[];
@@ -883,6 +887,8 @@ type BjRound = {
   result?: string | null;
   netCents?: number | null;
   loanCents?: number;
+  sides?: Record<string, BjSide> | null;
+  doubled?: boolean;
 };
 
 function PlayingCard({ v, hidden }: { v?: number; hidden?: boolean }) {
@@ -911,18 +917,21 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
   const [lev, setLev] = useState("1");
+  const [pp, setPp] = useState(false);
+  const [t3, setT3] = useState(false);
   const [round, setRound] = useState<BjRound | null>(null);
   const [net, setNet] = useState<Net>(null);
 
   const settle = (s?: BjRound) => {
     if (!s || s.status !== "settled") return;
-    playSfx(s.result === "lose" ? "lose" : "win", 0.5);
-    setNet({ stamp: Date.now(), netCents: s.netCents ?? 0, won: s.result !== "lose", loanCents: s.loanCents });
-    dealerWinFx(s.persona, s.result === "win" || s.result === "blackjack", s.netCents ?? 0, onWinFx);
+    const won = s.result === "win" || s.result === "blackjack";
+    playSfx(won ? "win" : "lose", 0.5);
+    setNet({ stamp: Date.now(), netCents: s.netCents ?? 0, won, loanCents: s.loanCents });
+    dealerWinFx(s.persona, won, s.netCents ?? 0, onWinFx);
   };
 
   const deal = () =>
-    run(() => blackjackDeal({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev) })).then((r) => {
+    run(() => blackjackDeal({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lev), sides: { pp, t3 } })).then((r) => {
       if (!r?.state) return;
       playSfx("flip", 0.4);
       setNet(null);
@@ -945,7 +954,23 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
       settle(r.state);
     });
 
+  const double = () =>
+    run(() => blackjackDouble({ roundId: round!.roundId })).then((r) => {
+      if (!r?.state) return;
+      playSfx("trade", 0.3);
+      setRound(r.state);
+      settle(r.state);
+    });
+
+  const surrender = () =>
+    run(() => blackjackSurrender({ roundId: round!.roundId })).then((r) => {
+      if (!r?.state) return;
+      setRound(r.state);
+      settle(r.state);
+    });
+
   const playing = round?.status === "playing";
+  const firstMove = playing && round!.player.length === 2 && !round!.doubled;
   const settledRound = round?.status === "settled" ? round : null;
   const resultLabel =
     settledRound?.result === "blackjack"
@@ -954,13 +979,15 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
         ? t.bjPush
         : settledRound?.result === "win"
           ? t.bjYouWin
-          : settledRound?.result === "lose"
-            ? (round?.playerTotal ?? 0) > 21
-              ? t.bjBust
-              : t.bjDealerWins
-            : null;
+          : settledRound?.result === "surrender"
+            ? t.bjSurrendered
+            : settledRound?.result === "lose"
+              ? (round?.playerTotal ?? 0) > 21
+                ? t.bjBust
+                : t.bjDealerWins
+              : null;
   const quip = settledRound
-    ? settledRound.result === "lose"
+    ? settledRound.result === "lose" || settledRound.result === "surrender"
       ? settledRound.persona.quipWin
       : settledRound.persona.quipLose
     : null;
@@ -995,6 +1022,27 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
               {round ? round.player.map((c, i) => <PlayingCard key={i} v={c} />) : <PlayingCard hidden />}
             </div>
           </div>
+          {/* side-bet results — resolved the moment the cards land */}
+          {round?.sides && Object.keys(round.sides).length > 0 && (
+            <div className="flex gap-1.5 flex-wrap justify-center">
+              {(["pp", "t3"] as const).map((k) => {
+                const s = round.sides![k];
+                if (!s) return null;
+                return (
+                  <span
+                    key={k}
+                    className={cn(
+                      "num inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-bold",
+                      s.winCents > 0 ? "bg-yes-soft text-yes-strong" : "bg-surface-2 text-faint"
+                    )}
+                  >
+                    {k === "pp" ? "PP" : "21+3"}
+                    {s.winCents > 0 ? ` ${t[s.label as keyof typeof t] as string} +${fmtMonos(s.winCents, { lang })}` : " —"}
+                  </span>
+                );
+              })}
+            </div>
+          )}
           <div className="min-h-5 flex flex-col items-center gap-0.5">
             {resultLabel && <span className="text-[12.5px] font-bold anim-win-pop">{resultLabel}</span>}
             {quip && <span className="text-[11.5px] text-faint italic">“{quip}”</span>}
@@ -1005,16 +1053,52 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
       controls={
         <>
           {!playing && (
-            <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} />
+            <>
+              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} />
+              <div className="flex gap-1.5">
+                {([
+                  { on: pp, set: setPp, label: `PP · ${t.bjSidePP}` },
+                  { on: t3, set: setT3, label: `21+3 · ${t.bjSide21}` },
+                ] as const).map((s) => (
+                  <button
+                    key={s.label}
+                    type="button"
+                    onClick={() => s.set(!s.on)}
+                    disabled={pending}
+                    className={cn(
+                      "flex-1 h-8 rounded-lg border text-[11.5px] font-semibold transition-all cursor-pointer",
+                      s.on
+                        ? "border-brand bg-brand-soft text-brand-strong"
+                        : "border-line bg-surface-2 text-mute hover:text-ink"
+                    )}
+                    title={s.label}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
           {playing ? (
-            <div className="flex gap-2">
-              <Button className="flex-1" size="lg" disabled={pending} onClick={hit}>
-                {t.bjHit}
-              </Button>
-              <Button className="flex-1" size="lg" variant="outline" disabled={pending} onClick={stand}>
-                {t.bjStand}
-              </Button>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex gap-2">
+                <Button className="flex-1" size="lg" disabled={pending} onClick={hit}>
+                  {t.bjHit}
+                </Button>
+                <Button className="flex-1" size="lg" variant="outline" disabled={pending} onClick={stand}>
+                  {t.bjStand}
+                </Button>
+              </div>
+              {firstMove && (
+                <div className="flex gap-2">
+                  <Button className="flex-1" size="sm" variant="outline" disabled={pending} onClick={double}>
+                    {t.bjDouble}
+                  </Button>
+                  <Button className="flex-1" size="sm" variant="ghost" disabled={pending} onClick={surrender}>
+                    {t.bjSurrender}
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
             <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet)} onClick={deal}>

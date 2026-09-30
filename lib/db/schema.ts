@@ -378,9 +378,12 @@ export const blackjackRound = pgTable(
     dealer: jsonb("dealer").notNull().$type<number[]>(),
     persona: jsonb("persona").notNull().$type<{ name: string; avatar: string; quipWin: string; quipLose: string }>(),
     status: text("status").notNull().default("playing"), // playing | settled
-    result: text("result"), // win | lose | push | blackjack
+    result: text("result"), // win | lose | push | blackjack | surrender
     netCents: integer("net_cents"),
     loanCents: integer("loan_cents").notNull().default(0), // house loan parked by a levered loss
+    // Side bets settled at deal time — stake, payout, and the hand label hit.
+    sides: jsonb("sides").$type<Record<string, { stake: number; winCents: number; label: string | null }>>(),
+    doubled: boolean("doubled").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     settledAt: timestamp("settled_at", { withTimezone: true }),
   },

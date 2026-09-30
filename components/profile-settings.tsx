@@ -32,16 +32,13 @@ export function ProfileSettings({
   const [suggests, setSuggests] = useState<Awaited<ReturnType<typeof searchUsers>>>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
 
-  // Username autocomplete — 200ms debounce, squad-less users only.
+  // Username autocomplete — 200ms debounce, squad-less users only. An empty
+  // query lists everyone, so focusing the field shows the full pick list.
   useEffect(() => {
     const q = inviteName.trim().replace(/^@/, "");
-    const id = setTimeout(
-      () => {
-        if (!q) setSuggests([]);
-        else searchUsers(q).then(setSuggests).catch(() => setSuggests([]));
-      },
-      q ? 200 : 0
-    );
+    const id = setTimeout(() => {
+      searchUsers(q).then(setSuggests).catch(() => setSuggests([]));
+    }, q ? 200 : 0);
     return () => clearTimeout(id);
   }, [inviteName]);
 

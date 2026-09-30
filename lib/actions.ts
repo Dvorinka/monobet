@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, and, sql, desc, asc, isNull } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, dealerFx, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, VOW_CHOICES_BPS, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, VOW_CHOICES_BPS, type Persona } from "@/lib/games";
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -1883,18 +1883,18 @@ export async function adminTimeoutComments(input: {
 export async function searchUsers(q: string): Promise<{ username: string | null; name: string; image: string | null }[]> {
   const u = await requireUser();
   const term = q.trim().replace(/^@/, "");
-  if (term.length < 1) return [];
   return db
     .select({ username: schema.user.username, name: schema.user.name, image: schema.user.image })
     .from(schema.user)
     .where(
       and(
-        sql`lower(${schema.user.username}) like lower(${"%" + term.replace(/[%_]/g, "") + "%"})`,
+        term ? sql`lower(${schema.user.username}) like lower(${"%" + term.replace(/[%_]/g, "") + "%"})` : undefined,
         isNull(schema.user.squadId),
         sql`${schema.user.id} <> ${u.id}`
       )
     )
-    .limit(6);
+    .orderBy(asc(schema.user.username))
+    .limit(12);
 }
 
 export async function deleteComment(commentId: string): Promise<{ ok: boolean; error?: string }> {
@@ -2622,7 +2622,7 @@ async function pickDealer(dealerId?: string): Promise<Persona> {
 }
 
 function shuffledShoe(): number[] {
-  const d = Array.from({ length: 52 }, (_, i) => i);
+  const d = Array.from({ length: BJ_DECKS * 52 }, (_, i) => i);
   for (let i = d.length - 1; i > 0; i--) {
     const j = randomInt(i + 1);
     [d[i], d[j]] = [d[j], d[i]];
@@ -2635,7 +2635,7 @@ function shuffledShoe(): number[] {
 async function settleBlackjack(
   tx: Tx,
   round: { id: string; userId: string; betCents: number; leverage: number },
-  result: "win" | "lose" | "push" | "blackjack",
+  result: "win" | "lose" | "push" | "blackjack" | "surrender",
   dealerName: string
 ): Promise<{ net: number; loanCents: number }> {
   const wager = Math.round(round.betCents * round.leverage);
@@ -2651,6 +2651,16 @@ async function settleBlackjack(
     const take = win - skim;
     if (take > 0) await credit(tx, round.userId, take, "game", null, `${label} — ${result === "blackjack" ? "natural 21" : "won"} ×${mult}${skim ? " (vow skimmed)" : ""}`);
     net = win - wager;
+  } else if (result === "surrender") {
+    // Forfeit half the stake; the borrowed half stays owed in full.
+    const refund = Math.round(round.betCents / 2);
+    await credit(tx, round.userId, refund, "game", null, `${label} — surrendered, half stake back`);
+    if (borrowed > 0) {
+      const r = rollRateBps();
+      loan = borrowed;
+      await addDebt(tx, round.userId, borrowed, r, `${label} — house loan ${(borrowed / 100).toFixed(0)}Ɱ @ ${(r / 100).toFixed(1)}% APR`);
+    }
+    net = refund - wager;
   } else if (result === "push") {
     await credit(tx, round.userId, round.betCents, "game", null, `${label} — push, stake back`);
     net = 0;
@@ -2669,6 +2679,8 @@ async function settleBlackjack(
   return { net, loanCents: loan };
 }
 
+type BjSide = { stake: number; winCents: number; label: string | null };
+
 type BjState = {
   roundId: string;
   player: number[];
@@ -2681,9 +2693,11 @@ type BjState = {
   result?: string | null;
   netCents?: number | null;
   loanCents?: number;
+  sides?: Record<string, BjSide> | null;
+  doubled?: boolean;
 };
 
-function bjState(r: { id: string; player: number[]; dealer: number[]; persona: Persona; status: string; result: string | null; netCents: number | null; loanCents?: number }, hideDealer: boolean): BjState {
+function bjState(r: { id: string; player: number[]; dealer: number[]; persona: Persona; status: string; result: string | null; netCents: number | null; loanCents?: number; sides?: Record<string, BjSide> | null; doubled?: boolean }, hideDealer: boolean): BjState {
   const p = handTotal(r.player);
   const d = handTotal(r.dealer);
   return {
@@ -2698,6 +2712,8 @@ function bjState(r: { id: string; player: number[]; dealer: number[]; persona: P
     result: r.result,
     netCents: r.netCents,
     loanCents: r.loanCents ?? 0,
+    sides: r.sides ?? null,
+    doubled: r.doubled ?? false,
   };
 }
 
@@ -2705,12 +2721,16 @@ export async function blackjackDeal(input: {
   betCents: number;
   leverage: number;
   dealerId?: string;
+  sides?: { pp?: boolean; t3?: boolean };
 }): Promise<{ ok: boolean; error?: string; state?: BjState }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     assertCreditLine(u, lev);
+    const ppOn = !!input.sides?.pp;
+    const t3On = !!input.sides?.t3;
+    const sideStake = (ppOn ? bet : 0) + (t3On ? bet : 0);
     const persona = await pickDealer(input.dealerId);
     const deck = shuffledShoe();
     const player = [deck.pop()!, deck.pop()!];
@@ -2720,9 +2740,24 @@ export async function blackjackDeal(input: {
       await lockUser(tx, u.id);
       // Collateral leaves the balance up front so a slow hand can't double-spend it.
       await credit(tx, u.id, -bet, "game", null, `Blackjack vs ${persona.name} — wager ×${lev}`);
+      if (sideStake > 0) await credit(tx, u.id, -sideStake, "game", null, `Blackjack side bets (${[ppOn && "PP", t3On && "21+3"].filter(Boolean).join(", ")})`);
+      // Side bets resolve at deal — they pay independently of the 21 outcome.
+      const sides: Record<string, BjSide> = {};
+      if (ppOn) {
+        const w = evalPerfectPairs(player);
+        const win = w ? Math.round(bet * w.mult) : 0;
+        if (win) await credit(tx, u.id, win, "game", null, `Perfect Pairs — ${w!.label} ×${w!.mult}`);
+        sides.pp = { stake: bet, winCents: win, label: w?.label ?? null };
+      }
+      if (t3On) {
+        const w = evalTwentyOnePlusThree(player, dealer[0]);
+        const win = w ? Math.round(bet * w.mult) : 0;
+        if (win) await credit(tx, u.id, win, "game", null, `21+3 — ${w!.label} ×${w!.mult}`);
+        sides.t3 = { stake: bet, winCents: win, label: w?.label ?? null };
+      }
       const [round] = await tx
         .insert(schema.blackjackRound)
-        .values({ userId: u.id, betCents: bet, leverage: lev, deck, player, dealer, persona })
+        .values({ userId: u.id, betCents: bet, leverage: lev, deck, player, dealer, persona, sides })
         .returning();
       const pNat = isNatural(player);
       const dNat = isNatural(dealer);
@@ -2797,6 +2832,61 @@ export async function blackjackStand(input: { roundId: string }): Promise<{ ok: 
     return { ok: true, state };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Stand failed" };
+  }
+}
+
+// Double down — first move only: stake another bet, take exactly one card,
+// then the hand stands. The whole wager doubles, borrowed part included.
+export async function blackjackDouble(input: { roundId: string }): Promise<{ ok: boolean; error?: string; state?: BjState }> {
+  try {
+    const u = await requireUser();
+    let state!: BjState;
+    await db.transaction(async (tx) => {
+      const r = await lockRound(tx, input.roundId, u.id);
+      if (r.player.length !== 2 || r.doubled) throw new Error("Double is a first-move option");
+      await credit(tx, u.id, -r.betCents, "game", null, `Blackjack vs ${r.persona.name} — doubled`);
+      const deck = [...r.deck];
+      const card = deck.pop()!;
+      const player = [...r.player, card];
+      const doubledRound = { ...r, betCents: r.betCents * 2 };
+      await tx.update(schema.blackjackRound).set({ deck, player, betCents: doubledRound.betCents, doubled: true }).where(eq(schema.blackjackRound.id, r.id));
+      if (handTotal(player).total > 21) {
+        const { net, loanCents } = await settleBlackjack(tx, doubledRound, "lose", r.persona.name);
+        state = bjState({ ...doubledRound, player, status: "settled", result: "lose", netCents: net, loanCents }, false);
+        return;
+      }
+      const dealer = [...r.dealer];
+      while (handTotal(dealer).total < 17) dealer.push(deck.pop()!);
+      const p = handTotal(player).total;
+      const d = handTotal(dealer).total;
+      const result = d > 21 || p > d ? "win" : p === d ? "push" : "lose";
+      const { net, loanCents } = await settleBlackjack(tx, doubledRound, result, r.persona.name);
+      await tx.update(schema.blackjackRound).set({ deck, dealer }).where(eq(schema.blackjackRound.id, r.id));
+      state = bjState({ ...doubledRound, player, dealer, status: "settled", result, netCents: net, loanCents }, false);
+    });
+    revalidatePath("/games");
+    return { ok: true, state };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Double failed" };
+  }
+}
+
+// Surrender — first move only: forfeit half the stake and walk away. Borrowed
+// leverage is owed in full either way.
+export async function blackjackSurrender(input: { roundId: string }): Promise<{ ok: boolean; error?: string; state?: BjState }> {
+  try {
+    const u = await requireUser();
+    let state!: BjState;
+    await db.transaction(async (tx) => {
+      const r = await lockRound(tx, input.roundId, u.id);
+      if (r.player.length !== 2 || r.doubled) throw new Error("Surrender is a first-move option");
+      const { net, loanCents } = await settleBlackjack(tx, r, "surrender", r.persona.name);
+      state = bjState({ ...r, status: "settled", result: "surrender", netCents: net, loanCents }, false);
+    });
+    revalidatePath("/games");
+    return { ok: true, state };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Surrender failed" };
   }
 }
 
