@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS } from "@/lib/rewards";
 import { eq, ne, desc, asc, and, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
@@ -11,13 +12,20 @@ export function marketYesPrice(m: MarketRow): number {
   return yesPrice(Number(m.qYes), Number(m.qNo), m.b);
 }
 
-export async function listCategories() {
-  const rows = await db
-    .select()
-    .from(schema.category)
-    .orderBy(asc(schema.category.sortIndex), asc(schema.category.createdAt));
-  return rows.map((r) => r.name);
-}
+// Categories change rarely — shared across every page that renders the tabs.
+// 60s data cache; the "categories" tag is busted by any create/rename/reorder/
+// delete path in actions.ts.
+export const listCategories = unstable_cache(
+  async () => {
+    const rows = await db
+      .select()
+      .from(schema.category)
+      .orderBy(asc(schema.category.sortIndex), asc(schema.category.createdAt));
+    return rows.map((r) => r.name);
+  },
+  ["list-categories"],
+  { revalidate: 60, tags: ["categories"] }
+);
 
 // Categories with their market count — for the admin manager (deleting is
 // only allowed when a category is empty).
@@ -425,8 +433,15 @@ export async function getCommentCount(marketIds: string[]) {
   return new Map(rows.map((r) => [r.marketId, r.count]));
 }
 
-// Latest trades across all markets — feeds the homepage ticker.
-export async function getGlobalTrades(limit = 14) {
+// Latest trades across all markets — feeds the homepage ticker. Ambient data;
+// a 15s cache tracks the LiveRefresher cadence and skips a round trip per
+// refresh.
+export const getGlobalTrades = unstable_cache(
+  async (limit = 14) => fetchGlobalTrades(limit),
+  ["global-trades"],
+  { revalidate: 15 }
+);
+async function fetchGlobalTrades(limit = 14) {
   return db
     .select({
       id: schema.trade.id,
@@ -447,12 +462,12 @@ export async function getGlobalTrades(limit = 14) {
 }
 
 export async function getSiteStats() {
-  const [users] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.user);
-  const [vol] = await db
-    .select({ n: sql<number>`coalesce(sum(${schema.market.volumeCents}),0)::int` })
-    .from(schema.market);
-  const [trades] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.trade);
-  return { users: users?.n ?? 0, volumeCents: vol?.n ?? 0, trades: trades?.n ?? 0 };
+  const [users, vol, trades] = await Promise.all([
+    db.select({ n: sql<number>`count(*)::int` }).from(schema.user),
+    db.select({ n: sql<number>`coalesce(sum(${schema.market.volumeCents}),0)::int` }).from(schema.market),
+    db.select({ n: sql<number>`count(*)::int` }).from(schema.trade),
+  ]);
+  return { users: users[0]?.n ?? 0, volumeCents: vol[0]?.n ?? 0, trades: trades[0]?.n ?? 0 };
 }
 
 // Same-category markets excluding the given one — "More markets" rail.

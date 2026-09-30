@@ -226,10 +226,10 @@ function OptionRow({ option: o, parentSlug, index, lang, expired }: { option: Ma
           <span className={cn("num w-10 text-right text-[14px] font-bold shrink-0", py >= 0.5 ? "text-yes" : "text-ink")}>
             {Math.round(py * 100)}%
           </span>
-          <span className="num grid place-items-center h-7 min-w-[4.5rem] px-2 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold whitespace-nowrap shrink-0">
+          <span className="num grid place-items-center h-7 w-20 rounded-md bg-yes-soft text-yes-strong text-[12px] font-semibold whitespace-nowrap shrink-0">
             {t.yes} {fmtMonos(Math.round(py * 100), { lang })}
           </span>
-          <span className="num grid place-items-center h-7 min-w-[4.5rem] px-2 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold whitespace-nowrap shrink-0">
+          <span className="num grid place-items-center h-7 w-20 rounded-md bg-no-soft text-no-strong text-[12px] font-semibold whitespace-nowrap shrink-0">
             {t.no} {fmtMonos(Math.round((1 - py) * 100), { lang })}
           </span>
         </>

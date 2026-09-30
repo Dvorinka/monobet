@@ -53,7 +53,7 @@ export function MarketForm({
   const [recurDays, setRecurDays] = useState("0");
   const [odds, setOdds] = useState(50);
   const [optionOdds, setOptionOdds] = useState<Record<number, number>>({});
-  const [liquidity, setLiquidity] = useState<number>(300);
+  const [liquidity, setLiquidity] = useState<number>(900);
   const [maxLeverage, setMaxLeverage] = useState(10);
   const [pending, start] = useTransition();
   const router = useRouter();
