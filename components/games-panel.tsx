@@ -128,9 +128,9 @@ type WinFx = NonNullable<DealerFx["winFx"]>;
 // Dealer win FX — some personas celebrate a player win with a full-screen
 // moment (Bonnie's splash, Epstein's plane, Clavicular's parade). Name-keyed
 // via dealerFx.
-function dealerWinFx(dealer: Persona | null | undefined, won: boolean, netCents: number, cb?: (amt: number, fx: WinFx) => void) {
+function dealerWinFx(dealer: Persona | null | undefined, won: boolean, netCents: number, cb?: (amt: number, fx: WinFx, tavCents?: number) => void, tavCents?: number) {
   const fx = dealerFx(dealer).winFx;
-  if (won && netCents > 0 && fx) cb?.(netCents, fx);
+  if (won && netCents > 0 && fx) cb?.(netCents, fx, tavCents);
 }
 
 // Ɱ amount input + quick chips + leverage row — shared by every game card.
@@ -265,7 +265,7 @@ function GameCard({
 
 // ---------- coin flip ----------
 
-type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; inDebt?: boolean; onWinFx?: (amt: number, fx: WinFx) => void };
+type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; inDebt?: boolean; onWinFx?: (amt: number, fx: WinFx, tavCents?: number) => void };
 
 function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
@@ -291,7 +291,7 @@ function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
         setTimeout(() => {
           setSpinning(false);
           setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents });
-          dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx);
+          dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx, r.tavCents);
         }, 1150);
       }
     );
@@ -394,7 +394,7 @@ function DiceCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
         if (r?.roll) {
           setFace(r.roll);
           setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents });
-          dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx);
+          dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx, r.tavCents);
         }
       }, 650);
     });
@@ -499,7 +499,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       setErr(r.errMs ?? null);
       setDealer(r.dealer ?? null);
       setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents });
-      dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx);
+      dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx, r.tavCents);
     });
   };
 
@@ -592,7 +592,7 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
             setBusy(false);
             setWonLast(!!r.won);
             setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents });
-            dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx);
+            dealerWinFx(r.dealer, !!r.won, r.netCents ?? 0, onWinFx, r.tavCents);
           }
         };
         raf.current = requestAnimationFrame(step);
@@ -702,7 +702,7 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
         setLanded(r.mult ?? null);
         // 0.5×/0.6×/0.8× segments return part of the stake — still a loss.
         setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents });
-        dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, r.netCents ?? 0, onWinFx);
+        dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, r.netCents ?? 0, onWinFx, r.tavCents);
       }, 3250);
     });
 
@@ -843,7 +843,7 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
           setTimeout(() => {
             setSpinning(false);
             setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents });
-            dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, r.netCents ?? 0, onWinFx);
+            dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, r.netCents ?? 0, onWinFx, r.tavCents);
           }, 700 + r.reels.length * 350 + 150)
         );
       }
@@ -908,6 +908,7 @@ type BjRound = {
   result?: string | null;
   netCents?: number | null;
   feeCents?: number;
+  tavCents?: number;
   sides?: Record<string, BjSide> | null;
   doubled?: boolean;
 };
@@ -948,7 +949,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
     const won = s.result === "win" || s.result === "blackjack";
     playSfx(won ? "win" : "lose", 0.5);
     setNet({ stamp: Date.now(), netCents: s.netCents ?? 0, won, feeCents: s.feeCents });
-    dealerWinFx(s.persona, won, s.netCents ?? 0, onWinFx);
+    dealerWinFx(s.persona, won, s.netCents ?? 0, onWinFx, s.tavCents);
   };
 
   const deal = () =>
@@ -1306,6 +1307,69 @@ function PrideSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }
   );
 }
 
+// Bibi win easter egg — the flag behind, shekel notes raining down, and the
+// man himself dancing over the payout. Fixed seeds — deterministic rain.
+const SHEKEL_GIF = "https://media1.tenor.com/m/FD0RSSUxM9gAAAAd/benjamin-netanyahu-epstein.gif";
+const MONEY_RAIN = Array.from({ length: 56 }, (_, i) => ({
+  x: (i * 41 + 7) % 100,
+  d: (i * 131) % 1100,
+  s: 14 + ((i * 17) % 18),
+  drift: ((i * 23) % 60) - 30,
+  o: 0.55 + ((i * 29) % 45) / 100,
+}));
+
+function ShekelSplash({ amountCents, tavCents, lang }: { amountCents: number; tavCents?: number; lang?: Lang }) {
+  const t = getT(lang ?? "en");
+  return (
+    <div className="anim-shekel-veil fixed inset-0 z-[100] overflow-hidden pointer-events-none bg-[#f4f7ff]" role="status" aria-live="polite">
+      {/* the flag — blue bands on a white field, star faint behind it all */}
+      <div aria-hidden className="absolute inset-x-0 top-[12%] h-[13%] bg-[#0038b8]" />
+      <div aria-hidden className="absolute inset-x-0 bottom-[12%] h-[13%] bg-[#0038b8]" />
+      <svg aria-hidden viewBox="0 0 100 100" className="absolute left-1/2 top-1/2 w-[42vmin] -translate-x-1/2 -translate-y-1/2 opacity-[0.12]">
+        <g fill="none" stroke="#0038b8" strokeWidth="5">
+          <path d="M50 14 L82 68 L18 68 Z" />
+          <path d="M50 86 L18 32 L82 32 Z" />
+        </g>
+      </svg>
+      {/* money rain */}
+      {MONEY_RAIN.map((m, i) => (
+        <span
+          key={i}
+          aria-hidden
+          className="anim-money absolute -top-8 font-black text-[#0a7d2c] select-none"
+          style={{
+            left: `${m.x}%`,
+            fontSize: m.s,
+            opacity: m.o,
+            animationDelay: `${m.d}ms`,
+            ["--drift" as string]: `${m.drift}px`,
+            textShadow: "0 1px 2px rgba(255,255,255,.7)",
+          }}
+        >
+          ₪
+        </span>
+      ))}
+      <div className="relative h-full grid place-items-center">
+        <div className="anim-gif-pop text-center px-6">
+          {/* eslint-disable-next-line @next/next/no-img-element -- user-provided remote gif */}
+          <img
+            src={SHEKEL_GIF}
+            alt=""
+            className="mx-auto w-48 sm:w-60 rounded-xl shadow-[0_18px_50px_rgba(0,30,90,.45)] border-4 border-white/90"
+          />
+          <div className="mt-4 [text-shadow:0_2px_14px_rgba(255,255,255,.9)]">
+            <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-[#0038b8]/80">{t.bonnieWin}</div>
+            <div className="num text-5xl font-black text-[#0a3d1a] mt-1">+{fmtMonos(amountCents, { lang })}</div>
+            {tavCents ? (
+              <div className="num mt-2 inline-block rounded-full bg-white/90 px-3 py-1 text-sm font-bold text-[#0038b8] shadow-sm">{t.tavBonus(fmtMonos(tavCents, { lang }))}</div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function GameView({
   game,
   balanceCents,
@@ -1322,7 +1386,7 @@ export function GameView({
   const t = getT(lang ?? "en");
   const Game = GAME_COMPONENTS[game];
   const [dealerId, setDealerId] = useState<string>();
-  const [splash, setSplash] = useState<{ amt: number; fx: WinFx } | null>(null);
+  const [splash, setSplash] = useState<{ amt: number; fx: WinFx; tav?: number } | null>(null);
   useEffect(() => {
     if (splash == null) return;
     const id = setTimeout(() => setSplash(null), 2600);
@@ -1351,10 +1415,11 @@ export function GameView({
         </div>
       )}
       <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt}
-        onWinFx={(amt, fx) => setSplash({ amt, fx })} />
+        onWinFx={(amt, fx, tav) => setSplash({ amt, fx, tav })} />
       {splash?.fx === "splash" && <BonnieSplash amountCents={splash.amt} lang={lang} />}
       {splash?.fx === "plane" && <PlaneSplash amountCents={splash.amt} lang={lang} />}
       {splash?.fx === "pride" && <PrideSplash amountCents={splash.amt} lang={lang} />}
+      {splash?.fx === "shekel" && <ShekelSplash amountCents={splash.amt} tavCents={splash.tav} lang={lang} />}
     </div>
   );
 }

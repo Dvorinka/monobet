@@ -51,7 +51,7 @@ export function WallCard({
   const [pending, start] = useTransition();
   const [note, setNote] = useState("");
   const [vow, setVow] = useState(String(vowBps));
-  const [last, setLast] = useState<{ cleared: number; silent: boolean; miracle: boolean } | null>(null);
+  const [last, setLast] = useState<{ cleared: number; silent: boolean; miracle: boolean; backfire: boolean; blessed: boolean } | null>(null);
   // The server-rendered timestamp goes stale — tick locally so the candle
   // re-enables itself the moment the cooldown expires.
   const [now, setNow] = useState(nowProp);
@@ -75,7 +75,7 @@ export function WallCard({
         return;
       }
       playWallSfx();
-      setLast({ cleared: r.clearedCents ?? 0, silent: !!r.silent, miracle: !!r.miracle });
+      setLast({ cleared: r.clearedCents ?? 0, silent: !!r.silent, miracle: !!r.miracle, backfire: !!r.backfire, blessed: !!r.blessed });
       setNote("");
       router.refresh();
     });
@@ -166,7 +166,7 @@ export function WallCard({
                 placeholder={t.wallNotePh}
                 className="h-9 flex-1 rounded-lg border border-line bg-surface px-3 text-[13px] text-ink placeholder:text-faint focus:outline-2 focus:outline-brand"
               />
-              <Button onClick={pray} disabled={pending || cooling || !afford} className="gap-1.5">
+              <Button onClick={pray} disabled={pending || cooling || !afford || !note.trim()} className="gap-1.5">
                 <Flame className="size-4" />
                 {cooling
                   ? t.wallCooldownWait(remain!)
@@ -181,16 +181,22 @@ export function WallCard({
 
             {last && (
               <div className={cn("mt-3 rounded-lg border px-3 py-2 text-[12.5px] font-semibold anim-rise",
-                last.miracle
-                  ? "border-amber-400/50 bg-amber-50 text-amber-800 shadow-[0_0_24px_rgba(251,191,36,0.25)]"
-                  : last.silent || last.cleared === 0
-                    ? "border-line bg-surface-2 text-mute"
-                    : "border-yes/30 bg-yes-soft text-yes-strong")}>
-                {last.miracle
-                  ? t.wallMiracle(fmtMonos(last.cleared, { lang }))
-                  : last.silent
-                    ? t.wallSilent
-                    : t.wallCleared(fmtMonos(last.cleared, { lang }))}
+                last.backfire
+                  ? "border-no/40 bg-no-soft text-no-strong"
+                  : last.miracle
+                    ? "border-amber-400/50 bg-amber-50 text-amber-800 shadow-[0_0_24px_rgba(251,191,36,0.25)]"
+                    : last.silent || last.cleared === 0
+                      ? "border-line bg-surface-2 text-mute"
+                      : "border-yes/30 bg-yes-soft text-yes-strong")}>
+                {last.backfire
+                  ? t.wallOffended(fmtMonos(-last.cleared, { lang }))
+                  : last.miracle
+                    ? t.wallMiracle(fmtMonos(last.cleared, { lang }))
+                    : last.silent
+                      ? last.blessed
+                        ? t.wallSilentBlessed
+                        : t.wallSilent
+                      : t.wallCleared(fmtMonos(last.cleared, { lang }))}
               </div>
             )}
 
@@ -213,12 +219,21 @@ export function WallCard({
               {prayers.map((p) => (
                 <div key={p.id} className="py-1.5 flex items-center gap-2 text-[12.5px]">
                   <span className="font-medium w-24 truncate">@{p.username ?? p.name}</span>
-                  <span className="text-mute truncate flex-1">{p.note || "…"}</span>
+                  {/* long slips clamp to one line and unfold on hover/focus —
+                      grows the row downward so nothing clips at the card edge */}
+                  <span
+                    className="text-mute flex-1 min-w-0 truncate hover:whitespace-normal hover:overflow-visible hover:break-words focus:whitespace-normal focus:overflow-visible focus:break-words outline-none"
+                    tabIndex={p.note ? 0 : undefined}
+                  >
+                    {p.note || "…"}
+                  </span>
                   <span className="num text-faint">−{fmtMonos(p.feeCents, { lang })}</span>
                   {p.miracle ? (
                     <span className="num font-bold text-amber-600">+{fmtMonos(p.clearedCents, { lang })} {t.wallAbsolved}</span>
                   ) : p.clearedCents > 0 ? (
                     <span className="num font-bold text-yes-strong">+{fmtMonos(p.clearedCents, { lang })} {t.wallForgiven}</span>
+                  ) : p.clearedCents < 0 ? (
+                    <span className="num font-bold text-no-strong">+{fmtMonos(-p.clearedCents, { lang })} {t.wallOffendedShort}</span>
                   ) : (
                     <span className="text-[11px] font-medium text-faint">{t.wallSilentShort}</span>
                   )}
