@@ -112,6 +112,36 @@ function RecurringCard({
   );
 }
 
+// Passive card — the presence streak pays automatically on the day's first
+// hit, so there is no claim button, just the streak and tomorrow's amount.
+function ActivityCard({ streak, today, next, t }: { streak: number; today: string; next: string; t: ReturnType<typeof getT> }) {
+  return (
+    <div className="rounded-xl border border-line bg-surface p-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <div className="size-9 rounded-lg bg-brand-soft text-brand-strong flex items-center justify-center">
+          <Flame className="size-4.5" />
+        </div>
+        <span className="num text-sm font-bold text-yes">{today}</span>
+      </div>
+      <div>
+        <div className="text-[15px] font-semibold flex items-center gap-2">
+          {t.activityDaily}
+          {streak > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-warn-strong">
+              <Flame className="size-3.5" />
+              {t.dayStreak(streak)}
+            </span>
+          )}
+        </div>
+        <div className="text-[12.5px] text-mute mt-0.5">{t.activityDesc}</div>
+      </div>
+      <div className="mt-auto text-[11.5px] font-semibold text-mute">
+        {t.activityToday(today)} · {t.activityTomorrow(next)}
+      </div>
+    </div>
+  );
+}
+
 function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; t: ReturnType<typeof getT> }) {
   const [open, setOpen] = useState(false);
   const [left, setLeft] = useState<number | null>(null);
@@ -451,6 +481,7 @@ export function RewardsPanels({
   daily,
   weekly,
   ad,
+  activity,
   bonuses,
   username,
   debt,
@@ -461,6 +492,7 @@ export function RewardsPanels({
   daily: Recurring;
   weekly: Recurring;
   ad: Recurring;
+  activity: { streak: number; today: string; next: string };
   bonuses: BonusState[];
   username: string;
   debt: { cents: number; rateBps: number };
@@ -493,7 +525,8 @@ export function RewardsPanels({
     <div className="mt-7 space-y-8">
       <section>
         <h2 className="text-[13px] font-bold uppercase tracking-wider text-faint mb-3">{t.recurringRewards}</h2>
-        <div className="grid sm:grid-cols-3 gap-3">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <ActivityCard streak={activity.streak} today={activity.today} next={activity.next} t={t} />
           <RecurringCard
             icon={<CalendarCheck className="size-4.5" />}
             title={t.dailyReward}

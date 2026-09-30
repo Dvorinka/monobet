@@ -39,6 +39,14 @@ export const REFERRER_BONUS = 20_000;
 export const STREAK_WINDOW_MS = 48 * 3600 * 1000;
 export const STREAK_PER_DAY_CENTS = 1_000;
 export const STREAK_CAP_DAYS = 7;
+// Presence streak — a small bonus credited on the first hit of each UTC day.
+// Deliberately smaller than the daily claim: it rewards showing up, not work.
+export const ACTIVITY_BASE_CENTS = 500;
+export const ACTIVITY_PER_DAY_CENTS = 500;
+export const ACTIVITY_CAP_CENTS = 5_000;
+// last_seen_at is stamped at most this often — presence tracking must not turn
+// every request into a write.
+export const SEEN_THROTTLE_MS = 15 * 60 * 1000;
 
 // Weekly seasons: lazy settlement, podium rewards.
 export const SEASON_LENGTH_MS = 7 * 24 * 3600 * 1000;

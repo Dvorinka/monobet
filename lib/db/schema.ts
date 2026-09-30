@@ -3,6 +3,7 @@ import {
   pgTable,
   text,
   timestamp,
+  date,
   boolean,
   integer,
   bigint,
@@ -37,6 +38,11 @@ export const user = pgTable("user", {
   lastClaimAt: timestamp("last_claim_at", { withTimezone: true }),
   // Consecutive daily claims inside the 48h streak window.
   claimStreak: integer("claim_streak").notNull().default(0),
+  // Presence streak — UTC day the user was last seen, consecutive-day count,
+  // and a throttled "last online" stamp for activity tracking.
+  lastActiveDay: date("last_active_day", { mode: "string" }),
+  activityStreak: integer("activity_streak").notNull().default(0),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   // Moderation: a full ban (sign-in rejected, sessions dropped) and a lighter
   // comments-only ban, both toggled from /admin.
   bannedAt: timestamp("banned_at", { withTimezone: true }),
