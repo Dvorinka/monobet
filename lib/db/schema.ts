@@ -56,6 +56,8 @@ export const user = pgTable("user", {
   debtCents: bigint("debt_cents", { mode: "number" }).notNull().default(0),
   debtRateBps: integer("debt_rate_bps").notNull().default(0),
   debtSince: timestamp("debt_since", { withTimezone: true }),
+  // Owed to the squad pot — interest-free, but you can't leave until repaid.
+  squadDebtCents: bigint("squad_debt_cents", { mode: "number" }).notNull().default(0),
   // The Wall — last prayer timestamp for the cooldown, and the vow: a pledged
   // share of every win (bps) garnished to debt until it's clear.
   wallPrayerAt: timestamp("wall_prayer_at", { withTimezone: true }),
@@ -63,9 +65,12 @@ export const user = pgTable("user", {
   // Admin-tuned luck: bps chance to rescue a loss into a win (− = unlucky).
   // Random games only — skill games (timer, blackjack) ignore it.
   luckBps: integer("luck_bps").notNull().default(0),
-  // Minigame session window: first stake opens a 30 min play window, then a
-  // forced 30 min break; NULL = no session yet (next stake opens one).
+  // Minigame daily cap: game_session_start anchors the rolling 24h window
+  // (first stake of the day); game_played_ms banks in-game time and
+  // game_last_play_at marks the last stake so ≥30min gaps don't accrue.
   gameSessionStart: timestamp("game_session_start", { withTimezone: true }),
+  gameLastPlayAt: timestamp("game_last_play_at", { withTimezone: true }),
+  gamePlayedMs: bigint("game_played_ms", { mode: "number" }).notNull().default(0),
   // Notification prefs — resolve fan-out and closing-soon reminders.
   notifResolve: boolean("notif_resolve").notNull().default(true),
   notifClosing: boolean("notif_closing").notNull().default(true),
@@ -148,6 +153,10 @@ export const market = pgTable(
     qYes: numeric("q_yes", { precision: 24, scale: 6 }).notNull().default("0"),
     qNo: numeric("q_no", { precision: 24, scale: 6 }).notNull().default("0"),
     volumeCents: bigint("volume_cents", { mode: "number" }).notNull().default(0),
+    // The house seed baked into volumeCents at creation — recounts rebuild
+    // volume as seed + surviving turnover, so the baseline survives formula
+    // changes in houseSeedCents().
+    seedCents: bigint("seed_cents", { mode: "number" }).notNull().default(0),
     traderCount: integer("trader_count").notNull().default(0),
     creatorId: text("creator_id").references(() => user.id, { onDelete: "set null" }),
     // Community resolution: an expired market can get a proposed outcome;
@@ -280,7 +289,8 @@ export type LedgerKind =
   | "loan"
   | "repay"
   | "burn"
-  | "debt";
+  | "debt"
+  | "transfer";
 
 export const ledger = pgTable(
   "ledger",
@@ -465,6 +475,8 @@ export const squad = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull().unique(),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    // Shared pot — members contribute, members borrow against it.
+    treasuryCents: bigint("treasury_cents", { mode: "number" }).notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   }
 );
@@ -549,6 +561,10 @@ export const casinoConfig = pgTable("casino_config", {
   rigBps: integer("rig_bps").notNull().default(0),
   // Admin kill-switch — canonical game keys that refuse new stakes.
   disabledGames: text("disabled_games").array().notNull().default(sql`'{}'::text[]`),
+  // Economy resets move this forward: bank stats and balance-history charts
+  // only count ledger rows after the epoch — whale-era churn stays in the
+  // ledger for audit but out of the displayed numbers.
+  statsSince: timestamp("stats_since", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

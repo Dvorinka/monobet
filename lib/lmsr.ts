@@ -7,6 +7,19 @@
 // hit in one click.
 export const MAX_TRADE_CENTS = 100_000_00;
 
+// Display seed: a fresh market shows this much "volume" so it doesn't look
+// dead — scaled to the chosen liquidity tier (thin Ɱ100, standard Ɱ10 000,
+// deep Ɱ100 000). Stat recounts add surviving turnover on top of it.
+export function houseSeedCents(b: number): number {
+  if (b >= 3000) return 10_000_000;
+  if (b >= 1000) return 1_000_000;
+  return 10_000;
+}
+
+// Flat fee per order — placing (buy) and closing (sell) both pay it. A money
+// sink: the fee is burned, not credited anywhere.
+export const TRADE_FEE_CENTS = 100;
+
 export function lmsrCost(qYes: number, qNo: number, b: number): number {
   const m = Math.max(qYes, qNo);
   return m + b * Math.log(Math.exp((qYes - m) / b) + Math.exp((qNo - m) / b));

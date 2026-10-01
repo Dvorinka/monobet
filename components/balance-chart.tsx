@@ -1,10 +1,10 @@
-import { fmtMonos } from "@/lib/money";
+import { fmtMonos, fmtDate } from "@/lib/money";
 import type { Lang } from "@/lib/i18n";
 
 const W = 720;
 const H = 160;
 const PAD_T = 14;
-const PAD_B = 10;
+const PAD_B = 18;
 
 // Cash balance over time — every ledger row carries the post-entry balance,
 // so the line steps between events and never invents values in between.
@@ -35,24 +35,53 @@ export function BalanceChart({
   const area = `${d} L${xOf(t1).toFixed(1)},${H - PAD_B} L${xOf(t0).toFixed(1)},${H - PAD_B} Z`;
   const last = points[points.length - 1];
   const up = last.balanceCents >= vals[0];
+  const mid = (hi + lo) / 2;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-32" role="img" aria-label="balance history">
-      <defs>
-        <linearGradient id="balfill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor={up ? "var(--color-yes)" : "var(--color-no)"} stopOpacity="0.18" />
-          <stop offset="1" stopColor={up ? "var(--color-yes)" : "var(--color-no)"} stopOpacity="0.02" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill="url(#balfill)" />
-      <path d={d} fill="none" stroke={up ? "var(--color-yes)" : "var(--color-no)"} strokeWidth="2" strokeLinejoin="round" />
-      <circle cx={xOf(t1)} cy={yOf(last.balanceCents)} r={3.5} fill={up ? "var(--color-yes)" : "var(--color-no)"} />
-      <text x={6} y={yOf(hi) - 4} fontSize={9} fontWeight={600} fill="var(--color-faint)" className="num">
-        {fmtMonos(hi, { lang })}
-      </text>
-      <text x={6} y={yOf(lo) + 11} fontSize={9} fontWeight={600} fill="var(--color-faint)" className="num">
-        {fmtMonos(lo, { lang })}
-      </text>
-    </svg>
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-32" role="img" aria-label="balance history">
+        <defs>
+          <linearGradient id="balfill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor={up ? "var(--color-yes)" : "var(--color-no)"} stopOpacity="0.18" />
+            <stop offset="1" stopColor={up ? "var(--color-yes)" : "var(--color-no)"} stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {/* midpoint guide */}
+        <line
+          x1={0}
+          x2={W}
+          y1={yOf(mid)}
+          y2={yOf(mid)}
+          stroke="var(--color-line)"
+          strokeDasharray="3 4"
+          strokeWidth="1"
+        />
+        <path d={area} fill="url(#balfill)" />
+        <path d={d} fill="none" stroke={up ? "var(--color-yes)" : "var(--color-no)"} strokeWidth="2" strokeLinejoin="round" />
+        <circle cx={xOf(t1)} cy={yOf(last.balanceCents)} r={3.5} fill={up ? "var(--color-yes)" : "var(--color-no)"} />
+        <text x={6} y={yOf(hi) - 4} fontSize={9} fontWeight={600} fill="var(--color-faint)" className="num">
+          {fmtMonos(hi, { lang })}
+        </text>
+        <text x={6} y={yOf(lo) + 11} fontSize={9} fontWeight={600} fill="var(--color-faint)" className="num">
+          {fmtMonos(lo, { lang })}
+        </text>
+        {/* current value pinned to the right edge */}
+        <text
+          x={W - 8}
+          y={Math.max(12, yOf(last.balanceCents) - 7)}
+          fontSize={10}
+          fontWeight={700}
+          textAnchor="end"
+          fill={up ? "var(--color-yes-strong, var(--color-yes))" : "var(--color-no-strong, var(--color-no))"}
+          className="num"
+        >
+          {fmtMonos(last.balanceCents, { lang })}
+        </text>
+      </svg>
+      <div className="flex justify-between text-[10.5px] font-medium text-faint -mt-0.5">
+        <span>{fmtDate(points[0].t, lang)}</span>
+        <span>{fmtDate(last.t, lang)}</span>
+      </div>
+    </div>
   );
 }

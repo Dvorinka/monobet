@@ -5,9 +5,9 @@ import { getCurrentUser } from "@/lib/session";
 import { fmtMonos, fmtDate, fmtCountdown } from "@/lib/money";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
-import { Avatar, Badge, Card } from "@/components/ui/primitives";
+import { Avatar, Card } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
-import { CalendarClock, Medal, Trophy, Users } from "lucide-react";
+import { Medal, Trophy, Users } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Leaderboard" };
@@ -33,63 +33,81 @@ export default async function LeaderboardPage() {
   ]);
   const t = getT(lang);
 
+  const podium = [rows[1], rows[0], rows[2]].filter((r): r is (typeof rows)[number] => r != null);
+
   return (
     <div className="mx-auto max-w-3xl px-4 pt-8 pb-10">
-      <h1 className="text-[22px] font-bold tracking-tight flex items-center gap-2">
-        <Trophy className="size-5" /> {t.lbTitle}
-      </h1>
-      <p className="text-[13px] text-mute mt-1">{t.lbSub}</p>
-
-      <Card className="mt-5 px-4 py-3 flex items-center gap-3 flex-wrap">
-        <div className="size-9 rounded-lg bg-brand-soft text-brand-strong flex items-center justify-center shrink-0">
-          <CalendarClock className="size-4.5" />
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-[24px] font-black tracking-tight flex items-center gap-2">
+            <Trophy className="size-5.5 text-amber-500" /> {t.lbTitle}
+          </h1>
+          <p className="text-[13px] text-mute mt-1">{t.lbSub}</p>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-[14px] font-semibold">{t.seasonLive(season.index)}</div>
-          <div className="text-[12px] text-mute">
-            {t.seasonEndsIn(fmtCountdown(season.endsAt))} · {t.seasonPrize}
+        <div className="rounded-xl border border-line bg-surface px-3.5 py-2 text-right shadow-sm">
+          <div className="text-[10.5px] font-bold uppercase tracking-wide text-faint">{t.seasonLive(season.index)}</div>
+          <div className="num text-[13px] font-bold text-ink">
+            {t.seasonEndsIn(fmtCountdown(season.endsAt))}
           </div>
+          <div className="text-[11px] text-mute">{t.seasonPrize}</div>
         </div>
-        <Badge tone="warn" className="text-[11px]">{fmtDate(season.endsAt, lang)}</Badge>
-      </Card>
+      </div>
 
       {rows.length > 0 && (
         <div className="mt-6 grid grid-cols-3 items-end gap-2.5">
-          {[rows[1], rows[0], rows[2]].map((r, i) => {
-            if (!r) return <div key={i} />;
-            const rank = i === 0 ? 2 : i === 1 ? 1 : 3;
-            const barH = rank === 1 ? "h-20" : rank === 2 ? "h-12" : "h-9";
+          {podium.map((r) => {
+            const rank = rows.indexOf(r) + 1;
+            const barH = rank === 1 ? "h-24" : rank === 2 ? "h-14" : "h-10";
             return (
-              <div key={r.id} className="flex flex-col items-center gap-1.5 min-w-0">
-                <Avatar name={r.username ?? r.name} image={r.image} className={cn(rank === 1 ? "size-12" : "size-9", "ring-2 ring-surface shadow")} />
-                <Link href={`/u/${r.username ?? r.name}`} className="max-w-full truncate text-[12.5px] font-semibold hover:underline underline-offset-2">
-                  @{r.username ?? r.name}
-                </Link>
-                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-faint">{rankTitle(rank, t)}</span>
-                <span className="num text-[13px] font-bold">{fmtMonos(r.netWorthCents, { lang })}</span>
-                <div className={cn("w-full rounded-t-lg grid place-items-start justify-center pt-1.5", barH, PODIUM_BARS[rank - 1])}>
-                  <span className="text-[13px] font-black text-white/90">{rank}</span>
+              <Link
+                key={r.id}
+                href={`/u/${r.username ?? r.name}`}
+                className="group flex flex-col items-center gap-1.5 min-w-0"
+              >
+                <div className="relative">
+                  <Avatar
+                    name={r.username ?? r.name}
+                    image={r.image}
+                    className={cn(rank === 1 ? "size-14" : "size-10", "ring-2 ring-surface shadow")}
+                  />
+                  <span
+                    className={cn(
+                      "absolute -bottom-1 -right-1 grid size-5 place-items-center rounded-full text-[10px] font-black text-white shadow",
+                      rank === 1 ? "bg-amber-500" : rank === 2 ? "bg-slate-400" : "bg-amber-700"
+                    )}
+                  >
+                    {rank}
+                  </span>
                 </div>
-              </div>
+                <span className="max-w-full truncate text-[12.5px] font-semibold group-hover:underline underline-offset-2">
+                  @{r.username ?? r.name}
+                </span>
+                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-faint">{rankTitle(rank, t)}</span>
+                <span className="num text-[14px] font-bold">{fmtMonos(r.netWorthCents, { lang })}</span>
+                <div className={cn("w-full rounded-t-lg grid place-items-center", barH, PODIUM_BARS[rank - 1])}>
+                  <span className="text-[15px] font-black text-white/90">{rank}</span>
+                </div>
+              </Link>
             );
           })}
         </div>
       )}
 
       <Card className="mt-4 overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[480px]">
           <thead>
             <tr className="border-b border-line text-left text-[11.5px] uppercase tracking-wide text-mute">
               <th className="px-4 py-2.5 w-12">#</th>
               <th className="px-4 py-2.5">{t.lbTrader}</th>
-              <th className="px-4 py-2.5 text-right">{t.lbPositions}</th>
-              <th className="px-4 py-2.5 text-right">{t.lbBalance}</th>
+              <th className="px-4 py-2.5 text-right hidden sm:table-cell">{t.lbPositions}</th>
+              <th className="px-4 py-2.5 text-right hidden sm:table-cell">{t.lbBalance}</th>
               <th className="px-4 py-2.5 text-right">{t.lbNetWorth}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line-2">
             {rows.map((r, i) => (
-              <tr key={r.id} className={cn(user?.id === r.id && "bg-yes-soft/40")}>
+              <tr key={r.id} className={cn(user?.id === r.id ? "bg-yes-soft/40" : i < 3 && "bg-surface-2/40")}>
                 <td className="num px-4 py-3 font-bold">
                   <span className={cn(i === 0 && "text-amber-500", i === 1 && "text-slate-400", i === 2 && "text-amber-700", i > 2 && "text-mute")}>
                     {i + 1}
@@ -105,8 +123,8 @@ export default async function LeaderboardPage() {
                     </span>
                   </Link>
                 </td>
-                <td className="num px-4 py-3 text-right text-mute">{fmtMonos(r.portfolioCents, { lang })}</td>
-                <td className="num px-4 py-3 text-right text-mute">{fmtMonos(r.balanceCents, { lang })}</td>
+                <td className="num px-4 py-3 text-right text-mute hidden sm:table-cell">{fmtMonos(r.portfolioCents, { lang })}</td>
+                <td className="num px-4 py-3 text-right text-mute hidden sm:table-cell">{fmtMonos(r.balanceCents, { lang })}</td>
                 <td className="num px-4 py-3 text-right font-bold">{fmtMonos(r.netWorthCents, { lang })}</td>
               </tr>
             ))}
@@ -119,6 +137,7 @@ export default async function LeaderboardPage() {
             )}
           </tbody>
         </table>
+        </div>
       </Card>
 
       {squads.length > 0 && (
@@ -126,9 +145,9 @@ export default async function LeaderboardPage() {
           <h2 className="text-[15px] font-semibold mb-3 flex items-center gap-1.5">
             <Users className="size-4" /> {t.squadsTitle}
           </h2>
-          <Card className="p-1.5">
+          <Card className="divide-y divide-line-2 overflow-hidden">
             {squads.map((s, i) => (
-              <div key={s.id} className="flex items-center gap-3 px-3 py-2.5">
+              <div key={s.id} className="flex items-center gap-3 px-3.5 py-2.5">
                 <span className={cn("num w-6 text-[13px] font-bold", i === 0 ? "text-amber-500" : "text-mute")}>{i + 1}</span>
                 <div className="flex-1 min-w-0">
                   <div className="text-[13.5px] font-semibold">{s.name}</div>

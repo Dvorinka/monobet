@@ -15,6 +15,7 @@ import {
   getPositionBadges,
   getRelatedMarkets,
   getSparklines,
+  getStatsSince,
   getGroupHistories,
   getMarketBetCount,
   listCategories,
@@ -25,6 +26,7 @@ import {
   getResolutionStates,
   getTopHolders,
   getGroupHolders,
+  getGroupTraderCount,
   getUserPublic,
   listMarkets,
   getCommunityNotes,
@@ -51,6 +53,7 @@ import { GroupTrade } from "@/components/group-trade";
 import { DeleteMarketButton } from "@/components/delete-market-button";
 import { MarketManagePanel } from "@/components/market-manage";
 import { ResolutionPanel } from "@/components/resolution-panel";
+import { NoteStanceBar } from "@/components/note-stance-bar";
 import { optionColor } from "@/lib/option-style";
 import { cn } from "@/lib/utils";
 
@@ -75,12 +78,16 @@ export async function generateMetadata({
   } else if (m && m.kind !== "group") {
     pct = Math.round(marketYesPrice(m) * 100);
   }
+  // Group parents hold seed volume only — the real number is the sum of
+  // option volumes, same as the page header and OG image.
+  const groupVolume = m?.kind === "group" ? (await getGroupOptions(m.id)).reduce((s, o) => s + o.volumeCents, 0) : 0;
+  const shownVolume = m?.kind === "group" ? groupVolume : (m?.volumeCents ?? 0);
   return {
     title: m?.question ?? "Market",
     description: m
       ? m.kind === "group"
-        ? `${fmtMonos(m.volumeCents)} traded on MonoBet — play-money markets`
-        : `${pct}% YES · ${fmtMonos(m.volumeCents)} traded on MonoBet — play-money markets`
+        ? `${fmtMonos(shownVolume)} traded on MonoBet — play-money markets`
+        : `${pct}% YES · ${fmtMonos(shownVolume)} traded on MonoBet — play-money markets`
       : "MonoBet market",
     openGraph: m ? { title: m.question } : undefined,
   };
@@ -128,7 +135,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
     market.parentId ? getMarketById(market.parentId) : null,
     // Options price off the group's shared book — softmax over live siblings.
     market.parentId ? getGroupOptions(market.parentId).then((o) => o.filter((s) => s.status === "live")) : null,
-    getPriceHistory(market.id),
+    getStatsSince().then((since) => getPriceHistory(market.id, since ?? undefined)),
     getRecentTrades(market.id),
     getComments(market.id, user?.id, !!user && isAdmin(user)),
     user ? getUserPosition(market.id, user.id) : null,
@@ -362,6 +369,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
                 <StickyNote className="size-4" /> {t.notesTitle}
               </h2>
+              <NoteStanceBar notes={publishedNotes} lang={lang} />
               <Card className="p-1.5">
                 {publishedNotes.map((n) => (
                   <div key={n.id} className="px-3 py-2.5">
@@ -592,9 +600,9 @@ async function GroupMarketView({
   const optionIds = options.map((o) => o.id);
   const live = options.filter((o) => o.status === "live");
   const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
-  const [optionSparks, histories, betCount, categories, posRows, myPositions, creator, res, holders, resStates, notesMap] = await Promise.all([
-    getSparklines(optionIds),
-    getGroupHistories(optionIds),
+  const [optionSparks, histories, betCount, categories, posRows, myPositions, creator, res, holders, resStates, notesMap, groupTraders] = await Promise.all([
+    getStatsSince().then((since) => getSparklines(optionIds, since)),
+    getStatsSince().then((since) => getGroupHistories(optionIds, since)),
     getMarketBetCount(market.id),
     listCategories(),
     getPositionBadges(optionIds),
@@ -604,6 +612,7 @@ async function GroupMarketView({
     getGroupHolders(optionIds),
     getResolutionStates(optionIds, user?.id),
     canManage ? getNotesFor(optionIds) : getNotesFor(optionIds, { publishedOnly: true }),
+    getGroupTraderCount(optionIds),
   ]);
   // Comment badges: each commenter's dominant option position. YES-side holders
   // get the option color, NO-side holders a red "No <option>" tag.
@@ -624,7 +633,7 @@ async function GroupMarketView({
         : { label: `${t.no} ${label}`, shares: no, tone: "no" };
   }
   const volume = options.reduce((s, o) => s + o.volumeCents, 0);
-  const traders = options.reduce((s, o) => s + o.traderCount, 0);
+  const traders = groupTraders;
   // A live group past its close is done taking bets; it just awaits resolution.
   const expired = !!market.closesAt && market.closesAt <= new Date();
   const anyLive = live.length > 0 && !expired;
@@ -773,6 +782,7 @@ async function GroupMarketView({
                 <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
                   <StickyNote className="size-4" /> {t.notesTitle}
                 </h2>
+                <NoteStanceBar notes={options.flatMap((o) => notesMap.get(o.id) ?? []).filter((n) => n.published)} lang={lang} />
                 <Card className="p-1.5">
                   {options.flatMap((o) =>
                     (notesMap.get(o.id) ?? [])

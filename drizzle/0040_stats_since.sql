@@ -1,0 +1,1 @@
+ALTER TABLE "casino_config" ADD COLUMN "stats_since" timestamp with time zone;

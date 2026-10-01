@@ -51,7 +51,12 @@ export default async function GamesPage() {
       </h1>
       <div className="mt-1 flex items-center gap-2.5 flex-wrap">
         <p className="text-[13px] text-mute">{t.gamesSub}</p>
-        <SessionChip sessionStart={user.gameSessionStart?.getTime() ?? null} lang={lang} />
+        <SessionChip
+          windowStart={user.gameSessionStart?.getTime() ?? null}
+          lastPlayAt={user.gameLastPlayAt?.getTime() ?? null}
+          playedMs={user.gamePlayedMs}
+          lang={lang}
+        />
       </div>
 
       {jackpot && (

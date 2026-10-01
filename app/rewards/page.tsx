@@ -65,6 +65,8 @@ export default async function RewardsPage() {
         }}
         bonuses={bonusState}
         username={user.username ?? user.name}
+        referrals={state.referrals}
+        royaltyDueCents={state.royaltyDueCents}
         debt={{ cents: accruedDebtCents(user.debtCents, user.debtRateBps, user.debtSince), rateBps: user.debtRateBps }}
         wall={{ prayerAt: user.wallPrayerAt, vowBps: user.vowBps, prayers, balanceCents: user.balanceCents }}
         // eslint-disable-next-line react-hooks/purity -- server component renders once per request

@@ -3,17 +3,17 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Swords, Check, X, Trophy, AlertTriangle, Dices, RefreshCw, CircleDot, Clover, ArrowDownToDot } from "lucide-react";
-import { Button, Card, Input, Badge, Select, Segmented } from "@/components/ui/primitives";
-import { createDuel, respondDuel, cancelDuel, proposeDuelWinner, duelPlay } from "@/lib/actions";
+import { Swords, Check, X, Trophy, AlertTriangle, Dices, RefreshCw, CircleDot, Clover, ArrowDownToDot, Coins, Contrast, Rocket, ArrowUpDown, Timer, Spade } from "lucide-react";
+import { Button, Card, Input, Badge, Select } from "@/components/ui/primitives";
+import { createDuel, respondDuel, cancelDuel, proposeDuelWinner } from "@/lib/actions";
 import { fmtMonos } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import type { DuelKind } from "@/lib/games";
+import { cardLabel, SLOT_SYMBOLS, type DuelKind, type DuelMove } from "@/lib/games";
 
-type DuelState = { moves?: Record<string, string | number> } | null;
+export type DuelState = { moves?: Record<string, DuelMove>; skimCents?: number } | null;
 
-type DuelRow = {
+export type DuelRow = {
   duel: {
     id: string;
     creatorId: string;
@@ -36,13 +36,84 @@ type DuelRow = {
 
 type Opponent = { id: string; username: string | null; name: string; image: string | null };
 
-const KIND_ICONS: Record<string, React.ReactNode> = {
+type TDict = ReturnType<typeof getT>;
+
+export function duelMoveLabel(t: TDict, mv: DuelMove | undefined) {
+  if (mv === undefined) return "—";
+  if (mv === "rock") return t.duelMoveRock;
+  if (mv === "paper") return t.duelMovePaper;
+  if (mv === "scissors") return t.duelMoveScissors;
+  if (mv === "heads") return t.heads;
+  if (mv === "tails") return t.tails;
+  if (mv === "red") return t.rbRed;
+  if (mv === "black") return t.rbBlack;
+  return typeof mv === "object" ? `${mv.s ?? "?"}` : String(mv);
+}
+
+// Per-kind formatting for a finished round — objects carry pick/score/data.
+export function duelFmtMove(t: TDict, k: string, mv: DuelMove | undefined) {
+  if (mv === undefined) return "—";
+  if (k === "rps") return duelMoveLabel(t, mv);
+  if (typeof mv !== "object") return k === "roll" || k === "dice" ? `${mv}` : `×${mv}`;
+  if (mv.hidden) return "?";
+  if (!mv.done) return "…"; // mid-round (hilo face, live timer, open hand)
+  const d = mv.data ?? {};
+  if (k === "coinflip" || k === "redblack") {
+    const pick = duelMoveLabel(t, mv.pick);
+    if (k === "coinflip") {
+      const landed = d.landed as string | undefined;
+      return landed ? `${pick} · ${t.duelLanded(duelMoveLabel(t, landed))}` : pick;
+    }
+    if (d.card !== undefined) {
+      const c = cardLabel(d.card as number);
+      return `${pick} · ${t.duelLanded(`${c.rank}${c.suit}`)}`;
+    }
+    return pick;
+  }
+  if (k === "slots") return `${(d.reels as number[] | undefined)?.map((r) => SLOT_SYMBOLS[r]).join(" ") ?? ""} ×${mv.s ?? 0}`.trim();
+  if (k === "plinko") return `×${mv.s}`;
+  if (k === "limbo") return mv.s ? `×${d.target}` : `✕ ×${d.crash}`;
+  if (k === "hilo") {
+    const c = d.card !== undefined ? cardLabel(d.card as number) : null;
+    return `${c ? `${c.rank}${c.suit}` : "?"} ${d.won ? "✓" : d.push ? "=" : "✕"}`;
+  }
+  if (k === "timer") return t.duelOffBy(`${d.err}ms`);
+  if (k === "blackjack") return d.bust ? t.bjBust : `${mv.s === 22 ? "21 ★" : mv.s}`;
+  return `${mv.s ?? "?"}`;
+}
+
+export function duelKindLabels(t: TDict): Record<string, string> {
+  return {
+    claim: t.duelKindClaim,
+    rps: t.duelKindRps,
+    roll: t.duelKindRoll,
+    coinflip: t.duelKindCoinflip,
+    redblack: t.duelKindRedblack,
+    dice: t.duelKindDice,
+    limbo: t.duelKindLimbo,
+    wheel: t.duelKindWheel,
+    slots: t.duelKindSlots,
+    plinko: t.duelKindPlinko,
+    hilo: t.duelKindHilo,
+    timer: t.duelKindTimer,
+    blackjack: t.duelKindBlackjack,
+  };
+}
+
+export const KIND_ICONS: Record<string, React.ReactNode> = {
   claim: <Swords className="size-3.5" />,
   rps: <Clover className="size-3.5" />,
   roll: <Dices className="size-3.5" />,
+  coinflip: <Coins className="size-3.5" />,
+  redblack: <Contrast className="size-3.5" />,
+  dice: <Dices className="size-3.5" />,
+  limbo: <Rocket className="size-3.5" />,
   wheel: <CircleDot className="size-3.5" />,
   slots: <RefreshCw className="size-3.5" />,
   plinko: <ArrowDownToDot className="size-3.5" />,
+  hilo: <ArrowUpDown className="size-3.5" />,
+  timer: <Timer className="size-3.5" />,
+  blackjack: <Spade className="size-3.5" />,
 };
 
 // Head-to-head bets between two users — both stakes escrow on accept, the
@@ -53,12 +124,14 @@ export function DuelsPanel({
   me,
   opponents,
   balanceCents,
+  disabled,
   lang,
 }: {
   duels: DuelRow[];
   me: string;
   opponents: Opponent[];
   balanceCents: number;
+  disabled: string[];
   lang?: Lang;
 }) {
   const t = getT(lang ?? "en");
@@ -68,8 +141,6 @@ export function DuelsPanel({
   const [kind, setKind] = useState<DuelKind>("claim");
   const [claim, setClaim] = useState("");
   const [stake, setStake] = useState("10");
-  const [arenaId, setArenaId] = useState<string | null>(null);
-  const arenaDuel = arenaId ? duels.find((d) => d.duel.id === arenaId) : undefined;
 
   // Live-ish: poll for the opponent's moves, accepts and settlements.
   useEffect(() => {
@@ -79,51 +150,32 @@ export function DuelsPanel({
     return () => clearInterval(id);
   }, [router]);
 
-  const kindLabels: Record<DuelKind, string> = {
-    claim: t.duelKindClaim,
-    rps: t.duelKindRps,
-    roll: t.duelKindRoll,
-    wheel: t.duelKindWheel,
-    slots: t.duelKindSlots,
-    plinko: t.duelKindPlinko,
-  };
+  const kindLabels = duelKindLabels(t);
   const kindDesc: Record<DuelKind, string> = {
     claim: t.duelKindClaimDesc,
     rps: t.duelKindRpsDesc,
     roll: t.duelKindRollDesc,
+    coinflip: t.duelKindCoinflipDesc,
+    redblack: t.duelKindRedblackDesc,
+    dice: t.duelKindDiceDesc,
+    limbo: t.duelKindLimboDesc,
     wheel: t.duelKindWheelDesc,
     slots: t.duelKindSlotsDesc,
     plinko: t.duelKindPlinkoDesc,
+    hilo: t.duelKindHiloDesc,
+    timer: t.duelKindTimerDesc,
+    blackjack: t.duelKindBlackjackDesc,
   };
-  const moveLabel = (mv: string | number | undefined) => {
-    if (mv === undefined) return "—";
-    if (mv === "rock") return t.duelMoveRock;
-    if (mv === "paper") return t.duelMovePaper;
-    if (mv === "scissors") return t.duelMoveScissors;
-    if (typeof mv === "number") return mv > 1 ? `×${mv}` : `${mv}`;
-    return String(mv);
-  };
-  // Wheel/slots values are multipliers, roll is a raw die face.
-  const fmtMove = (k: string, mv: string | number | undefined) =>
-    mv === undefined ? "—" : k === "rps" ? moveLabel(mv) : k === "roll" ? `${mv}` : `×${mv}`;
+  const fmtMove = (k: string, mv: DuelMove | undefined) => duelFmtMove(t, k, mv);
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string, onOk?: () => void) =>
+  const run = <R extends { ok: boolean; error?: string }>(fn: () => Promise<R>, ok: string, onOk?: (r: R) => void) =>
     start(async () => {
       const r = await fn();
       if (r.ok) {
         toast.success(ok);
-        onOk?.();
+        onOk?.(r);
         router.refresh();
       } else toast.error(t.serverErr(r.error));
-    });
-
-  const play = (id: string, move?: string) =>
-    start(async () => {
-      const r = await duelPlay({ id, move });
-      if (!r.ok) toast.error(t.serverErr(r.error));
-      else if (r.tie) toast(t.duelTieToast);
-      else if (r.waiting) toast.success(t.duelMoveLockedToast);
-      router.refresh();
     });
 
   const stakeCents = Math.round(parseFloat(stake || "0") * 100);
@@ -142,11 +194,13 @@ export function DuelsPanel({
         <div className="mt-3 space-y-3">
           <div>
             <div className="text-[11.5px] font-semibold text-mute mb-1.5">{t.duelGameType}</div>
-            <Segmented
-              value={kind}
-              onChange={(v) => setKind(v)}
-              options={(Object.keys(kindLabels) as DuelKind[]).map((k) => ({ value: k, label: kindLabels[k] }))}
-            />
+            <Select value={kind} onChange={(e) => setKind(e.target.value as DuelKind)}>
+              {(Object.keys(kindLabels) as DuelKind[])
+                .filter((k) => k === "claim" || k === "rps" || k === "roll" || !disabled.includes(k))
+                .map((k) => (
+                  <option key={k} value={k}>{kindLabels[k]}</option>
+                ))}
+            </Select>
             <p className="text-[11.5px] text-faint mt-1.5">{kindDesc[kind]}</p>
           </div>
           <div className="grid grid-cols-[1fr_130px] gap-2.5">
@@ -193,7 +247,7 @@ export function DuelsPanel({
               run(
                 () => createDuel({ opponent: opp, claim, stakeCents, kind }),
                 t.duelCreatedToast,
-                () => { setClaim(""); setOpp(""); }
+                (r) => { setClaim(""); setOpp(""); if (r.id) router.push(`/duels/${r.id}`); }
               )
             }
           >
@@ -210,7 +264,7 @@ export function DuelsPanel({
           <Card className="p-1.5 space-y-1">
             {incoming.map(({ duel: d, creatorName }) => (
               <Row key={d.id} claim={duelTitle(d)} kind={d.kind} sub={`@${creatorName} · ${fmtMonos(d.stakeCents, { lang })} ${t.duelStakeEach}`}>
-                <Button size="xs" variant="yes" disabled={pending} onClick={() => run(() => respondDuel({ id: d.id, accept: true }), t.duelAcceptedToast)}>
+                <Button size="xs" variant="yes" disabled={pending} onClick={() => run(() => respondDuel({ id: d.id, accept: true }), t.duelAcceptedToast, () => router.push(`/duels/${d.id}`))}>
                   <Check className="size-3" /> {t.duelAccept}
                 </Button>
                 <Button size="xs" variant="outline" disabled={pending} onClick={() => run(() => respondDuel({ id: d.id, accept: false }), t.duelDeclinedToast)}>
@@ -255,7 +309,7 @@ export function DuelsPanel({
                           {t.duelYourMove(fmtMove(d.kind, myMove))} · {t.duelWaitMove}
                         </span>
                       )}
-                      <Button size="xs" variant="yes" disabled={pending} onClick={() => setArenaId(d.id)}>
+                      <Button size="xs" variant="yes" disabled={pending} onClick={() => router.push(`/duels/${d.id}`)}>
                         {KIND_ICONS[d.kind]} {t.duelPlayBtn}
                       </Button>
                     </>
@@ -333,127 +387,6 @@ export function DuelsPanel({
       )}
 
       {duels.length === 0 && <p className="text-[13px] text-mute text-center py-6">{t.duelEmpty}</p>}
-
-      {/* Full-screen arena */}
-      {arenaDuel && (() => {
-        const d = arenaDuel.duel;
-        const moves = ((d.state as DuelState)?.moves) ?? {};
-        const myMove = moves[me];
-        const otherId = d.creatorId === me ? d.opponentId : d.creatorId;
-        const otherMove = moves[otherId];
-        const myName = (d.creatorId === me ? arenaDuel.creatorName : arenaDuel.opponentName) ?? "?";
-        const otherName = (d.creatorId === me ? arenaDuel.opponentName : arenaDuel.creatorName) ?? "?";
-        const settled = d.status === "settled";
-        const disputed = d.status === "disputed";
-        const iWon = settled && d.winnerId === me;
-        const draw = settled && !d.winnerId;
-        const game = d.kind !== "claim";
-        const awaiting = d.pendingById === me;
-        return (
-          <div className="fixed inset-0 z-50 bg-surface sm:bg-ink/70 sm:backdrop-blur-sm sm:flex sm:items-center sm:justify-center sm:p-6">
-            <div className="mx-auto flex min-h-full w-full max-w-lg flex-col bg-surface sm:min-h-0 sm:max-h-[85vh] sm:rounded-2xl sm:border sm:border-line sm:shadow-2xl overflow-y-auto">
-              <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">
-                <span className="size-8 rounded-lg bg-brand-soft text-brand-strong flex items-center justify-center">
-                  {KIND_ICONS[d.kind] ?? <Swords className="size-4" />}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[14px] font-semibold truncate">{duelTitle(d)}</div>
-                  <div className="text-[11.5px] text-faint">{fmtMonos(d.stakeCents * 2, { lang })} {t.duelPot}</div>
-                </div>
-                <Button size="xs" variant="outline" onClick={() => setArenaId(null)} aria-label={t.duelArenaClose}>
-                  <X className="size-3.5" />
-                </Button>
-              </div>
-
-              <div className="flex items-center justify-center gap-6 py-6 px-4">
-                <PlayerChip name={myName} you />
-                <span className="text-[13px] font-bold text-faint tracking-widest">VS</span>
-                <PlayerChip name={otherName} />
-              </div>
-
-              <div className="flex-1 flex flex-col items-center justify-center gap-4 px-4 pb-8">
-                {disputed && (
-                  <div className="flex items-center gap-2 text-[13px] text-no-strong font-medium">
-                    <AlertTriangle className="size-4" /> {t.duelDisputed} — {t.duelRulesNote}
-                  </div>
-                )}
-
-                {settled && (
-                  <>
-                    {Object.keys(moves).length === 2 && (
-                      <div className="flex items-center gap-4 text-[28px] font-bold tabular-nums">
-                        <span className={cn(iWon ? "text-yes" : "text-mute")}>{fmtMove(d.kind, myMove)}</span>
-                        <span className="text-[13px] text-faint">:</span>
-                        <span className={cn(!iWon && !draw ? "text-yes" : "text-mute")}>{fmtMove(d.kind, otherMove)}</span>
-                      </div>
-                    )}
-                    <div className={cn("flex items-center gap-2 text-[16px] font-semibold", iWon ? "text-yes" : draw ? "text-mute" : "text-no-strong")}>
-                      <Trophy className="size-5" />
-                      {draw ? t.duelRefunded : iWon ? t.duelWonYou : t.duelLostYou}
-                    </div>
-                    <Button variant="outline" onClick={() => setArenaId(null)}>{t.duelArenaClose}</Button>
-                  </>
-                )}
-
-                {!settled && !disputed && game && (
-                  myMove !== undefined ? (
-                    <>
-                      <div className="text-[34px] font-bold tabular-nums">{fmtMove(d.kind, myMove)}</div>
-                      <div className="flex items-center gap-2 text-[13px] text-mute">
-                        <span className="size-2 rounded-full bg-brand animate-pulse" />
-                        {t.duelWaitingArena}
-                      </div>
-                    </>
-                  ) : d.kind === "rps" ? (
-                    <div className="grid grid-cols-3 gap-3 w-full max-w-sm">
-                      {(["rock", "paper", "scissors"] as const).map((m) => (
-                        <button
-                          key={m}
-                          disabled={pending}
-                          onClick={() => play(d.id, m)}
-                          className="aspect-square rounded-2xl border border-line bg-surface-2/60 text-[15px] font-semibold flex items-center justify-center hover:border-brand hover:bg-brand-soft active:scale-95 transition disabled:opacity-50"
-                        >
-                          {moveLabel(m)}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <Button size="lg" variant="yes" className="w-full max-w-sm text-[16px]" disabled={pending} onClick={() => play(d.id)}>
-                      {KIND_ICONS[d.kind]} {d.kind === "roll" ? t.duelRollBtn : d.kind === "wheel" ? t.duelSpinBtn : d.kind === "plinko" ? t.duelDrawBtn : t.duelDrawBtn}
-                    </Button>
-                  )
-                )}
-
-                {!settled && !disputed && !game && (
-                  awaiting ? (
-                    <div className="text-[13px] text-mute">{t.duelAwaiting}</div>
-                  ) : (
-                    <div className="flex flex-col gap-2.5 w-full max-w-sm">
-                      <Button variant="yes" className="w-full" disabled={pending} onClick={() => run(() => proposeDuelWinner({ id: d.id, winnerId: me }), t.duelVotedToast)}>
-                        <Trophy className="size-4" /> {t.duelIWon}
-                      </Button>
-                      <Button variant="outline" className="w-full" disabled={pending} onClick={() => run(() => proposeDuelWinner({ id: d.id, winnerId: otherId }), t.duelVotedToast)}>
-                        {t.duelTheyWon}
-                      </Button>
-                    </div>
-                  )
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-    </div>
-  );
-}
-
-function PlayerChip({ name, you }: { name: string; you?: boolean }) {
-  return (
-    <div className="flex flex-col items-center gap-1.5 min-w-0">
-      <span className={cn("size-14 rounded-full flex items-center justify-center text-[18px] font-bold", you ? "bg-brand text-white" : "bg-surface-2 text-ink border border-line")}>
-        {name.slice(0, 1).toUpperCase()}
-      </span>
-      <span className="text-[12.5px] font-medium truncate max-w-[110px]">@{name}</span>
     </div>
   );
 }

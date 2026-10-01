@@ -77,9 +77,9 @@ export function MarketManagePanel({
   const isGroup = market.kind === "group";
   const typeLabel = market.kind === "binary" ? t.typeBinary : t.typeMulti;
   const LIQUIDITY = [
-    { b: 100, label: t.liqThin, hint: t.liqThinHint },
-    { b: 300, label: t.liqStandard, hint: t.liqStandardHint },
-    { b: 900, label: t.liqDeep, hint: t.liqDeepHint },
+    { b: 300, label: t.liqThin, hint: t.liqThinHint },
+    { b: 1000, label: t.liqStandard, hint: t.liqStandardHint },
+    { b: 3000, label: t.liqDeep, hint: t.liqDeepHint },
   ] as const;
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string; paidOut?: number }>, ok: string) =>

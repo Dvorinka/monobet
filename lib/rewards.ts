@@ -25,14 +25,30 @@ export const BONUSES = [
   { key: "squad", amountCents: 5_000, href: null, check: "squad" },
   { key: "ten_trades", amountCents: 20_000, href: "/markets", check: "tenTrades" },
   { key: "streak7", amountCents: 25_000, href: null, check: "streak7" },
+  { key: "first_sell", amountCents: 5_000, href: "/markets", check: "sell" },
+  { key: "note", amountCents: 5_000, href: "/markets", check: "note" },
+  { key: "vote", amountCents: 2_500, href: "/markets", check: "vote" },
+  { key: "duel_win", amountCents: 10_000, href: "/duels", check: "duelWin" },
+  { key: "squad_owner", amountCents: 7_500, href: null, check: "squadOwner" },
+  { key: "referrer", amountCents: 10_000, href: null, check: "referrer" },
+  { key: "fifty_trades", amountCents: 30_000, href: "/markets", check: "fiftyTrades" },
+  { key: "active7", amountCents: 10_000, href: "/rewards", check: "active7" },
 ] as const;
 
 export type BonusKey = (typeof BONUSES)[number]["key"];
 export const BONUS_MAP = new Map(BONUSES.map((b) => [b.key, b]));
 
-// Referral: the invitee gets this once, the referrer gets REFERRER_BONUS per join.
+// Referral: the invitee gets this once, the referrer gets REFERRER_BONUS per join
+// plus a royalty on everything the invitee goes on to earn.
 export const REFEREE_BONUS = 10_000;
 export const REFERRER_BONUS = 20_000;
+// 5% of the invitee's lifetime earned income (faucet + winnings), claimable
+// repeatedly and capped per invitee so a whale can't mint infinite referrer
+// money. `grant`/`sell`/`loan`/`transfer`/`refund` are excluded — admin gifts
+// and principal moves aren't earnings.
+export const REFERRAL_ROYALTY_BPS = 500;
+export const REFERRAL_ROYALTY_CAP_CENTS = 1_000_000; // Ɱ10,000 per invitee
+export const REFERRAL_EARN_KINDS = ["signup", "claim", "weekly", "ad", "activity", "bonus", "game", "payout", "duel", "tav", "jackpot"] as const;
 
 // Daily jackpot — 4% of game handle pools back into a pot drawn once a day.
 // Every Ɱ10 wagered buys a ticket; the draw weights entries by ticket count.

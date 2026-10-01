@@ -4,8 +4,10 @@ import { MarketCard } from "@/components/market-card";
 import {
   listMarkets,
   getSparklines,
+  getStatsSince,
   getCommentCount,
   getGroupOptionsFor,
+  getGroupTraderCounts,
   listCategories,
   getWatchlistIds,
   getLikedIds,
@@ -50,11 +52,12 @@ export default async function MarketsPage({
   const likedSet = new Set(likedIds);
   const ids = markets.map((m) => m.id);
   const groupIds = markets.filter((m) => m.kind === "group").map((m) => m.id);
-  const [sparks, comments, groupOptions, likeCounts] = await Promise.all([
-    getSparklines(ids),
+  const [sparks, comments, groupOptions, likeCounts, groupTraders] = await Promise.all([
+    getStatsSince().then((since) => getSparklines(ids, since)),
     getCommentCount(ids),
     getGroupOptionsFor(groupIds),
     getLikeCounts(ids),
+    getGroupTraderCounts(groupIds),
   ]);
   const trendingIds = new Set(
     [...markets].filter((m) => m.status === "live").sort((a, b) => b.volumeCents - a.volumeCents).slice(0, 3).map((m) => m.id)
@@ -133,6 +136,7 @@ export default async function MarketsPage({
               liked={user ? likedSet.has(m.id) : undefined}
               likes={likeCounts.get(m.id) ?? 0}
               trending={trendingIds.has(m.id)}
+              groupTraders={groupTraders.get(m.id)}
             />
           ))}
         </div>

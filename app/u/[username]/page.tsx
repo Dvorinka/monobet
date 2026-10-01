@@ -1,15 +1,18 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getAchievements, getPublicProfile, getSquadInvites } from "@/lib/queries";
+import { getAchievements, getPublicProfile, getSquadInvites, getStatsSince, getUserLedger, getUserTrades } from "@/lib/queries";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
-import { getT } from "@/lib/i18n";
+import { getT, type Lang } from "@/lib/i18n";
 import { Avatar, Badge, Card } from "@/components/ui/primitives";
 import { ProfileSettings } from "@/components/profile-settings";
+import { AvatarUpload } from "@/components/avatar-upload";
+import { BalanceChart } from "@/components/balance-chart";
 import { fmtMonos, fmtDate, fmtShares, timeAgo } from "@/lib/money";
 import { marketYesPrice } from "@/lib/queries";
-import { CheckCircle2, Lock, ShieldCheck, Trophy } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { ChartLine, CheckCircle2, ListOrdered, Lock, ShieldCheck, Trophy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +32,30 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   const t = getT(lang);
   const { user: u, stats, positions, created, netWorthCents, rank, playPnlCents, games, squadName } = profile;
   const isSelf = viewer?.id === u.id;
-  const [achievements, invites] = await Promise.all([
+  const [achievements, invites, selfTrades, selfLedger, statsSince] = await Promise.all([
     getAchievements(u.id),
     isSelf ? getSquadInvites(u.id) : Promise.resolve([] as Awaited<ReturnType<typeof getSquadInvites>>),
+    // Private sections — fetched only for the owner, never for the public.
+    isSelf ? getUserTrades(u.id) : Promise.resolve([] as Awaited<ReturnType<typeof getUserTrades>>),
+    isSelf ? getUserLedger(u.id, 300) : Promise.resolve([] as Awaited<ReturnType<typeof getUserLedger>>),
+    isSelf ? getStatsSince() : Promise.resolve(null),
   ]);
+
+  // Balance history — ledger rows arrive newest-first; the chart wants time
+  // ascending. Rows before the stats epoch stay in the ledger for audit but
+  // off the chart — the line opens at the epoch with the reconstructed
+  // pre-row balance so it starts at the reset, not mid-air.
+  const postEpoch = selfLedger.filter((l) => !statsSince || l.createdAt >= statsSince);
+  const balanceSeries = postEpoch
+    .slice()
+    .reverse()
+    .map((l) => ({ t: l.createdAt, balanceCents: l.balanceAfterCents }));
+  if (statsSince) {
+    const last = postEpoch[postEpoch.length - 1];
+    balanceSeries.unshift({ t: statsSince, balanceCents: last ? last.balanceAfterCents - last.amountCents : u.balanceCents });
+  }
+  if (balanceSeries.length === 0 || balanceSeries[balanceSeries.length - 1].balanceCents !== u.balanceCents)
+    balanceSeries.push({ t: new Date(), balanceCents: u.balanceCents });
 
   // (No win-rate stat: positions are deleted at settlement, so there's
   // nothing left to compute it from — duel count is the honest substitute.)
@@ -66,7 +89,11 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
     <div className="mx-auto max-w-4xl px-4 pt-8 pb-10">
       {/* Identity card */}
       <Card className="p-5 sm:p-6 flex items-center gap-4 sm:gap-5 flex-wrap border-t-2 border-t-brand/50">
-        <Avatar name={u.username ?? u.name} image={u.image} className="size-16 sm:size-20 text-2xl" />
+        {isSelf ? (
+          <AvatarUpload name={u.username ?? u.name} image={u.image} lang={lang} />
+        ) : (
+          <Avatar name={u.username ?? u.name} image={u.image} className="size-16 sm:size-20 text-2xl" />
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-[20px] font-bold tracking-tight">@{u.username ?? u.name}</h1>
@@ -99,6 +126,16 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
         <Stat label={t.trades} value={String(stats.trades)} />
         <Stat label={t.markets} value={String(stats.markets)} />
       </div>
+
+      {isSelf && balanceSeries.length > 1 && (
+        <Card className="mt-4 p-4">
+          <div className="flex items-center gap-1.5 text-[12px] font-medium text-mute mb-1">
+            <ChartLine className="size-4" />
+            {t.pfBalanceHistory}
+          </div>
+          <BalanceChart points={balanceSeries} lang={lang} />
+        </Card>
+      )}
 
       {isSelf && (
         <div className="mt-4">
@@ -218,6 +255,58 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
           </Card>
         </section>
       </div>
+
+      {/* Private: trade log + cash flow. Owner only — the public page stops at
+          positions, created markets, and game history. */}
+      {isSelf && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 mt-8">
+          <section>
+            <h2 className="text-[15px] font-semibold mb-3 flex items-center gap-2">
+              <ListOrdered className="size-4" /> {t.recentTrades}
+            </h2>
+            <Card className="p-1.5">
+              {selfTrades.length === 0 && <p className="p-4 text-sm text-mute">{t.noTrades}</p>}
+              {selfTrades.map(({ trade: tr, question, slug }) => (
+                <Link
+                  key={tr.id}
+                  href={`/market/${slug}`}
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg hover:bg-surface-2 text-[13px]"
+                >
+                  <Badge tone={tr.outcome === "yes" ? "yes" : "no"}>
+                    {(tr.outcome === "yes" ? t.yes : t.no).toUpperCase()}
+                  </Badge>
+                  <span className={cn("font-medium", tr.side === "buy" ? "text-ink" : "text-mute")}>
+                    {tr.side === "buy" ? t.buy.toLowerCase() : t.sell.toLowerCase()}
+                  </span>
+                  <span className="num text-mute">{fmtShares(Number(tr.shares), lang)}</span>
+                  <span className="truncate text-mute flex-1">{question}</span>
+                  <span className="num font-semibold">{fmtMonos(tr.amountCents, { lang })}</span>
+                  <span className="text-faint text-[11px] w-14 text-right">{timeAgo(tr.createdAt, lang)}</span>
+                </Link>
+              ))}
+            </Card>
+          </section>
+
+          <section>
+            <h2 className="text-[15px] font-semibold mb-3">{t.cashFlow}</h2>
+            <Card className="p-1.5">
+              {selfLedger.slice(0, 30).map((l) => (
+                <div key={l.id} className="flex items-center gap-3 px-3 py-2.5 text-[13px]">
+                  <KindBadge kind={l.kind} lang={lang} />
+                  <span className="truncate text-mute flex-1">{l.memo || l.kind}</span>
+                  <span className={cn("num font-semibold", l.amountCents > 0 ? "text-yes-strong" : "text-ink")}>
+                    {l.amountCents > 0 ? "+" : ""}
+                    {fmtMonos(l.amountCents, { lang })}
+                  </span>
+                  <span className="num text-faint text-[11.5px] w-20 text-right">
+                    → {fmtMonos(l.balanceAfterCents, { lang })}
+                  </span>
+                </div>
+              ))}
+            </Card>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -234,4 +323,32 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "up
       </div>
     </Card>
   );
+}
+
+function KindBadge({ kind, lang }: { kind: string; lang?: Lang }) {
+  const t = getT(lang ?? "en");
+  const map: Record<string, { label: string; tone: "yes" | "no" | "ink" | "mute" | "warn" }> = {
+    signup: { label: t.kindBonus, tone: "ink" },
+    claim: { label: t.kindClaim, tone: "ink" },
+    activity: { label: t.kindActivity, tone: "ink" },
+    grant: { label: t.kindGrant, tone: "ink" },
+    buy: { label: t.kindBuy, tone: "mute" },
+    sell: { label: t.kindSell, tone: "mute" },
+    payout: { label: t.kindPayout, tone: "yes" },
+    refund: { label: t.kindRefund, tone: "warn" },
+    weekly: { label: t.kindClaim, tone: "ink" },
+    ad: { label: t.kindBonus, tone: "ink" },
+    bonus: { label: t.kindBonus, tone: "ink" },
+    game: { label: t.kindGame, tone: "ink" },
+    jackpot: { label: t.kindJackpot, tone: "yes" },
+    liq: { label: t.kindLiq, tone: "no" },
+    duel: { label: t.kindDuel, tone: "warn" },
+    loan: { label: t.kindLoan, tone: "warn" },
+    repay: { label: t.kindRepay, tone: "yes" },
+    burn: { label: t.kindBurn, tone: "mute" },
+    debt: { label: t.kindDebt, tone: "no" },
+    transfer: { label: t.kindTransfer, tone: "ink" },
+  };
+  const { label, tone } = map[kind] ?? { label: kind, tone: "mute" as const };
+  return <Badge tone={tone}>{label}</Badge>;
 }

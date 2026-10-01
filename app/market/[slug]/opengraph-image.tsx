@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { getMarketBySlug, getGroupOptions, marketYesPrice, groupPrices } from "@/lib/queries";
+import { getMarketBySlug, getGroupOptions, getGroupTraderCount, marketYesPrice, groupPrices } from "@/lib/queries";
 import { fmtMonos } from "@/lib/money";
 
 export const alt = "MonoBet market";
@@ -39,7 +39,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   const pct = Math.round(py * 100);
   const img = absImg(market.imageUrl);
   const volume = market.kind === "group" ? group.reduce((s, o) => s + o.volumeCents, 0) : market.volumeCents;
-  const traders = market.kind === "group" ? group.reduce((s, o) => s + o.traderCount, 0) : market.traderCount;
+  const traders = market.kind === "group" ? await getGroupTraderCount(group.map((o) => o.id)) : market.traderCount;
   const closes = market.closesAt
     ? market.closesAt.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
     : null;

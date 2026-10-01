@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Bell, Check, CheckCheck, Circle, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/primitives";
@@ -55,10 +55,46 @@ function writeState(userId: string, state: NotifState) {
   window.dispatchEvent(new Event(NOTIF_EVENT));
 }
 
-export function NotifBell({ items, userId, lang }: { items: NotifItem[]; userId: string; lang?: Lang }) {
+export function NotifBell({ items: ssrItems, userId, lang }: { items: NotifItem[]; userId: string; lang?: Lang }) {
   const t = getT(lang ?? "en");
   const [open, setOpen] = useState(false);
+  const [polled, setPolled] = useState<NotifItem[]>([]);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Live poll — the server only feeds the bell on navigation; this keeps the
+  // badge and dropdown fresh without waiting for a page change.
+  useEffect(() => {
+    let dead = false;
+    const tick = async () => {
+      if (document.hidden) return;
+      try {
+        const r = await fetch("/api/notifications", { cache: "no-store" });
+        if (!r.ok || dead) return;
+        const data = (await r.json()) as { items?: NotifItem[] };
+        if (Array.isArray(data.items)) setPolled(data.items);
+      } catch {
+        /* offline — keep the last snapshot */
+      }
+    };
+    const id = setInterval(tick, 8000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      dead = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, []);
+
+  // SSR props and polled snapshots read the same ledger rows — union by id,
+  // newest first, so neither source can hide a fresh row.
+  const items = useMemo(() => {
+    const m = new Map<string, NotifItem>();
+    for (const i of ssrItems) m.set(i.id, i);
+    for (const i of polled) m.set(i.id, i);
+    return [...m.values()]
+      .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
+      .slice(0, 12);
+  }, [ssrItems, polled]);
 
   // Read/cleared state is per-account — two users sharing a browser shouldn't
   // inherit each other's notifications.

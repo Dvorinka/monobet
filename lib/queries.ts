@@ -1,11 +1,12 @@
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS, JACKPOT_RAKE_BPS, JACKPOT_TICKET_CENTS, JACKPOT_ROUND_MS } from "@/lib/rewards";
+import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS, JACKPOT_RAKE_BPS, JACKPOT_TICKET_CENTS, JACKPOT_ROUND_MS, REFERRAL_EARN_KINDS, REFERRAL_ROYALTY_BPS, REFERRAL_ROYALTY_CAP_CENTS } from "@/lib/rewards";
 import { randomInt } from "node:crypto";
-import { eq, ne, desc, asc, and, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
+import { eq, ne, desc, asc, and, gte, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { yesPrice, multiCoords, multiPrices } from "@/lib/lmsr";
 import { accruedDebtCents } from "@/lib/loans";
+import { credit, garnishDebt } from "@/lib/tx-market";
 import type { MarketStatus } from "@/lib/db/schema";
 
 export type MarketRow = typeof schema.market.$inferSelect;
@@ -164,6 +165,31 @@ export async function getGroupOptionsFor(parentIds: string[]) {
   return map;
 }
 
+// Distinct traders across a group's options. Per-option traderCount can't be
+// summed — the same user trading three options would count three times.
+export async function getGroupTraderCount(optionIds: string[]) {
+  if (!optionIds.length) return 0;
+  const [r] = await db
+    .select({ n: sql<number>`count(distinct ${schema.trade.userId})::int` })
+    .from(schema.trade)
+    .where(inArray(schema.trade.marketId, optionIds));
+  return r?.n ?? 0;
+}
+
+// Batched variant for market grids — one query grouped by parent, no N+1.
+export async function getGroupTraderCounts(parentIds: string[]) {
+  const map = new Map<string, number>();
+  if (!parentIds.length) return map;
+  const rows = await db
+    .select({ parentId: schema.market.parentId, n: sql<number>`count(distinct ${schema.trade.userId})::int` })
+    .from(schema.trade)
+    .innerJoin(schema.market, eq(schema.trade.marketId, schema.market.id))
+    .where(inArray(schema.market.parentId, parentIds))
+    .groupBy(schema.market.parentId);
+  for (const r of rows) if (r.parentId) map.set(r.parentId, r.n);
+  return map;
+}
+
 // Latest trades across all options of a group.
 export async function getGroupTrades(parentId: string, limit = 25) {
   return db
@@ -193,11 +219,22 @@ export async function getGroupTrades(parentId: string, limit = 25) {
 // can't resolve more, and price_point grows without bound otherwise.
 export async function getPriceHistory(marketId: string, since?: Date) {
   if (since) {
-    return db
-      .select({ t: schema.pricePoint.createdAt, p: schema.pricePoint.yesPrice })
-      .from(schema.pricePoint)
-      .where(and(eq(schema.pricePoint.marketId, marketId), sql`${schema.pricePoint.createdAt} >= ${since}`))
-      .orderBy(asc(schema.pricePoint.createdAt));
+    // Anchor at the last pre-epoch price pinned to the epoch boundary — the
+    // chart starts at the reset, not at empty space or the whale-era swings.
+    const [[anchor], pts] = await Promise.all([
+      db
+        .select({ p: schema.pricePoint.yesPrice })
+        .from(schema.pricePoint)
+        .where(and(eq(schema.pricePoint.marketId, marketId), sql`${schema.pricePoint.createdAt} < ${since}`))
+        .orderBy(desc(schema.pricePoint.createdAt))
+        .limit(1),
+      db
+        .select({ t: schema.pricePoint.createdAt, p: schema.pricePoint.yesPrice })
+        .from(schema.pricePoint)
+        .where(and(eq(schema.pricePoint.marketId, marketId), sql`${schema.pricePoint.createdAt} >= ${since}`))
+        .orderBy(asc(schema.pricePoint.createdAt)),
+    ]);
+    return anchor ? [{ t: since, p: anchor.p }, ...pts] : pts;
   }
   const rows = await db.execute<{ t: string; p: number }>(sql`
     SELECT created_at AS t, yes_price AS p FROM (
@@ -416,10 +453,26 @@ export async function getAllUsers() {
     .orderBy(asc(schema.user.createdAt));
 }
 
+// The bank panel and balance charts restart at this timestamp after an
+// economy reset — whale-era rows stay in the ledger for audit but out of
+// the displayed stats.
+export async function getStatsSince() {
+  const [r] = await db
+    .select({ statsSince: schema.casinoConfig.statsSince })
+    .from(schema.casinoConfig)
+    .where(eq(schema.casinoConfig.id, "house"))
+    .limit(1);
+  return r?.statsSince ?? null;
+}
+
 // Admin "inside info" — what the house banked. Game rows are signed: the
 // wager row is negative, the payout row positive, so profit = −Σamount.
 // Game label is the first word of the memo ("Slots ★ ◆ ◆", "Dice >3 → 5").
+// Counts only ledger rows after the stats epoch (casino_config.stats_since).
 export async function getHouseStats() {
+  const since = await getStatsSince();
+  const sinceCond = (kind: string) =>
+    since ? and(eq(schema.ledger.kind, kind), gte(schema.ledger.createdAt, since)) : eq(schema.ledger.kind, kind);
   const [perGame, windows, cfg, loanRows, garnishRows, debtors] = await Promise.all([
     db
       .select({
@@ -429,7 +482,7 @@ export async function getHouseStats() {
         paidCents: sql<number>`coalesce(sum(${schema.ledger.amountCents}) filter (where ${schema.ledger.amountCents} > 0), 0)::bigint`,
       })
       .from(schema.ledger)
-      .where(eq(schema.ledger.kind, "game"))
+      .where(sinceCond("game"))
       .groupBy(sql`1`),
     db
       .select({
@@ -439,7 +492,7 @@ export async function getHouseStats() {
         profit7d: sql<number>`coalesce(-sum(${schema.ledger.amountCents}) filter (where ${schema.ledger.createdAt} > now() - interval '7 days'), 0)::bigint`,
       })
       .from(schema.ledger)
-      .where(eq(schema.ledger.kind, "game")),
+      .where(sinceCond("game")),
     db.select({ rigBps: schema.casinoConfig.rigBps, disabledGames: schema.casinoConfig.disabledGames }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house")),
     // Loans pay the house on the way back: disbursement is a positive row
     // (cash out the door), a cash repayment a negative one, a garnished win a
@@ -450,14 +503,14 @@ export async function getHouseStats() {
         disbursedCents: sql<number>`coalesce(sum(${schema.ledger.amountCents}), 0)::bigint`,
       })
       .from(schema.ledger)
-      .where(and(eq(schema.ledger.kind, "loan"), sql`${schema.ledger.amountCents} > 0`)),
+      .where(and(eq(schema.ledger.kind, "loan"), sql`${schema.ledger.amountCents} > 0`, ...(since ? [gte(schema.ledger.createdAt, since)] : []))),
     db
       .select({
         repaidCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}) filter (where ${schema.ledger.amountCents} < 0), 0)::bigint`,
         garnishedCents: sql<number>`coalesce(sum((regexp_match(${schema.ledger.memo}, 'repaid ([0-9.]+)Ɱ'))[1]::numeric * 100) filter (where ${schema.ledger.amountCents} = 0), 0)::bigint`,
       })
       .from(schema.ledger)
-      .where(eq(schema.ledger.kind, "repay")),
+      .where(sinceCond("repay")),
     db
       .select({ debtCents: schema.user.debtCents, debtRateBps: schema.user.debtRateBps, debtSince: schema.user.debtSince })
       .from(schema.user)
@@ -501,16 +554,30 @@ export async function getHouseStats() {
 // multi-line chart on group pages. One query, grouped in JS.
 // Downsampled to ~240 points per market in SQL — charts can't resolve more
 // than that anyway, and history grows without bound otherwise.
-export async function getGroupHistories(marketIds: string[]) {
+export async function getGroupHistories(marketIds: string[], since?: Date | null) {
   const map = new Map<string, { t: string; p: number }[]>();
   if (marketIds.length === 0) return map;
+  // With an epoch, keep the last pre-epoch point as the anchor pinned at
+  // `since` so lines begin at the reset instead of replaying stale swings.
   const rows = await db.execute<{ market_id: string; p: number; t: string }>(sql`
+    WITH pts AS (
+      SELECT market_id, yes_price, created_at
+      FROM price_point
+      WHERE market_id IN ${marketIds}
+        ${since ? sql`AND created_at >= ${since}` : sql``}
+    ), anchors AS (
+      SELECT DISTINCT ON (market_id) market_id, yes_price, ${since ?? new Date(0)} AS created_at
+      FROM price_point
+      WHERE ${since ? sql`market_id IN ${marketIds} AND created_at < ${since}` : sql`false`}
+      ORDER BY market_id, created_at DESC
+    ), merged AS (
+      SELECT * FROM anchors UNION ALL SELECT market_id, yes_price, created_at FROM pts
+    )
     SELECT market_id, yes_price AS p, created_at AS t FROM (
       SELECT market_id, yes_price, created_at,
              ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY created_at) AS rn,
              COUNT(*) OVER (PARTITION BY market_id) AS cnt
-      FROM price_point
-      WHERE market_id IN ${marketIds}
+      FROM merged
     ) s
     WHERE rn = 1 OR rn = cnt OR rn % GREATEST(cnt / 240, 1) = 0
     ORDER BY market_id, created_at
@@ -524,16 +591,28 @@ export async function getGroupHistories(marketIds: string[]) {
 }
 
 // Latest ~40 price points per market, bounded in SQL — not in JS.
-export async function getSparklines(marketIds: string[]) {
+// With an epoch, only post-epoch points count; markets untouched since the
+// reset get a single anchor at their last pre-epoch price (flat sparkline).
+export async function getSparklines(marketIds: string[], since?: Date | null) {
   const map = new Map<string, number[]>();
   if (marketIds.length === 0) return map;
   const rows = await db.execute<{ market_id: string; p: number }>(sql`
-    SELECT market_id, yes_price AS p FROM (
+    WITH pts AS (
       SELECT market_id, yes_price,
         ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY created_at DESC) AS rn
       FROM price_point
       WHERE market_id IN ${marketIds}
-    ) s WHERE rn <= 40
+        ${since ? sql`AND created_at >= ${since}` : sql``}
+    ), anchors AS (
+      SELECT DISTINCT ON (market_id) market_id, yes_price
+      FROM price_point
+      WHERE ${since ? sql`market_id IN ${marketIds} AND created_at < ${since}` : sql`false`}
+      ORDER BY market_id, created_at DESC
+    )
+    SELECT market_id, p FROM (
+      SELECT market_id, yes_price AS p, 41 AS rn FROM anchors
+      UNION ALL SELECT market_id, p, rn FROM pts WHERE rn <= 40
+    ) s
     ORDER BY market_id, rn DESC`);
   for (const r of rows.rows) {
     const arr = map.get(r.market_id) ?? [];
@@ -617,12 +696,12 @@ export async function getRelatedMarkets(marketId: string, category: string, limi
 export async function getRewardsState(userId: string) {
   const [claims, [me], [cnts]] = await Promise.all([
     db
-      .select({ kind: schema.rewardClaim.kind, createdAt: schema.rewardClaim.createdAt })
+      .select({ kind: schema.rewardClaim.kind, amountCents: schema.rewardClaim.amountCents, createdAt: schema.rewardClaim.createdAt })
       .from(schema.rewardClaim)
       .where(eq(schema.rewardClaim.userId, userId))
       .orderBy(desc(schema.rewardClaim.createdAt)),
     db
-      .select({ image: schema.user.image, squadId: schema.user.squadId, claimStreak: schema.user.claimStreak })
+      .select({ image: schema.user.image, squadId: schema.user.squadId, claimStreak: schema.user.claimStreak, activityStreak: schema.user.activityStreak })
       .from(schema.user)
       .where(eq(schema.user.id, userId))
       .limit(1),
@@ -638,12 +717,63 @@ export async function getRewardsState(userId: string) {
         watching: sql<number>`(select count(*)::int from ${schema.watchlist} where ${schema.watchlist.userId} = ${userId})`,
         likes: sql<number>`(select count(*)::int from ${schema.marketLike} where ${schema.marketLike.userId} = ${userId})`,
         duels: sql<number>`(select count(*)::int from ${schema.challenge} where ${schema.challenge.creatorId} = ${userId} or ${schema.challenge.opponentId} = ${userId})`,
+        sells: sql<number>`(select count(*)::int from ${schema.trade} where ${schema.trade.userId} = ${userId} and ${schema.trade.side} = 'sell')`,
+        notes: sql<number>`(select count(*)::int from ${schema.communityNote} where ${schema.communityNote.userId} = ${userId})`,
+        votes: sql<number>`(select count(*)::int from ${schema.resolutionVote} where ${schema.resolutionVote.userId} = ${userId})`,
+        duelWins: sql<number>`(select count(*)::int from ${schema.challenge} where ${schema.challenge.winnerId} = ${userId})`,
+        squadsOwned: sql<number>`(select count(*)::int from ${schema.squad} where ${schema.squad.createdBy} = ${userId})`,
+        referrals: sql<number>`(select count(*)::int from ${schema.rewardClaim} where ${schema.rewardClaim.userId} = ${userId} and ${schema.rewardClaim.kind} like 'bonus:referrer:%')`,
       })
       .from(schema.user)
       .where(eq(schema.user.id, userId)),
   ]);
-  const c = cnts ?? { trades: 0, markets: 0, comments: 0, games: 0, gameWins: 0, watching: 0, likes: 0, duels: 0 };
+  const c = cnts ?? { trades: 0, markets: 0, comments: 0, games: 0, gameWins: 0, watching: 0, likes: 0, duels: 0, sells: 0, notes: 0, votes: 0, duelWins: 0, squadsOwned: 0, referrals: 0 };
+
+  // Referral royalties: each bonus:referrer:<refereeId> row earns 5% of that
+  // referee's lifetime earned income; bonus:royalty:<refereeId> rows track how
+  // much of it has already been paid out.
+  const refIds = claims.filter((r) => r.kind.startsWith("bonus:referrer:")).map((r) => r.kind.slice("bonus:referrer:".length));
+  const paidMap = new Map(
+    claims.filter((r) => r.kind.startsWith("bonus:royalty:")).map((r) => [r.kind.slice("bonus:royalty:".length), r.amountCents])
+  );
+  let referrals: { id: string; username: string | null; name: string | null; earnedCents: number; royaltyCents: number; paidCents: number }[] = [];
+  if (refIds.length) {
+    const [earned, names] = await Promise.all([
+      db
+        .select({ userId: schema.ledger.userId, cents: sql<number>`coalesce(sum(${schema.ledger.amountCents}),0)::bigint` })
+        .from(schema.ledger)
+        .where(
+          and(
+            inArray(schema.ledger.userId, refIds),
+            sql`${schema.ledger.amountCents} > 0`,
+            inArray(schema.ledger.kind, [...REFERRAL_EARN_KINDS])
+          )
+        )
+        .groupBy(schema.ledger.userId),
+      db
+        .select({ id: schema.user.id, username: schema.user.username, name: schema.user.name })
+        .from(schema.user)
+        .where(inArray(schema.user.id, refIds)),
+    ]);
+    const earnedMap = new Map(earned.map((e) => [e.userId, Number(e.cents)]));
+    const nameMap = new Map(names.map((n) => [n.id, n]));
+    referrals = refIds.map((id) => {
+      const e = earnedMap.get(id) ?? 0;
+      return {
+        id,
+        username: nameMap.get(id)?.username ?? null,
+        name: nameMap.get(id)?.name ?? null,
+        earnedCents: e,
+        royaltyCents: Math.min(Math.floor((e * REFERRAL_ROYALTY_BPS) / 10_000), REFERRAL_ROYALTY_CAP_CENTS),
+        paidCents: paidMap.get(id) ?? 0,
+      };
+    });
+  }
+  const royaltyDueCents = referrals.reduce((s, r) => s + Math.max(0, r.royaltyCents - r.paidCents), 0);
+
   return {
+    referrals,
+    royaltyDueCents,
     claimed: new Set(claims.map((c2) => c2.kind)),
     lastWeekly: claims.find((c2) => c2.kind === "weekly")?.createdAt ?? null,
     lastAd: claims.find((c2) => c2.kind === "ad")?.createdAt ?? null,
@@ -660,6 +790,14 @@ export async function getRewardsState(userId: string) {
       squad: !!me?.squadId,
       tenTrades: c.trades >= 10,
       streak7: (me?.claimStreak ?? 0) >= 7,
+      sell: c.sells > 0,
+      note: c.notes > 0,
+      vote: c.votes > 0,
+      duelWin: c.duelWins > 0,
+      squadOwner: c.squadsOwned > 0,
+      referrer: c.referrals > 0,
+      fiftyTrades: c.trades >= 50,
+      active7: (me?.activityStreak ?? 0) >= 7,
     },
   };
 }
@@ -813,18 +951,8 @@ export async function ensureSeason() {
               rewardCents: reward,
             });
             if (reward > 0) {
-              const [u] = await tx
-                .update(schema.user)
-                .set({ balanceCents: sql`${schema.user.balanceCents} + ${reward}` })
-                .where(eq(schema.user.id, row.id))
-                .returning({ balanceCents: schema.user.balanceCents });
-              await tx.insert(schema.ledger).values({
-                userId: row.id,
-                amountCents: reward,
-                balanceAfterCents: u?.balanceCents ?? 0,
-                kind: "bonus",
-                memo: `Season ${live.index} · #${i + 1}`,
-              });
+              const skim = Math.min(reward, await garnishDebt(tx, row.id, reward, `Season ${live.index}`));
+              await credit(tx, row.id, reward - skim, "bonus", null, `Season ${live.index} · #${i + 1}${skim > 0 ? " (debt repaid)" : ""}`);
             }
           }
         }
@@ -908,24 +1036,15 @@ async function drawJackpot(roundId: string): Promise<boolean> {
         }
       }
       if (winnerId && poolCents > 0) {
-        const [u] = await tx
-          .update(schema.user)
-          .set({ balanceCents: sql`${schema.user.balanceCents} + ${poolCents}` })
-          .where(eq(schema.user.id, winnerId))
-          .returning({ balanceCents: schema.user.balanceCents });
-        await tx.insert(schema.ledger).values({
-          userId: winnerId,
-          amountCents: poolCents,
-          balanceAfterCents: u?.balanceCents ?? 0,
-          kind: "jackpot",
-          memo: `Daily jackpot — ${totalTickets} tickets in the hat`,
-        });
+        // The wall vow claims its share before the pot lands.
+        const skim = Math.min(poolCents, await garnishDebt(tx, winnerId, poolCents, "Jackpot"));
+        const after = await credit(tx, winnerId, poolCents - skim, "jackpot", null, `Daily jackpot — ${totalTickets} tickets in the hat`);
         await tx.insert(schema.ledger).values({
           userId: winnerId,
           amountCents: 0,
-          balanceAfterCents: u?.balanceCents ?? 0,
+          balanceAfterCents: after,
           kind: "notify",
-          memo: `You hit the daily jackpot — the pot is yours`,
+          memo: `You hit the daily jackpot — the pot is yours${skim > 0 ? ` (Ɱ${(skim / 100).toFixed(2)} to debt)` : ""}`,
         });
       }
       await tx
@@ -1373,6 +1492,27 @@ export async function getDuels(userId: string) {
   return rows;
 }
 
+// Single duel for the arena route — scoped to the participant so a deep link
+// can't peek at other people's duels.
+export async function getDuel(userId: string, duelId: string) {
+  const rows = await db
+    .select({
+      duel: schema.challenge,
+      creatorName: sql<string>`(select username from ${schema.user} u2 where u2.id = ${schema.challenge.creatorId})`,
+      opponentName: sql<string>`(select username from ${schema.user} u3 where u3.id = ${schema.challenge.opponentId})`,
+      winnerName: sql<string | null>`(select username from ${schema.user} u4 where u4.id = ${schema.challenge.winnerId})`,
+    })
+    .from(schema.challenge)
+    .where(
+      and(
+        eq(schema.challenge.id, duelId),
+        or(eq(schema.challenge.creatorId, userId), eq(schema.challenge.opponentId, userId))
+      )
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 // Duels needing admin eyes: disputed ones, plus accepted duels where neither
 // side has proposed a winner — without this they'd sit invisible forever.
 export async function getDisputedDuels() {
@@ -1410,6 +1550,58 @@ export async function getSquads() {
     })
     .filter((s) => s.memberCount > 0)
     .sort((a, b) => b.netWorthCents - a.netWorthCents);
+}
+
+// The squad hub: members with balances + net worth, the pot, outstanding
+// loans, and a merged activity feed of member trades for the page sidebar.
+export async function getSquadHub(squadId: string, viewerId: string) {
+  const [sq] = await db.select().from(schema.squad).where(eq(schema.squad.id, squadId)).limit(1);
+  if (!sq) return null;
+  const members = await db
+    .select({
+      id: schema.user.id,
+      username: schema.user.username,
+      name: schema.user.name,
+      image: schema.user.image,
+      balanceCents: schema.user.balanceCents,
+      squadDebtCents: schema.user.squadDebtCents,
+    })
+    .from(schema.user)
+    .where(eq(schema.user.squadId, squadId));
+  const board = await getLeaderboard();
+  const worth = new Map(board.map((u) => [u.id, u.netWorthCents]));
+  const ids = members.map((m) => m.id);
+  const activity = ids.length
+    ? await db
+        .select({
+          id: schema.trade.id,
+          userId: schema.trade.userId,
+          username: schema.user.username,
+          name: schema.user.name,
+          image: schema.user.image,
+          side: schema.trade.side,
+          outcome: schema.trade.outcome,
+          shares: schema.trade.shares,
+          amountCents: schema.trade.amountCents,
+          createdAt: schema.trade.createdAt,
+          marketId: schema.market.id,
+          question: schema.market.question,
+          slug: schema.market.slug,
+        })
+        .from(schema.trade)
+        .innerJoin(schema.user, eq(schema.trade.userId, schema.user.id))
+        .innerJoin(schema.market, eq(schema.trade.marketId, schema.market.id))
+        .where(inArray(schema.trade.userId, ids))
+        .orderBy(desc(schema.trade.createdAt))
+        .limit(20)
+    : [];
+  return {
+    squad: sq,
+    members: members
+      .map((m) => ({ ...m, netWorthCents: worth.get(m.id) ?? m.balanceCents, isMe: m.id === viewerId }))
+      .sort((a, b) => b.netWorthCents - a.netWorthCents),
+    activity,
+  };
 }
 
 // Inviter details for the ?ref= login card — name + avatar only.
@@ -1467,6 +1659,7 @@ export async function getGroupHolders(optionIds: string[], limit = 12) {
   if (!optionIds.length) return [];
   const rows = await db
     .select({
+      userId: schema.position.userId,
       username: schema.user.username,
       name: schema.user.name,
       image: schema.user.image,
@@ -1488,7 +1681,7 @@ export async function getGroupHolders(optionIds: string[], limit = 12) {
     { username: string | null; name: string; image: string | null; marketId: string; side: "yes" | "no"; shares: number; holdings: Holding[] }
   >();
   for (const r of rows) {
-    const key = r.username ?? r.name;
+    const key = r.userId;
     const entry = best.get(key) ?? {
       username: r.username,
       name: r.name,

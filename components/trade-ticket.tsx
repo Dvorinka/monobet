@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Segmented, Button } from "@/components/ui/primitives";
-import { sharesForSpend, tradeCost, yesPrice, multiPrices, multiTradeCost, multiSharesForSpend, MAX_TRADE_CENTS } from "@/lib/lmsr";
+import { sharesForSpend, tradeCost, yesPrice, multiPrices, multiTradeCost, multiSharesForSpend, MAX_TRADE_CENTS, TRADE_FEE_CENTS } from "@/lib/lmsr";
 import { fmtMonos, fmtCents, fmtShares, fmtDateTime } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
@@ -172,7 +172,7 @@ export function TradeTicket({
             </button>
           ))}
           <button
-            onClick={() => setAmount(side === "buy" ? String((userBalanceCents ?? 0) / 100) : held.toFixed(2))}
+            onClick={() => setAmount(side === "buy" ? String(Math.max(0, ((userBalanceCents ?? 0) - TRADE_FEE_CENTS) / 100)) : held.toFixed(2))}
             className="flex-1 h-7 rounded-md bg-surface-2 text-[12px] font-semibold text-mute hover:bg-surface-3 hover:text-ink cursor-pointer"
           >
             {t.max}
@@ -226,10 +226,11 @@ export function TradeTicket({
           {side === "buy" && lev > 1 && (
             <Row k={t.loanLabel} v={fmtMonos(spendCents * (lev - 1), { lang })} />
           )}
+          <Row k={t.orderFee} v={fmtMonos(TRADE_FEE_CENTS, { lang })} />
           {side === "buy" ? (
             <Row k={t.paysIfRight} v={fmtMonos(est.toWin, { lang })} accent />
           ) : (
-            <Row k={t.youReceive} v={fmtMonos(est.toWin, { lang })} accent />
+            <Row k={t.youReceive} v={fmtMonos(est.toWin - Math.min(TRADE_FEE_CENTS, est.toWin), { lang })} accent />
           )}
         </div>
       )}

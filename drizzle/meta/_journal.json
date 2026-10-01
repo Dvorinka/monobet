@@ -281,6 +281,34 @@
       "when": 1790852508417,
       "tag": "0039_reconcile",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790855673911,
+      "tag": "0040_stats_since",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790856438789,
+      "tag": "0041_market_seed",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1790868020003,
+      "tag": "0042_squad_money",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790870504795,
+      "tag": "0043_daily_cap",
+      "breakpoints": true
     }
   ]
 }

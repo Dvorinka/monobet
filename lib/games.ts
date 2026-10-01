@@ -12,10 +12,13 @@ export const MAX_GAME_WAGER_CENTS = 100_000_00;
 // casino_config.disabled_games.
 export const GAME_KEYS = ["coinflip", "dice", "timer", "limbo", "wheel", "slots", "blackjack", "plinko", "hilo", "redblack"] as const;
 export type GameKey = (typeof GAME_KEYS)[number];
-// Minigame session pacing: a stake opens a 30 min window; when it lapses the
-// games lock for a 30 min break, then a fresh window opens on the next stake.
-export const GAME_SESSION_MS = 30 * 60_000;
-export const GAME_BREAK_MS = 30 * 60_000;
+// Minigame daily cap: every user gets 2h of in-game time per 24h window. The
+// window anchors at their first stake (per-user, not midnight), active time
+// accrues stake-to-stake, and a ≥30min gap closes the clock — idle time away
+// from the games doesn't eat the budget.
+export const GAME_WINDOW_MS = 24 * 3600_000;
+export const GAME_DAILY_LIMIT_MS = 2 * 3600_000;
+export const GAME_IDLE_MS = 30 * 60_000;
 
 // A dealer persona fronts every minigame — configured in admin; avatar may be
 // an image URL/data URI (rendered as a picture) or a short monogram.
@@ -87,7 +90,7 @@ export function diceWinChance(over: number) {
 
 // Stop-the-timer: digits hide after this long; hit windows pay by precision.
 // Longer targets pay more — holding a hidden count for 30s is harder.
-export const TIMER_TARGETS = [2000, 3000, 5000, 10000, 15000, 30000] as const;
+export const TIMER_TARGETS = [15000, 30000, 60000] as const;
 export const TIMER_REVEAL_MS = 2000;
 export const TIMER_TIERS = [
   { errMs: 100, mult: 2.5 },
@@ -98,12 +101,9 @@ export const TIMER_TIERS = [
   { errMs: 500, mult: 0.45 },
 ] as const;
 export const TIMER_TARGET_MULT: Record<number, number> = {
-  2000: 0.5,
-  3000: 0.6,
-  5000: 0.8,
-  10000: 1,
   15000: 1.35,
   30000: 1.8,
+  60000: 2.4,
 };
 export function timerMult(errMs: number, targetMs: number) {
   const tier = TIMER_TIERS.find((t) => errMs <= t.errMs)?.mult ?? 0;
@@ -166,22 +166,66 @@ export function plinkoPathForBucket(bucket: number, rand: (n: number) => number)
 // Duels — claim is the classic agreed bet; the rest are server-resolved
 // minigames where both sides make one move and the better result takes the
 // pot. Game rounds are free; only the locked stake is real money.
-export const DUEL_KINDS = ["claim", "rps", "roll", "wheel", "slots", "plinko"] as const;
+export const DUEL_KINDS = [
+  "claim", "rps", "roll",
+  "coinflip", "redblack", "dice", "limbo", "wheel", "slots", "plinko", "hilo", "timer", "blackjack",
+] as const;
 export type DuelKind = (typeof DUEL_KINDS)[number];
 export const RPS_MOVES = ["rock", "paper", "scissors"] as const;
 export type RpsMove = (typeof RPS_MOVES)[number];
 // rock > scissors > paper > rock — index beats (index + 1) % 3 loses
 export const RPS_BEATS: Record<RpsMove, RpsMove> = { rock: "scissors", paper: "rock", scissors: "paper" };
+// Duel kinds that map to a casino game — creation is refused while the game
+// is kill-switched. claim/rps/roll are duel-native and always available.
+export const DUEL_GAME_KEY: Partial<Record<DuelKind, string>> = {
+  coinflip: "coinflip", redblack: "redblack", dice: "dice", limbo: "limbo",
+  wheel: "wheel", slots: "slots", plinko: "plinko", hilo: "hilo", timer: "timer", blackjack: "blackjack",
+};
 // Game kinds carry a canonical English label as their claim text — the panel
 // localizes the label from `kind`, ledger memos just need something readable.
 export const DUEL_NAMES: Record<DuelKind, string> = {
   claim: "Custom bet",
   rps: "Rock Paper Scissors",
   roll: "High roll",
+  coinflip: "Coin flip",
+  redblack: "Red or black",
+  dice: "Dice roll",
+  limbo: "Limbo crash",
   wheel: "Wheel spin",
   slots: "Slots draw",
   plinko: "Plinko drop",
+  hilo: "Hi-Lo",
+  timer: "Timer stop",
+  blackjack: "Blackjack hand",
 };
+
+// A duel move: a primitive (rps pick, drawn number) or a structured round —
+// `done:false` holds a mid-round state (hilo face, blackjack hand, running
+// timer); `s` is the comparable score once done.
+export type DuelMove =
+  | string
+  | number
+  | { done: boolean; s?: number; pick?: string; data?: Record<string, unknown>; hidden?: boolean };
+
+// Timer duels share one fixed target — both sides stop the same 5s count.
+export const DUEL_TIMER_MS = 5000;
+
+// Scrub a duel's move map for one viewer: the opponent's move is replaced by
+// a {hidden} marker until settlement so live picks can't be peeked in props.
+// The opponent's done flag survives — the UI can tell playing vs locked in.
+export function hideDuelMoves<T>(state: T, viewerId: string, settled: boolean): T {
+  const st = state as { moves?: Record<string, DuelMove> } | null;
+  if (settled || !st?.moves) return state;
+  const moves = { ...st.moves };
+  for (const k of Object.keys(moves)) {
+    if (k !== viewerId) {
+      const om = moves[k];
+      const inFlight = typeof om === "object" && om !== null && om.done === false;
+      moves[k] = { done: !inFlight, hidden: true };
+    }
+  }
+  return { ...st, moves } as T;
+}
 
 // Slots: three reels drawn from a weighted 5-symbol strip (18 slots).
 // Triples pay the table below; a lone pair is a push — stake back.
