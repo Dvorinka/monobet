@@ -65,9 +65,12 @@ export const user = pgTable("user", {
   // Admin-tuned luck: bps chance to rescue a loss into a win (− = unlucky).
   // Random games only — skill games (timer, blackjack) ignore it.
   luckBps: integer("luck_bps").notNull().default(0),
-  // Minigame session window: first stake opens a 30 min play window, then a
-  // forced 30 min break; NULL = no session yet (next stake opens one).
+  // Minigame daily cap: game_session_start anchors the rolling 24h window
+  // (first stake of the day); game_played_ms banks in-game time and
+  // game_last_play_at marks the last stake so ≥30min gaps don't accrue.
   gameSessionStart: timestamp("game_session_start", { withTimezone: true }),
+  gameLastPlayAt: timestamp("game_last_play_at", { withTimezone: true }),
+  gamePlayedMs: bigint("game_played_ms", { mode: "number" }).notNull().default(0),
   // Notification prefs — resolve fan-out and closing-soon reminders.
   notifResolve: boolean("notif_resolve").notNull().default(true),
   notifClosing: boolean("notif_closing").notNull().default(true),

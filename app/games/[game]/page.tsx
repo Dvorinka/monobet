@@ -39,7 +39,12 @@ export default async function GamePage({ params }: { params: Promise<{ game: str
         <Link href="/games" className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-mute hover:text-ink transition-colors">
           <ArrowLeft className="size-3.5" /> {t.games}
         </Link>
-        <SessionChip sessionStart={user.gameSessionStart?.getTime() ?? null} lang={lang} />
+        <SessionChip
+          windowStart={user.gameSessionStart?.getTime() ?? null}
+          lastPlayAt={user.gameLastPlayAt?.getTime() ?? null}
+          playedMs={user.gamePlayedMs}
+          lang={lang}
+        />
       </div>
       <div className="mt-4">
         <GameView

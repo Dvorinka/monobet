@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, ne, and, sql, desc, asc, isNull, inArray } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_SESSION_MS, GAME_BREAK_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, DUEL_GAME_KEY, DUEL_TIMER_MS, type DuelKind, type DuelMove, type RpsMove, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_WINDOW_MS, GAME_DAILY_LIMIT_MS, GAME_IDLE_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, DUEL_GAME_KEY, DUEL_TIMER_MS, type DuelKind, type DuelMove, type RpsMove, type Persona } from "@/lib/games";
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -2457,18 +2457,29 @@ async function stakeGame(tx: Tx, userId: string, betCents: number, leverage: num
   // Credit check + charge both run on the locked row — the pre-tx snapshot
   // could be a debt repayment stale.
   const u = await lockUser(tx, userId);
-  // Session pacing — every game debits through stakeGame, so this is the one
-  // gate: expired session → forced break; lapsed break → new window opens here.
+  // Daily cap — every game debits through stakeGame, so this is the one gate:
+  // 2h of in-game time per user per 24h window. The window anchors at the
+  // first stake (not midnight); time accrues stake-to-stake while the player
+  // keeps playing, and a ≥30min gap closes the clock so idle time is free.
   // In-flight rounds (hit/stand/double, timer stop) never call this, so a
-  // hand or timer round always settles even as the window closes.
-  const started = u.gameSessionStart?.getTime() ?? null;
+  // hand or timer round always settles even as the budget runs out.
   const now = Date.now();
-  if (started !== null && now - started >= GAME_SESSION_MS && now - started < GAME_SESSION_MS + GAME_BREAK_MS) {
-    throw new Error(`Minigames on break — back in ${Math.ceil((started + GAME_SESSION_MS + GAME_BREAK_MS - now) / 60000)}m`);
+  let ws = u.gameSessionStart?.getTime() ?? null;
+  const lp = u.gameLastPlayAt?.getTime() ?? null;
+  let played = u.gamePlayedMs ?? 0;
+  if (ws === null || now - ws >= GAME_WINDOW_MS) {
+    ws = now;
+    played = 0;
+  } else if (lp !== null && now - lp < GAME_IDLE_MS) {
+    played += now - lp;
   }
-  if (started === null || now - started >= GAME_SESSION_MS + GAME_BREAK_MS) {
-    await tx.update(schema.user).set({ gameSessionStart: new Date(now) }).where(eq(schema.user.id, u.id));
+  if (played >= GAME_DAILY_LIMIT_MS) {
+    throw new Error(`Minigames capped at 2h per day — back in ${Math.ceil((ws + GAME_WINDOW_MS - now) / 60000)}m`);
   }
+  await tx
+    .update(schema.user)
+    .set({ gameSessionStart: new Date(ws), gameLastPlayAt: new Date(now), gamePlayedMs: played })
+    .where(eq(schema.user.id, u.id));
   assertCreditLine(u, leverage);
   await credit(tx, userId, -(betCents + fee), "game", null, `${label} — wager ×${leverage}${fee > 0 ? ` · fee ${(fee / 100).toFixed(2)}Ɱ` : ""}`);
   return fee;

@@ -2,13 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { Hourglass } from "lucide-react";
-import { GAME_SESSION_MS, GAME_BREAK_MS } from "@/lib/games";
+import { GAME_WINDOW_MS, GAME_DAILY_LIMIT_MS, GAME_IDLE_MS } from "@/lib/games";
 import { getT, type Lang } from "@/lib/i18n";
 
-// Minigame pacing indicator: ticks down the 30 min play window, then shows the
-// forced 30 min break. Renders nothing before the first stake or after the
-// break lapses — the next stake opens a fresh window server-side.
-export function SessionChip({ sessionStart, lang }: { sessionStart: number | null; lang?: Lang }) {
+// Daily-cap indicator: ticks down the 2h in-game budget of the rolling 24h
+// window. A ≥30min gap since the last stake means the clock stopped — the
+// chip then freezes instead of draining idle time. Renders nothing before
+// the first stake or after the window lapses — the next stake reopens it.
+export function SessionChip({
+  windowStart,
+  lastPlayAt,
+  playedMs,
+  lang,
+}: {
+  windowStart: number | null;
+  lastPlayAt: number | null;
+  playedMs: number;
+  lang?: Lang;
+}) {
   const t = getT(lang ?? "en");
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -16,22 +27,31 @@ export function SessionChip({ sessionStart, lang }: { sessionStart: number | nul
     return () => clearInterval(id);
   }, []);
 
-  if (sessionStart === null) return null;
-  const left = sessionStart + GAME_SESSION_MS - now;
-  const breakLeft = sessionStart + GAME_SESSION_MS + GAME_BREAK_MS - now;
-  if (breakLeft <= 0) return null;
+  if (windowStart === null) return null;
+  const windowEnd = windowStart + GAME_WINDOW_MS;
+  if (now >= windowEnd) return null;
 
-  const onBreak = left <= 0;
-  const mins = Math.ceil((onBreak ? breakLeft : left) / 60000);
+  // In-game time = banked ms + the open stretch since the last stake (only
+  // while it's under the idle gap — past that the clock already stopped).
+  const openStretch = lastPlayAt !== null && now - lastPlayAt < GAME_IDLE_MS ? now - lastPlayAt : 0;
+  const used = playedMs + openStretch;
+  const capped = used >= GAME_DAILY_LIMIT_MS;
+  const shown = capped ? windowEnd - now : GAME_DAILY_LIMIT_MS - used;
+  let hrs = Math.floor(shown / 3_600_000);
+  let mins = Math.ceil((shown % 3_600_000) / 60000);
+  if (mins === 60) { hrs += 1; mins = 0; }
+  const label = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+
   return (
     <span
+      title={t.sessionCapHint}
       className={
         "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-semibold num " +
-        (onBreak ? "border-warn/40 bg-warn-soft/50 text-warn-strong" : "border-line bg-surface-2 text-mute")
+        (capped ? "border-warn/40 bg-warn-soft/50 text-warn-strong" : "border-line bg-surface-2 text-mute")
       }
     >
       <Hourglass className="size-3" />
-      {onBreak ? t.sessionBreak(`${mins}m`) : t.sessionLeft(`${mins}m`)}
+      {capped ? t.sessionBreak(label) : t.sessionLeft(label)}
     </span>
   );
 }

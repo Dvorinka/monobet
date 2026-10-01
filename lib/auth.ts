@@ -45,6 +45,8 @@ export const auth = betterAuth({
       vowBps: { type: "number", required: false, input: false },
       luckBps: { type: "number", required: false, input: false },
       gameSessionStart: { type: "date", required: false, input: false },
+      gameLastPlayAt: { type: "date", required: false, input: false },
+      gamePlayedMs: { type: "number", required: false, input: false },
     },
   },
   // Bans are read-only, not lockouts: suspended users still sign in and

@@ -28,6 +28,8 @@ export type CurrentUser = {
   vowBps: number;
   luckBps: number;
   gameSessionStart: Date | null;
+  gameLastPlayAt: Date | null;
+  gamePlayedMs: number;
   bannedAt: Date | null;
   banReason: string | null;
 };
@@ -64,6 +66,8 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     vowBps?: number;
     luckBps?: number;
     gameSessionStart?: Date | null;
+    gameLastPlayAt?: Date | null;
+    gamePlayedMs?: number;
     banReason?: string | null;
   };
   // Presence roll — first hit of a UTC day pays the streak bonus and stamps
@@ -104,6 +108,8 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     vowBps: u.vowBps ?? 0,
     luckBps: u.luckBps ?? 0,
     gameSessionStart: u.gameSessionStart ?? null,
+    gameLastPlayAt: u.gameLastPlayAt ?? null,
+    gamePlayedMs: u.gamePlayedMs ?? 0,
     bannedAt: u.bannedAt ?? null,
     banReason: u.banReason ?? null,
   };

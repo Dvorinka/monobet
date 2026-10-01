@@ -377,8 +377,9 @@ const en = {
   liqNote: "Borrowed Monos are repaid first on sell — position auto-liquidates if its value drops to the loan.",
   levBreakdown: (own: string, loan: string, total: string) => `${own} yours + ${loan} borrowed = ${total} position`,
   tradeLimit: (max: string) => `Max ${max} per trade`,
-  sessionLeft: (m: string) => `Minigames: ${m} left`,
-  sessionBreak: (m: string) => `Break — back in ${m}`,
+  sessionLeft: (m: string) => `Minigames: ${m} left today`,
+  sessionBreak: (m: string) => `2h daily cap — back in ${m}`,
+  sessionCapHint: "2h of in-game time per day — the clock pauses when you're away 30min+",
   paysIfRight: "Pays if right",
   loanLabel: "Loan",
   atRisk: "At risk",
@@ -1320,8 +1321,9 @@ const cs: Dict = {
   liqNote: "Půjčené Mony se splácejí jako první z prodeje — pozice se automaticky zlikviduje, když její hodnota klesne na úroveň úvěru.",
   levBreakdown: (own: string, loan: string, total: string) => `${own} vaše + ${loan} půjčka = pozice ${total}`,
   tradeLimit: (max: string) => `Max ${max} na obchod`,
-  sessionLeft: (m: string) => `Minihry: zbývá ${m}`,
-  sessionBreak: (m: string) => `Pauza — zpět za ${m}`,
+  sessionLeft: (m: string) => `Minihry: dnes zbývá ${m}`,
+  sessionBreak: (m: string) => `Denní limit 2h — zpět za ${m}`,
+  sessionCapHint: "2h herního času denně — čas se zastaví, když jsi 30+ min pryč",
   paysIfRight: "Výplata při trefě",
   loanLabel: "Úvěr",
   atRisk: "V sázce",
@@ -2133,6 +2135,7 @@ const ERR_CS_PREFIX: [string, (rest: string) => string][] = [
   ['Bad image URL for "', (r) => `Neplatná URL obrázku pro "${r.replace(/"$/, "")}"`],
   ['Image too large for "', (r) => `Obrázek je příliš velký pro "${r.replace(/"$/, "")}"`],
   ['Minigames on break — back in ', (r) => `Minihry mají pauzu — zpět za ${r}`],
+  ['Minigames capped at 2h per day — back in ', (r) => `Minihry mají denní limit 2h — zpět za ${r}`],
 ];
 
 export function serverErr(lang: Lang, msg?: string | null): string {

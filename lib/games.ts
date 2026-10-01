@@ -12,10 +12,13 @@ export const MAX_GAME_WAGER_CENTS = 100_000_00;
 // casino_config.disabled_games.
 export const GAME_KEYS = ["coinflip", "dice", "timer", "limbo", "wheel", "slots", "blackjack", "plinko", "hilo", "redblack"] as const;
 export type GameKey = (typeof GAME_KEYS)[number];
-// Minigame session pacing: a stake opens a 30 min window; when it lapses the
-// games lock for a 30 min break, then a fresh window opens on the next stake.
-export const GAME_SESSION_MS = 30 * 60_000;
-export const GAME_BREAK_MS = 30 * 60_000;
+// Minigame daily cap: every user gets 2h of in-game time per 24h window. The
+// window anchors at their first stake (per-user, not midnight), active time
+// accrues stake-to-stake, and a ≥30min gap closes the clock — idle time away
+// from the games doesn't eat the budget.
+export const GAME_WINDOW_MS = 24 * 3600_000;
+export const GAME_DAILY_LIMIT_MS = 2 * 3600_000;
+export const GAME_IDLE_MS = 30 * 60_000;
 
 // A dealer persona fronts every minigame — configured in admin; avatar may be
 // an image URL/data URI (rendered as a picture) or a short monogram.
