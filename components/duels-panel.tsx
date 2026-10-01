@@ -168,12 +168,12 @@ export function DuelsPanel({
   };
   const fmtMove = (k: string, mv: DuelMove | undefined) => duelFmtMove(t, k, mv);
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, ok: string, onOk?: () => void) =>
+  const run = <R extends { ok: boolean; error?: string }>(fn: () => Promise<R>, ok: string, onOk?: (r: R) => void) =>
     start(async () => {
       const r = await fn();
       if (r.ok) {
         toast.success(ok);
-        onOk?.();
+        onOk?.(r);
         router.refresh();
       } else toast.error(t.serverErr(r.error));
     });
@@ -247,7 +247,7 @@ export function DuelsPanel({
               run(
                 () => createDuel({ opponent: opp, claim, stakeCents, kind }),
                 t.duelCreatedToast,
-                () => { setClaim(""); setOpp(""); }
+                (r) => { setClaim(""); setOpp(""); if (r.id) router.push(`/duels/${r.id}`); }
               )
             }
           >
@@ -264,7 +264,7 @@ export function DuelsPanel({
           <Card className="p-1.5 space-y-1">
             {incoming.map(({ duel: d, creatorName }) => (
               <Row key={d.id} claim={duelTitle(d)} kind={d.kind} sub={`@${creatorName} · ${fmtMonos(d.stakeCents, { lang })} ${t.duelStakeEach}`}>
-                <Button size="xs" variant="yes" disabled={pending} onClick={() => run(() => respondDuel({ id: d.id, accept: true }), t.duelAcceptedToast)}>
+                <Button size="xs" variant="yes" disabled={pending} onClick={() => run(() => respondDuel({ id: d.id, accept: true }), t.duelAcceptedToast, () => router.push(`/duels/${d.id}`))}>
                   <Check className="size-3" /> {t.duelAccept}
                 </Button>
                 <Button size="xs" variant="outline" disabled={pending} onClick={() => run(() => respondDuel({ id: d.id, accept: false }), t.duelDeclinedToast)}>

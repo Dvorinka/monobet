@@ -3136,7 +3136,7 @@ export async function createDuel(input: {
   claim: string;
   stakeCents: number;
   kind?: string;
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; error?: string; id?: string }> {
   try {
     const u = await requireUser();
     const kind = (DUEL_KINDS as readonly string[]).includes(input.kind ?? "claim") ? (input.kind as DuelKind) : "claim";
@@ -3152,7 +3152,7 @@ export async function createDuel(input: {
     const stake = Math.round(input.stakeCents);
     if (!Number.isFinite(stake) || stake < 100) throw new Error("Minimum stake is Ɱ 1");
     if (stake > 10_000_000) throw new Error("Maximum stake is Ɱ 100,000");
-    await db.transaction(async (tx) => {
+    const id = await db.transaction(async (tx) => {
       const [opp] = await tx
         .select({ id: schema.user.id, username: schema.user.username, balanceCents: schema.user.balanceCents })
         .from(schema.user)
@@ -3162,11 +3162,12 @@ export async function createDuel(input: {
       if (opp.id === u.id) throw new Error("Pick someone else");
       await lockUser(tx, u.id);
       await credit(tx, u.id, -stake, "duel", null, `Duel stake vs @${opp.username}: ${claim.slice(0, 60)}`);
-      await tx.insert(schema.challenge).values({ creatorId: u.id, opponentId: opp.id, claim, stakeCents: stake, kind });
+      const [row] = await tx.insert(schema.challenge).values({ creatorId: u.id, opponentId: opp.id, claim, stakeCents: stake, kind }).returning({ id: schema.challenge.id });
       await ping(tx, opp.id, `Duel invite from @${u.username ?? u.name}: ${claim.slice(0, 70)}`);
+      return row.id;
     });
     revalidatePath("/duels");
-    return { ok: true };
+    return { ok: true, id };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Duel failed" };
   }
