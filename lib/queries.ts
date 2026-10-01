@@ -217,25 +217,8 @@ export async function getGroupTrades(parentId: string, limit = 25) {
 
 // Full-range chart data, decimated to ~240 points in SQL — a canvas/SVG chart
 // can't resolve more, and price_point grows without bound otherwise.
-export async function getPriceHistory(marketId: string, since?: Date) {
-  if (since) {
-    // Anchor at the last pre-epoch price pinned to the epoch boundary — the
-    // chart starts at the reset, not at empty space or the whale-era swings.
-    const [[anchor], pts] = await Promise.all([
-      db
-        .select({ p: schema.pricePoint.yesPrice })
-        .from(schema.pricePoint)
-        .where(and(eq(schema.pricePoint.marketId, marketId), sql`${schema.pricePoint.createdAt} < ${since}`))
-        .orderBy(desc(schema.pricePoint.createdAt))
-        .limit(1),
-      db
-        .select({ t: schema.pricePoint.createdAt, p: schema.pricePoint.yesPrice })
-        .from(schema.pricePoint)
-        .where(and(eq(schema.pricePoint.marketId, marketId), sql`${schema.pricePoint.createdAt} >= ${since}`))
-        .orderBy(asc(schema.pricePoint.createdAt)),
-    ]);
-    return anchor ? [{ t: since, p: anchor.p }, ...pts] : pts;
-  }
+// Full history: the stats epoch walls off money counters, not the price path.
+export async function getPriceHistory(marketId: string) {
   const rows = await db.execute<{ t: string; p: number }>(sql`
     SELECT created_at AS t, yes_price AS p FROM (
       SELECT yes_price, created_at,
@@ -585,30 +568,16 @@ export async function getHouseStats() {
 // multi-line chart on group pages. One query, grouped in JS.
 // Downsampled to ~240 points per market in SQL — charts can't resolve more
 // than that anyway, and history grows without bound otherwise.
-export async function getGroupHistories(marketIds: string[], since?: Date | null) {
+export async function getGroupHistories(marketIds: string[]) {
   const map = new Map<string, { t: string; p: number }[]>();
   if (marketIds.length === 0) return map;
-  // With an epoch, keep the last pre-epoch point as the anchor pinned at
-  // `since` so lines begin at the reset instead of replaying stale swings.
   const rows = await db.execute<{ market_id: string; p: number; t: string }>(sql`
-    WITH pts AS (
-      SELECT market_id, yes_price, created_at
-      FROM price_point
-      WHERE market_id IN ${marketIds}
-        ${since ? sql`AND created_at >= ${since}` : sql``}
-    ), anchors AS (
-      SELECT DISTINCT ON (market_id) market_id, yes_price, ${since ?? new Date(0)}::timestamptz AS created_at
-      FROM price_point
-      WHERE ${since ? sql`market_id IN ${marketIds} AND created_at < ${since}` : sql`false`}
-      ORDER BY market_id, created_at DESC
-    ), merged AS (
-      SELECT * FROM anchors UNION ALL SELECT market_id, yes_price, created_at FROM pts
-    )
     SELECT market_id, yes_price AS p, created_at AS t FROM (
       SELECT market_id, yes_price, created_at,
              ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY created_at) AS rn,
              COUNT(*) OVER (PARTITION BY market_id) AS cnt
-      FROM merged
+      FROM price_point
+      WHERE market_id IN ${marketIds}
     ) s
     WHERE rn = 1 OR rn = cnt OR rn % GREATEST(cnt / 240, 1) = 0
     ORDER BY market_id, created_at
@@ -621,29 +590,18 @@ export async function getGroupHistories(marketIds: string[], since?: Date | null
   return map;
 }
 
-// Latest ~40 price points per market, bounded in SQL — not in JS.
-// With an epoch, only post-epoch points count; markets untouched since the
-// reset get a single anchor at their last pre-epoch price (flat sparkline).
-export async function getSparklines(marketIds: string[], since?: Date | null) {
+// Latest ~40 price points per market, bounded in SQL — not in JS. Full
+// history: the stats epoch walls off money counters, not the price path.
+export async function getSparklines(marketIds: string[]) {
   const map = new Map<string, number[]>();
   if (marketIds.length === 0) return map;
   const rows = await db.execute<{ market_id: string; p: number }>(sql`
-    WITH pts AS (
-      SELECT market_id, yes_price,
+    SELECT market_id, p FROM (
+      SELECT market_id, yes_price AS p,
         ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY created_at DESC) AS rn
       FROM price_point
       WHERE market_id IN ${marketIds}
-        ${since ? sql`AND created_at >= ${since}` : sql``}
-    ), anchors AS (
-      SELECT DISTINCT ON (market_id) market_id, yes_price
-      FROM price_point
-      WHERE ${since ? sql`market_id IN ${marketIds} AND created_at < ${since}` : sql`false`}
-      ORDER BY market_id, created_at DESC
-    )
-    SELECT market_id, p FROM (
-      SELECT market_id, yes_price AS p, 41 AS rn FROM anchors
-      UNION ALL SELECT market_id, yes_price AS p, rn FROM pts WHERE rn <= 40
-    ) s
+    ) s WHERE rn <= 40
     ORDER BY market_id, rn DESC`);
   for (const r of rows.rows) {
     const arr = map.get(r.market_id) ?? [];
