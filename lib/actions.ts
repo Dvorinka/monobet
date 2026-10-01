@@ -3,12 +3,14 @@
 import { db, schema } from "@/lib/db";
 import { eq, ne, and, sql, desc, asc, isNull, inArray } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, GAME_SESSION_MS, GAME_BREAK_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, type DuelKind, type RpsMove, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_SESSION_MS, GAME_BREAK_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, type DuelKind, type RpsMove, type Persona } from "@/lib/games";
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
 import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb, MAX_TRADE_CENTS } from "@/lib/lmsr";
 import { loanFor, liquidationValueCents, groupLiquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "@/lib/liq";
+import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, type Tx } from "@/lib/tx-market";
+import { resetEconomyTx } from "@/lib/economy-reset";
 import { accruedDebtCents, LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT, LOAN_OFFER_TTL_MS, rollRateBps, DEBT_CAP_CENTS } from "@/lib/loans";
 import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
 import {
@@ -26,7 +28,9 @@ import {
   STREAK_CAP_DAYS,
 } from "@/lib/rewards";
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+// Tx + the shared balance/market helpers (credit, lockUser, lockMarket,
+// toNum, checkLiquidations, checkGroupLiquidations) live in
+// lib/tx-market.ts so ops scripts can run the identical code path.
 
 // Crude spam brakes for a friends group — recent-row counts on the live
 // tables, generous thresholds, no new infra.
@@ -69,59 +73,6 @@ async function assertNotSpam(userId: string, kind: "trade" | "game" | "comment" 
 }
 
 // ---------- helpers ----------
-
-async function credit(
-  tx: Tx,
-  userId: string,
-  amountCents: number,
-  kind: string,
-  marketId: string | null,
-  memo: string
-) {
-  const amt = Math.round(amountCents);
-  // bigint columns can hold anything sane; this guards JS number precision
-  // and turns nonsense deltas into a clean error instead of a DB failure.
-  if (!Number.isSafeInteger(amt)) throw new Error("Amount too large");
-  const [u] = await tx
-    .update(schema.user)
-    .set({ balanceCents: sql`${schema.user.balanceCents} + ${amt}` })
-    .where(eq(schema.user.id, userId))
-    .returning({ balanceCents: schema.user.balanceCents });
-  if (!u) throw new Error("User not found");
-  if (u.balanceCents < 0) throw new Error("Insufficient balance");
-  await tx.insert(schema.ledger).values({
-    userId,
-    amountCents: amt,
-    balanceAfterCents: u.balanceCents,
-    kind,
-    marketId,
-    memo,
-  });
-  return u.balanceCents;
-}
-
-async function lockMarket(tx: Tx, marketId: string) {
-  const rows = await tx
-    .select()
-    .from(schema.market)
-    .where(eq(schema.market.id, marketId))
-    .for("update")
-    .limit(1);
-  const m = rows[0];
-  if (!m) throw new Error("Market not found");
-  return m;
-}
-
-async function lockUser(tx: Tx, userId: string) {
-  const rows = await tx
-    .select()
-    .from(schema.user)
-    .where(eq(schema.user.id, userId))
-    .for("update")
-    .limit(1);
-  if (!rows[0]) throw new Error("User not found");
-  return rows[0];
-}
 
 // Live-sibling softmax mark for an option — the shared book's price. Binary
 // markets and orphan options fall back to the standalone binary price.
@@ -199,10 +150,6 @@ async function uniqueSlug(tx: Tx): Promise<string> {
     if (!hit) return s;
   }
   throw new Error("Could not allocate a slug");
-}
-
-function toNum(s: string | number): number {
-  return typeof s === "number" ? s : Number(s);
 }
 
 // After an option resolves/cancels, roll the group up: no live options left
@@ -320,133 +267,9 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
 // still kill the position are rejected at trade time, not silently swept.
 const TRADE_LEVERAGES = [1, 2, 3, 5, 10, 20, 50, 100];
 
-// If a leveraged position's liquidation value drops to the debt (cushion set
-// by the market's leverage cap — see liqCushion), force-sell it into the
-// book, repay the loan, hand back any leftover equity.
-// Runs inside the trade tx after the book moved — sequential sells keep the
-// q's honest as each liquidation moves the price.
-async function checkLiquidations(tx: Tx, marketId: string) {
-  const m = await lockMarket(tx, marketId);
-  let qy = toNum(m.qYes);
-  let qn = toNum(m.qNo);
-  let touched = false;
-  // Iterate to a fixpoint — a liquidation late in the scan can push an
-  // earlier-passed position under the cushion, so loop until a pass frees
-  // nothing. Bounded: every pass deletes at least one position.
-  for (;;) {
-    const rows = await tx
-      .select()
-      .from(schema.position)
-      .where(and(eq(schema.position.marketId, marketId), sql`${schema.position.debtCents} > 0`))
-      .for("update");
-    let passTouched = false;
-    for (const p of rows) {
-      const y = toNum(p.yesShares);
-      const n = toNum(p.noShares);
-      const valueCents = liquidationValueCents(qy, qn, m.b, y, n);
-      if (!shouldLiquidate(valueCents, p.debtCents, m.maxLeverage)) continue;
-      qy -= y;
-      qn -= n;
-      const equity = Math.max(0, valueCents - p.debtCents);
-      await lockUser(tx, p.userId);
-      if (equity > 0) {
-        await credit(tx, p.userId, equity, "liq", marketId, `Liquidated: ${m.question.slice(0, 60)}`);
-      } else {
-        // A wipeout is silent without a row — tell them the position died.
-        const [w] = await tx.select({ balanceCents: schema.user.balanceCents }).from(schema.user).where(eq(schema.user.id, p.userId)).limit(1);
-        await tx.insert(schema.ledger).values({
-          userId: p.userId,
-          amountCents: 0,
-          balanceAfterCents: w?.balanceCents ?? 0,
-          kind: "liq",
-          marketId,
-          memo: `Liquidated (total loss): ${m.question.slice(0, 60)}`,
-        });
-      }
-      await tx
-        .delete(schema.position)
-        .where(and(eq(schema.position.marketId, marketId), eq(schema.position.userId, p.userId)));
-      passTouched = true;
-      touched = true;
-    }
-    if (!passTouched) break;
-  }
-  if (touched) {
-    await tx.update(schema.market).set({ qYes: String(qy), qNo: String(qn) }).where(eq(schema.market.id, marketId));
-    await tx.insert(schema.pricePoint).values({ marketId, yesPrice: yesPrice(qy, qn, m.b).toFixed(5) });
-  }
-}
-
-// Same sweep for a group book: one option's trade moves every sibling's
-// price, so the whole family's leveraged positions get checked. `book` is
-// the locked live siblings with post-trade coordinates — a liquidation sells
-// the position back: YES shares come off that option's coordinate, NO shares
-// (the complement bundle) come off every sibling's via the shared math.
-async function checkGroupLiquidations(
-  tx: Tx,
-  book: { m: typeof schema.market.$inferSelect; qYes: number; qNo: number; dirty: boolean }[]
-) {
-  const b = book[0]?.m.b ?? 300;
-  let touched = false;
-  for (;;) {
-    let passTouched = false;
-    for (let i = 0; i < book.length; i++) {
-      const { m } = book[i];
-      const rows = await tx
-        .select()
-        .from(schema.position)
-        .where(and(eq(schema.position.marketId, m.id), sql`${schema.position.debtCents} > 0`))
-        .for("update");
-      for (const p of rows) {
-        const y = toNum(p.yesShares);
-        const n = toNum(p.noShares);
-        const coords = multiCoords(book);
-        const valueCents = groupLiquidationValueCents(coords, b, i, y, n);
-        if (!shouldLiquidate(valueCents, p.debtCents, m.maxLeverage)) continue;
-        book[i].qYes -= y;
-        book[i].qNo -= n;
-        book[i].dirty = true;
-        const equity = Math.max(0, valueCents - p.debtCents);
-        await lockUser(tx, p.userId);
-        if (equity > 0) {
-          await credit(tx, p.userId, equity, "liq", m.id, `Liquidated: ${m.question.slice(0, 60)}`);
-        } else {
-          // A wipeout is silent without a row — tell them the position died.
-          const [w] = await tx.select({ balanceCents: schema.user.balanceCents }).from(schema.user).where(eq(schema.user.id, p.userId)).limit(1);
-          await tx.insert(schema.ledger).values({
-            userId: p.userId,
-            amountCents: 0,
-            balanceAfterCents: w?.balanceCents ?? 0,
-            kind: "liq",
-            marketId: m.id,
-            memo: `Liquidated (total loss): ${m.question.slice(0, 60)}`,
-          });
-        }
-        await tx
-          .delete(schema.position)
-          .where(and(eq(schema.position.marketId, m.id), eq(schema.position.userId, p.userId)));
-        passTouched = true;
-        touched = true;
-      }
-    }
-    if (!passTouched) break;
-  }
-  if (touched) {
-    // Liquidations reprice the whole book — persist every moved coordinate
-    // and give each sibling a fresh point so the lines stay consistent.
-    const prices = multiPrices(multiCoords(book), b);
-    for (const [i, s] of book.entries()) {
-      if (s.dirty) {
-        await tx
-          .update(schema.market)
-          .set({ qYes: s.qYes.toFixed(6), qNo: s.qNo.toFixed(6) })
-          .where(eq(schema.market.id, s.m.id));
-      }
-      await tx.insert(schema.pricePoint).values({ marketId: s.m.id, yesPrice: prices[i].toFixed(5) });
-    }
-  }
-}
-
+// Leveraged-position liquidation sweeps (checkLiquidations /
+// checkGroupLiquidations) live in lib/tx-market.ts — they run inside the
+// trade tx after the book moved, so sequential sells keep the q's honest.
 export async function placeTrade(input: {
   marketId: string;
   outcome: "yes" | "no";
@@ -914,6 +737,60 @@ export async function setCasinoRig(input: { rigBps: number }): Promise<{ ok: boo
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Save failed" };
+  }
+}
+
+// Kill-switch — toggle a game's stakes from the admin panel. In-flight rounds
+// (blackjack hands, timer, hi-lo) still settle; only new stakes refuse.
+export async function setGameEnabled(input: { game: string; enabled: boolean }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    if (!GAME_KEYS.includes(input.game as GameKey)) throw new Error("Unknown game");
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.casinoConfig).values({ id: "house" }).onConflictDoNothing();
+      const [cfg] = await tx.select({ d: schema.casinoConfig.disabledGames }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house")).for("update");
+      const set = new Set(cfg?.d ?? []);
+      if (input.enabled) set.delete(input.game);
+      else set.add(input.game);
+      await tx.update(schema.casinoConfig).set({ disabledGames: [...set], updatedAt: new Date() }).where(eq(schema.casinoConfig.id, "house"));
+    });
+    revalidatePath("/admin");
+    revalidatePath("/games");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Save failed" };
+  }
+}
+
+// Reset the open daily-jackpot round — the live pool is computed from wagers
+// since starts_at, so a reset moves the window's start to now (pool and
+// tickets recompute to zero; the next draw time is unchanged).
+export async function resetJackpot(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    await db.update(schema.jackpotRound).set({ startsAt: new Date(), poolCents: 0, tickets: 0 }).where(isNull(schema.jackpotRound.drawnAt));
+    revalidatePath("/admin");
+    revalidatePath("/games");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Reset failed" };
+  }
+}
+
+// Economy reset — the whale fix. The heavy lifting lives in
+// lib/economy-reset.ts so scripts/reset-economy.ts runs the identical
+// transaction; this wrapper adds auth + revalidation.
+export async function adminResetEconomy(): Promise<{ ok: boolean; error?: string; unwound?: number; clamped?: number }> {
+  try {
+    await requireAdmin();
+    const { unwound, clamped } = await db.transaction((tx) => resetEconomyTx(tx, { exemptEmail: SUPER_ADMIN_EMAIL }));
+    revalidatePath("/admin");
+    revalidatePath("/markets");
+    revalidatePath("/leaderboard");
+    revalidatePath("/");
+    return { ok: true, unwound, clamped };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Reset failed" };
   }
 }
 
@@ -2529,9 +2406,12 @@ const RIG_PCT = 35; // rigged dealers flip ~⅓ of player wins
 // Stake + funding fee against the locked row. Split out of settleGame so the
 // timer can charge at round start — an abandoned round forfeits the wager
 // instead of refunding by silence.
-async function stakeGame(tx: Tx, userId: string, betCents: number, leverage: number, label: string): Promise<number> {
+async function stakeGame(tx: Tx, userId: string, betCents: number, leverage: number, label: string, game: GameKey): Promise<number> {
   const wager = Math.round(betCents * leverage);
   if (wager > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
+  // Kill-switch — the admin's disabled list blocks new stakes for that game.
+  const [cfg] = await tx.select({ d: schema.casinoConfig.disabledGames }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house"));
+  if (cfg?.d?.includes(game)) throw new Error("This game is temporarily disabled");
   const fee = levFeeCents(betCents, leverage);
   // Credit check + charge both run on the locked row — the pre-tx snapshot
   // could be a debt repayment stale.
@@ -2561,12 +2441,13 @@ async function settleGame(
   won: boolean,
   mult: number,
   label: string,
-  dealer?: Persona,
-  prepaid = false
+  dealer: Persona | undefined,
+  prepaid: boolean,
+  game: GameKey
 ): Promise<{ netCents: number; feeCents: number; skimCents: number; tavCents: number }> {
   const wager = Math.round(betCents * leverage);
   if (wager > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
-  const fee = prepaid ? levFeeCents(betCents, leverage) : await stakeGame(tx, userId, betCents, leverage, label);
+  const fee = prepaid ? levFeeCents(betCents, leverage) : await stakeGame(tx, userId, betCents, leverage, label, game);
   let win = 0;
   let skim = 0;
   let tav = 0;
@@ -2671,6 +2552,7 @@ function checkBet(betCents: number, leverage: number) {
   const bet = Math.round(betCents);
   const lev = Math.round(leverage);
   if (!Number.isFinite(bet) || bet < MIN_BET_CENTS) throw new Error("Minimum bet is Ɱ 1");
+  if (bet > MAX_GAME_STAKE_CENTS) throw new Error("Max bet is Ɱ 1 000");
   if (!GAME_LEVERAGES.includes(lev as (typeof GAME_LEVERAGES)[number])) throw new Error("Bad leverage");
   return { bet, lev };
 }
@@ -2720,7 +2602,7 @@ export async function playCoinFlip(input: {
       won = false;
     }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, won, COINFLIP_MULT, `Coin flip ${input.pick}→${landed}`, dealer)
+      settleGame(tx, u.id, bet, lev, won, COINFLIP_MULT, `Coin flip ${input.pick}→${landed}`, dealer, false, "coinflip")
     );
     revalidatePath("/games");
     return { ok: true, won, landed, netCents, dealer, feeCents, skimCents, tavCents };
@@ -2766,7 +2648,7 @@ export async function playDice(input: {
       won = false;
     }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, won, mult, `Dice >${over} → ${roll}`, dealer)
+      settleGame(tx, u.id, bet, lev, won, mult, `Dice >${over} → ${roll}`, dealer, false, "dice")
     );
     revalidatePath("/games");
     return { ok: true, won, roll, netCents, dealer, feeCents, skimCents, tavCents };
@@ -2778,13 +2660,17 @@ export async function playDice(input: {
 // Stop-the-timer rounds are rows, not tokens: start debits the stake up front
 // (an abandoned round forfeits it — walking away is not free), and stop claims
 // the row atomically so a round can only settle once. Elapsed is measured
-// between created_at and settled_at on server clocks; the client-sent number
-// is only the instant readout — never the score.
+// between the two action-entry timestamps on the app clock; the client-sent
+// number is only the instant readout — never the score.
 export async function startTimerRound(input: {
   targetMs: number;
   betCents: number;
   leverage: number;
 }): Promise<{ ok: boolean; error?: string; token?: string }> {
+  // Anchor the round the instant the request lands — the session lookup,
+  // spam check, and stake transaction below can take hundreds of ms, and
+  // all of it would otherwise count against the player's clock.
+  const startedAt = Date.now();
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
@@ -2792,10 +2678,11 @@ export async function startTimerRound(input: {
     if (!TIMER_TARGETS.includes(target as (typeof TIMER_TARGETS)[number])) throw new Error("Bad target");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
     const roundId = await db.transaction(async (tx) => {
-      const fee = await stakeGame(tx, u.id, bet, lev, `Timer ${target / 1000}s`);
+      const fee = await stakeGame(tx, u.id, bet, lev, `Timer ${target / 1000}s`, "timer");
+      const jitter = timerJitterRangeMs(target);
       const [r] = await tx
         .insert(schema.timerRound)
-        .values({ userId: u.id, targetMs: target, betCents: bet, leverage: lev, feeCents: fee })
+        .values({ userId: u.id, targetMs: target, jitterMs: randomInt(2 * jitter + 1) - jitter, betCents: bet, leverage: lev, feeCents: fee, startedAt: new Date(startedAt) })
         .returning({ id: schema.timerRound.id });
       return r.id;
     });
@@ -2810,6 +2697,10 @@ export async function stopTimerRound(input: {
   elapsedMs: number;
   dealerId?: string;
 }): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
+  // Capture the stop at arrival — requireUser/pickDealer and the claim
+  // update below would otherwise append their own latency to the measured
+  // elapsed, which the player perceives as "time gets added".
+  const stoppedAt = Date.now();
   try {
     const u = await requireUser();
     const dealer = await pickDealer(input.dealerId);
@@ -2818,25 +2709,146 @@ export async function stopTimerRound(input: {
       // or expired round id finds nothing to settle.
       const [round] = await tx
         .update(schema.timerRound)
-        .set({ settledAt: new Date() })
+        .set({ settledAt: new Date(stoppedAt) })
         .where(and(eq(schema.timerRound.id, input.token), eq(schema.timerRound.userId, u.id), isNull(schema.timerRound.settledAt)))
         .returning();
       if (!round) throw new Error("Bad round token");
-      const elapsed = Date.now() - round.createdAt.getTime();
-      const err = Math.abs(elapsed - round.targetMs);
+      // Same app clock at both ends; pre-migration rows fall back to
+      // created_at (Postgres clock — the old mixed-clock reading).
+      const elapsed = stoppedAt - (round.startedAt ?? round.createdAt).getTime();
+      const err = Math.abs(elapsed - (round.targetMs + round.jitterMs));
       let mult = timerMult(err, round.targetMs);
       let won = mult > 0;
       if (!won && (await maybeBless(u.id, dealer))) {
         mult = timerMult(0, round.targetMs); // blessed reads as a perfect stop
         won = true;
       }
-      const s = await settleGame(tx, u.id, round.betCents, round.leverage, won, mult, `Timer ${round.targetMs / 1000}s off by ${err}ms`, dealer, true);
+      const s = await settleGame(tx, u.id, round.betCents, round.leverage, won, mult, `Timer ${round.targetMs / 1000}s off by ${err}ms`, dealer, true, "timer");
       return { round, elapsed, err, won, mult, ...s };
     });
     revalidatePath("/games");
     return { ok: true, won: out.won, elapsedMs: out.elapsed, errMs: out.err, netCents: out.netCents, mult: out.mult, dealer, feeCents: out.feeCents, skimCents: out.skimCents, tavCents: out.tavCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Stop failed" };
+  }
+}
+
+// Red or black — one card, one call. Instant settle like coinflip.
+export async function playRedBlack(input: {
+  betCents: number;
+  leverage: number;
+  pick: "red" | "black";
+  dealerId?: string;
+}): Promise<{ ok: boolean; error?: string; won?: boolean; card?: number; netCents?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
+  try {
+    const u = await requireUser();
+    await assertNotSpam(u.id, "game");
+    const { bet, lev } = checkBet(input.betCents, input.leverage);
+    if (input.pick !== "red" && input.pick !== "black") throw new Error("Pick a color");
+    const dealer = await pickDealer(input.dealerId);
+    // Draws stay coherent with the outcome: a flip rerolls the opposite color.
+    const draw = (red: boolean) => { let c = randomInt(52); while (cardIsRed(c) !== red) c = randomInt(52); return c; };
+    let card = draw(randomInt(2) === 0); // first card, any color
+    let won = cardIsRed(card) === (input.pick === "red");
+    if (dealerFx(dealer).rigged && won && randomInt(100) < RIG_PCT) { card = draw(input.pick === "black"); won = false; }
+    if (!won && (await maybeBless(u.id, dealer))) { card = draw(input.pick === "red"); won = true; }
+    if (won && randomInt(10_000) < (await casinoRigBps())) { card = draw(input.pick === "black"); won = false; }
+    const luck = luckRoll(won, u.luckBps);
+    if (luck === "win") { card = draw(input.pick === "red"); won = true; }
+    else if (luck === "lose") { card = draw(input.pick === "black"); won = false; }
+    const landed = cardIsRed(card) ? "red" : "black";
+    const s = await db.transaction(async (tx) =>
+      settleGame(tx, u.id, bet, lev, won, REDBLACK_MULT, `Red/Black ${input.pick}→${landed}`, dealer, false, "redblack")
+    );
+    revalidatePath("/games");
+    return { ok: true, won, card, netCents: s.netCents, dealer, feeCents: s.feeCents, skimCents: s.skimCents, tavCents: s.tavCents };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Round failed" };
+  }
+}
+
+// Hi-Lo — the house shows a face card, you call higher or lower on the next.
+// The stake locks at deal; the direction commits at play, the row settles once.
+export async function hiloStart(input: {
+  betCents: number;
+  leverage: number;
+  dealerId?: string;
+}): Promise<{ ok: boolean; error?: string; roundId?: string; faceCard?: number; dealer?: Persona }> {
+  try {
+    const u = await requireUser();
+    await assertNotSpam(u.id, "game");
+    const { bet, lev } = checkBet(input.betCents, input.leverage);
+    const dealer = await pickDealer(input.dealerId);
+    const faceCard = randomInt(52);
+    const roundId = await db.transaction(async (tx) => {
+      const fee = await stakeGame(tx, u.id, bet, lev, `Hi-Lo`, "hilo");
+      const [r] = await tx
+        .insert(schema.hiloRound)
+        .values({ userId: u.id, faceCard, betCents: bet, leverage: lev, feeCents: fee })
+        .returning({ id: schema.hiloRound.id });
+      return r.id;
+    });
+    revalidatePath("/games");
+    return { ok: true, roundId, faceCard, dealer };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Deal failed" };
+  }
+}
+
+export async function hiloPlay(input: {
+  roundId: string;
+  dir: HiloDir;
+  dealerId?: string;
+}): Promise<{ ok: boolean; error?: string; won?: boolean; card?: number; push?: boolean; netCents?: number; mult?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
+  try {
+    const u = await requireUser();
+    if (input.dir !== "higher" && input.dir !== "lower") throw new Error("Pick higher or lower");
+    const dealer = await pickDealer(input.dealerId);
+    const out = await db.transaction(async (tx) => {
+      const [round] = await tx
+        .update(schema.hiloRound)
+        .set({ dir: input.dir, settledAt: new Date() })
+        .where(and(eq(schema.hiloRound.id, input.roundId), eq(schema.hiloRound.userId, u.id), isNull(schema.hiloRound.settledAt)))
+        .returning();
+      if (!round) throw new Error("Bad round token");
+      const fo = cardOrder(round.faceCard);
+      // Dead call — nothing beats an ace upward, nothing ducks under a 2.
+      // The UI never offers it; a crafted request is refused before settle so
+      // the prepaid round stays open for a real call.
+      if (hiloWinRanks(fo, input.dir) <= 0) throw new Error("No card can win that call");
+      // Equal rank is a push — flips never fake it; a rigged outcome redraws
+      // a card that genuinely loses (or wins) the call. Draws pick uniformly
+      // from the matching ranks — bounded, no retry loop to exhaust.
+      const canLose = hiloWinRanks(fo, input.dir === "higher" ? "lower" : "higher") > 0;
+      const draw = (wantWin: boolean) => {
+        const pool: number[] = [];
+        for (let o = 1; o <= 13; o++) {
+          if (o !== fo && ((o > fo ? "higher" : "lower") === input.dir) === wantWin) pool.push(o);
+        }
+        // Card ints are rank + 13*suit; order o maps back to rank o % 13.
+        return (pool[randomInt(pool.length)] % 13) + 13 * randomInt(4);
+      };
+      let card = randomInt(52);
+      let push = cardOrder(card) === fo;
+      let won = push || (cardOrder(card) > fo ? "higher" : "lower") === input.dir;
+      if (dealerFx(dealer).rigged && won && !push && canLose && randomInt(100) < RIG_PCT) { card = draw(false); won = false; }
+      if (!won && !push && (await maybeBless(u.id, dealer))) { card = draw(true); won = true; }
+      if (won && !push && canLose && randomInt(10_000) < (await casinoRigBps())) { card = draw(false); won = false; }
+      const luck = luckRoll(won, u.luckBps);
+      if (!push) {
+        if (luck === "win") { card = draw(true); won = true; }
+        else if (luck === "lose" && canLose) { card = draw(false); won = false; }
+      }
+      push = cardOrder(card) === fo;
+      const mult = push ? 1 : hiloMult(round.faceCard, input.dir);
+      const face = cardLabel(round.faceCard), next = cardLabel(card);
+      const s = await settleGame(tx, u.id, round.betCents, round.leverage, won, mult, `Hi-Lo ${input.dir} ${face.rank}${face.suit}→${next.rank}${next.suit}`, dealer, true, "hilo");
+      return { round, card, push, won, mult, ...s };
+    });
+    revalidatePath("/games");
+    return { ok: true, won: out.won, card: out.card, push: out.push, netCents: out.netCents, mult: out.mult, dealer, feeCents: out.feeCents, skimCents: out.skimCents, tavCents: out.tavCents };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Play failed" };
   }
 }
 
@@ -2878,7 +2890,7 @@ export async function playLimbo(input: {
       won = false;
     }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, won, target * 0.98, `Limbo ≥${target}x → ${roll.toFixed(2)}x`, dealer)
+      settleGame(tx, u.id, bet, lev, won, target * 0.98, `Limbo ≥${target}x → ${roll.toFixed(2)}x`, dealer, false, "limbo")
     );
     revalidatePath("/games");
     return { ok: true, won, roll: Math.round(roll * 100) / 100, netCents, dealer, feeCents, skimCents, tavCents };
@@ -2925,7 +2937,7 @@ export async function playWheel(input: {
       mult = 0;
     }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Wheel → ${mult}x`, dealer)
+      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Wheel → ${mult}x`, dealer, false, "wheel")
     );
     revalidatePath("/games");
     return { ok: true, index, mult, netCents, dealer, feeCents, skimCents, tavCents };
@@ -2989,7 +3001,7 @@ export async function playSlots(input: {
     }
     const label = `Slots ${reels.map((i) => SLOT_SYMBOLS[i]).join(" ")}`;
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, mult > 0, mult, label, dealer)
+      settleGame(tx, u.id, bet, lev, mult > 0, mult, label, dealer, false, "slots")
     );
     revalidatePath("/games");
     return { ok: true, reels, mult, netCents, dealer, feeCents, skimCents, tavCents };
@@ -3038,7 +3050,7 @@ export async function playPlinko(input: {
     if (luck === "win") move(rescue(bucket));
     else if (luck === "lose") move(spoil(bucket));
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Plinko → pocket ${bucket} ×${mult}`, dealer)
+      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Plinko → pocket ${bucket} ×${mult}`, dealer, false, "plinko")
     );
     revalidatePath("/games");
     return { ok: true, path, bucket, mult, netCents, dealer, feeCents, skimCents, tavCents };
@@ -3611,6 +3623,7 @@ export async function blackjackDeal(input: {
     const t3On = t3Bet > 0;
     if (!Number.isFinite(ppBet) || !Number.isFinite(t3Bet) || ppBet < 0 || t3Bet < 0) throw new Error("Bad side bet");
     if ((ppOn && ppBet < MIN_BET_CENTS) || (t3On && t3Bet < MIN_BET_CENTS)) throw new Error("Minimum bet is Ɱ 1");
+    if (ppBet > MAX_GAME_STAKE_CENTS || t3Bet > MAX_GAME_STAKE_CENTS) throw new Error("Max bet is Ɱ 1 000");
     const sideStake = ppBet + t3Bet;
     if (bet * lev + sideStake > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
     const persona = await pickDealer(input.dealerId);
@@ -3619,13 +3632,8 @@ export async function blackjackDeal(input: {
     const dealer = [deck.pop()!, deck.pop()!];
     let state!: BjState;
     await db.transaction(async (tx) => {
-      const cur = await lockUser(tx, u.id);
-      // Credit gate on the locked row, same as the other games' settle path.
-      assertCreditLine(cur, lev);
-      // Collateral + funding fee leave the balance up front so a slow hand
-      // can't double-spend them.
-      const fee = levFeeCents(bet, lev);
-      await credit(tx, u.id, -(bet + fee), "game", null, `Blackjack vs ${persona.name} — wager ×${lev}${fee > 0 ? ` · fee ${(fee / 100).toFixed(2)}Ɱ` : ""}`);
+      // Same gate as every other game — session pacing, credit line, kill-switch.
+      const fee = await stakeGame(tx, u.id, bet, lev, `Blackjack vs ${persona.name}`, "blackjack");
       if (sideStake > 0) await credit(tx, u.id, -sideStake, "game", null, `Blackjack side bets (${[ppOn && "PP", t3On && "21+3"].filter(Boolean).join(", ")})`);
       // Side bets resolve at deal — they pay independently of the 21 outcome.
       const sides: Record<string, BjSide> = {};
@@ -3636,7 +3644,7 @@ export async function blackjackDeal(input: {
         if (win) {
           const g = await garnishDebt(tx, u.id, win - ppBet, "Perfect Pairs");
           paid = win - g;
-          if (paid > 0) await credit(tx, u.id, paid, "game", null, `Perfect Pairs — ${w!.label} ×${w!.mult}${g ? " (debt repaid)" : ""}`);
+          if (paid > 0) await credit(tx, u.id, paid, "game", null, `Blackjack PP — ${w!.label} ×${w!.mult}${g ? " (debt repaid)" : ""}`);
         }
         sides.pp = { stake: ppBet, winCents: paid, label: w?.label ?? null };
       }
@@ -3647,7 +3655,7 @@ export async function blackjackDeal(input: {
         if (win) {
           const g = await garnishDebt(tx, u.id, win - t3Bet, "21+3");
           paid = win - g;
-          if (paid > 0) await credit(tx, u.id, paid, "game", null, `21+3 — ${w!.label} ×${w!.mult}${g ? " (debt repaid)" : ""}`);
+          if (paid > 0) await credit(tx, u.id, paid, "game", null, `Blackjack 21+3 — ${w!.label} ×${w!.mult}${g ? " (debt repaid)" : ""}`);
         }
         sides.t3 = { stake: t3Bet, winCents: paid, label: w?.label ?? null };
       }

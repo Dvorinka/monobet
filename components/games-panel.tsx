@@ -13,6 +13,9 @@ import {
   playWheel,
   playSlots,
   playPlinko,
+  playRedBlack,
+  hiloStart,
+  hiloPlay,
   blackjackDeal,
   blackjackHit,
   blackjackStand,
@@ -22,7 +25,7 @@ import {
 import { levFeeCents, levWinCents, LEV_FEE_BPS } from "@/lib/liq";
 import {
   GAME_LEVERAGES,
-  MAX_GAME_WAGER_CENTS,
+  MAX_GAME_STAKE_CENTS,
   COINFLIP_MULT,
   diceMult,
   diceWinChance,
@@ -40,7 +43,10 @@ import {
   SLOT_TRIPLE,
   BJ_NATURAL_MULT,
   cardLabel,
+  hiloMult,
+  REDBLACK_MULT,
   dealerFx,
+  type HiloDir,
 } from "@/lib/games";
 import { fmtMonos } from "@/lib/money";
 import { DealerAvatar } from "@/components/dealer-avatar";
@@ -48,7 +54,7 @@ import { type DealerFx, type Persona } from "@/lib/games";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, Shuffle, CircleDot, X } from "lucide-react";
+import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, Shuffle, CircleDot, X, ArrowUpDown, Contrast } from "lucide-react";
 
 type Net = { netCents: number; won: boolean; stamp: number; feeCents?: number; stakeCents?: number; skimCents?: number } | null;
 
@@ -185,7 +191,7 @@ function BetControls({
   // the borrowed notional stays under the house cap.
   const maxCents = Math.min(
     Math.floor((balanceCents - sides) / (1 + ((levN - 1) * LEV_FEE_BPS) / 10_000)),
-    Math.floor(MAX_GAME_WAGER_CENTS / levN)
+    MAX_GAME_STAKE_CENTS // base stake ceiling — leverage can't stretch it
   );
   return (
     <div className="space-y-2">
@@ -473,22 +479,29 @@ function DiceCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
 
 // ---------- stop the timer ----------
 
-function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
-  const t = getT(lang ?? "en");
-  const { pending, run } = useGame(lang);
-  const [target, setTarget] = useState("10");
-  const [bet, setBet] = useState("10");
-  const [lev, setLev] = useState("1");
-  const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
+// Ticking digit readout — isolated in its own leaf so each frame only
+// re-renders these two lines instead of the whole card. Runs on rAF.
+function TimerDigits({ phase, clockRef, frozen, targetMs, lang }: {
+  phase: "idle" | "running" | "done";
+  clockRef: { current: number };
+  frozen: number;
+  targetMs: number;
+  lang: Lang;
+}) {
+  const t = getT(lang);
   const [disp, setDisp] = useState(0);
-  const [err, setErr] = useState<number | null>(null);
-  const [net, setNet] = useState<Net>(null);
-  const [dealer, setDealer] = useState<Persona | null>(null);
-  const tokenRef = useRef<Promise<string | null> | null>(null);
-  const t0 = useRef(0);
-  const targetMs = Number(target) * 1000;
-
   const hidden = phase === "running" && disp > timerRevealMs(targetMs);
+
+  useEffect(() => {
+    if (phase !== "running") return;
+    let raf = 0;
+    const tick = () => {
+      setDisp(performance.now() - clockRef.current);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [phase, clockRef]);
 
   // Audible cue the moment the digits hide.
   const wasHidden = useRef(false);
@@ -497,48 +510,73 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
     wasHidden.current = hidden;
   }, [hidden]);
 
-  // Display ticker — runs while the round is live; impure clock stays inside
-  // an effect where the purity rule allows it.
-  useEffect(() => {
-    if (phase !== "running") return;
-    const id = setInterval(() => setDisp(performance.now() - t0.current), 30);
-    return () => clearInterval(id);
-  }, [phase]);
+  const shown = phase === "done" ? frozen : disp;
+  const err = phase === "done" ? Math.abs(frozen - targetMs) : null;
+  return (
+    <>
+      <div
+        className={cn(
+          "num text-[44px] font-black tracking-tight leading-none tabular-nums",
+          hidden && "anim-shimmer text-faint"
+        )}
+      >
+        {hidden ? "?.??" : (shown / 1000).toFixed(2)}
+        <span className="text-[18px] font-bold text-mute">s</span>
+      </div>
+      <div className="text-[12px] text-faint">
+        {phase === "running" ? (hidden ? t.guessNow : t.memorize) : phase === "done" && err !== null ? t.offBy(err) : t.targetIs(`${(targetMs / 1000).toFixed(2)}s`)}
+      </div>
+    </>
+  );
+}
+
+function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+  const t = getT(lang ?? "en");
+  const { pending, run } = useGame(lang);
+  const [target, setTarget] = useState("10");
+  const [bet, setBet] = useState("10");
+  const [lev, setLev] = useState("1");
+  const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
+  const [frozen, setFrozen] = useState(0);
+  const [round, setRound] = useState(0); // mounts a fresh TimerDigits per round — no stale digits
+  const [net, setNet] = useState<Net>(null);
+  const [dealer, setDealer] = useState<Persona | null>(null);
+  const tokenRef = useRef<Promise<string | null> | null>(null);
+  const t0 = useRef(0);
+  const targetMs = Number(target) * 1000;
 
   const start = () => {
     // Start the clock immediately — the signed round token arrives in the
     // background and is only needed when the player stops.
     setNet(null);
     setDealer(null);
-    setErr(null);
-    setDisp(0);
     t0.current = performance.now();
+    setRound((r) => r + 1);
     setPhase("running");
     const bc = Math.round(parseFloat(bet || "0") * 100);
     tokenRef.current = run(() =>
       startTimerRound({ targetMs: Number(target) * 1000, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })
     ).then((r) => r?.token ?? null);
     tokenRef.current.then((token) => {
-      if (!token) setPhase("idle");
+      if (!token) setPhase((p) => (p === "running" ? "idle" : p));
     });
   };
 
   const stop = () => {
+    if (phase !== "running") return;
     const p = tokenRef.current;
     if (!p) return;
     const mine = Math.round(performance.now() - t0.current);
     const bc = Math.round(parseFloat(bet || "0") * 100);
-    // Show the measured stop instantly; the server reports its own measure.
+    // Freeze the player's own measurement instantly — the server grades its
+    // own reading and reports money, but the displayed stop never jumps.
+    setFrozen(mine);
     setPhase("done");
-    setDisp(mine);
-    setErr(Math.abs(mine - targetMs));
     p.then((token) => {
       if (!token) return null;
       return run(() => stopTimerRound({ dealerId, token, elapsedMs: mine }));
     }).then((r) => {
       if (!r) return;
-      setDisp(r.elapsedMs ?? mine);
-      setErr(r.errMs ?? null);
       setDealer(r.dealer ?? null);
       setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
       dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
@@ -552,18 +590,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       sub={t.gTimerSub}
       stage={
         <div className="flex flex-col items-center gap-2">
-          <div
-            className={cn(
-              "num text-[44px] font-black tracking-tight leading-none tabular-nums",
-              hidden && "anim-shimmer text-faint"
-            )}
-          >
-            {hidden ? "?.??" : (disp / 1000).toFixed(2)}
-            <span className="text-[18px] font-bold text-mute">s</span>
-          </div>
-          <div className="text-[12px] text-faint">
-            {phase === "running" ? (hidden ? t.guessNow : t.memorize) : phase === "done" && err !== null ? t.offBy(err) : t.targetIs(`${target}.00s`)}
-          </div>
+          <TimerDigits key={round} phase={phase} clockRef={t0} frozen={frozen} targetMs={targetMs} lang={lang ?? "en"} />
           <ResultTag net={phase === "done" ? net : null} lang={lang} />
           <DealerTag dealer={dealer} won={phase === "done" ? net?.won : null} />
         </div>
@@ -583,7 +610,11 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
           </div>
           <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || phase === "running"} lang={lang} winPreview={{ mult: timerTopMult(targetMs), max: true }} />
           {phase === "running" ? (
-            <Button className="w-full" size="lg" variant="no" disabled={pending} onClick={stop}>
+            // Stop is never gated on `pending` — while the start request is
+            // still in flight the stop queues on the token promise instead
+            // of going dead. The click flips the phase and unmounts the
+            // button, so it cannot fire twice.
+            <Button className="w-full" size="lg" variant="no" onClick={stop}>
               {t.stop}
             </Button>
           ) : (
@@ -1184,6 +1215,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
                         <input
                           type="number"
                           min="0"
+                          max={MAX_GAME_STAKE_CENTS / 100}
                           step="1"
                           value={s.amt}
                           disabled={pending}
@@ -1219,7 +1251,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
               )}
             </div>
           ) : (
-            <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet) || (pp && !(parseFloat(ppAmt) >= 1)) || (t3 && !(parseFloat(t3Amt) >= 1))} onClick={deal}>
+            <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet) || (pp && !(parseFloat(ppAmt) >= 1 && parseFloat(ppAmt) <= MAX_GAME_STAKE_CENTS / 100)) || (t3 && !(parseFloat(t3Amt) >= 1 && parseFloat(t3Amt) <= MAX_GAME_STAKE_CENTS / 100))} onClick={deal}>
               {round ? t.bjNewHand : t.bjDeal}
             </Button>
           )}
@@ -1391,6 +1423,196 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps
   );
 }
 
+// ---------- hi-lo & red/black ----------
+
+// 1.5× table card — the solo stage card for the card games.
+function BigCard({ v, hidden }: { v?: number; hidden?: boolean }) {
+  if (hidden || v === undefined)
+    return (
+      <div className="w-16 h-[88px] rounded-lg border border-line bg-ink p-1.5 shadow-md">
+        <div className="h-full w-full rounded-[4px] bg-[repeating-linear-gradient(45deg,rgba(255,255,255,0.14)_0px,rgba(255,255,255,0.14)_2px,transparent_2px,transparent_7px)]" />
+      </div>
+    );
+  const c = cardLabel(v);
+  return (
+    <div className={cn("w-16 h-[88px] rounded-lg border bg-surface grid grid-rows-[auto_1fr] px-1.5 pt-1 shadow-md anim-win-pop", c.red ? "border-no/50 text-no-strong" : "border-line text-ink")}>
+      <span className="num text-[17px] font-black leading-none">{c.rank}</span>
+      <span className="text-[26px] leading-none self-center justify-self-center">{c.suit}</span>
+    </div>
+  );
+}
+
+function RedBlackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+  const t = getT(lang ?? "en");
+  const { pending, run } = useGame(lang);
+  const [pick, setPick] = useState<"red" | "black">("red");
+  const [bet, setBet] = useState("10");
+  const [lev, setLev] = useState("1");
+  const [card, setCard] = useState<number>();
+  const [drawing, setDrawing] = useState(false);
+  const [net, setNet] = useState<Net>(null);
+  const [dealer, setDealer] = useState<Persona | null>(null);
+  const timers = useRef<number[]>([]);
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+
+  const play = () => {
+    const bc = Math.round(parseFloat(bet || "0") * 100);
+    run(() => playRedBlack({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)), pick })).then((r) => {
+      if (!r || r.card == null) return;
+      playSfx("flip", 0.5);
+      setNet(null);
+      setDealer(r.dealer ?? null);
+      setDrawing(true);
+      // The face cycles while the round is in flight — the drawn card lands last.
+      const iv = window.setInterval(() => setCard(Math.floor(Math.random() * 52)), 75);
+      timers.current.push(
+        window.setTimeout(() => {
+          clearInterval(iv);
+          setCard(r.card);
+          setDrawing(false);
+          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+          dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
+        }, 750)
+      );
+    });
+  };
+
+  const pickCls = (side: "red" | "black") =>
+    cn(
+      "flex-1 h-14 rounded-xl border-2 font-bold text-[15px] transition-all cursor-pointer",
+      pick === side
+        ? side === "red"
+          ? "border-no bg-no/10 text-no-strong shadow-[0_0_0_3px_var(--color-no-soft)]"
+          : "border-ink bg-ink/5 text-ink shadow-[0_0_0_3px_var(--color-surface-3)]"
+        : "border-line bg-surface-2 text-mute hover:border-mute"
+    );
+
+  return (
+    <GameCard
+      icon={<Contrast className="size-4.5" />}
+      title={t.gRedBlack}
+      sub={t.gRedBlackSub}
+      stage={
+        <div className="flex flex-col items-center gap-3">
+          <BigCard v={card} hidden={card === undefined} />
+          <ResultTag net={drawing ? null : net} lang={lang} />
+          <DealerTag dealer={dealer} won={drawing ? null : net?.won} />
+        </div>
+      }
+      controls={
+        <>
+          <div className="flex gap-2">
+            <button type="button" className={pickCls("red")} onClick={() => setPick("red")}>
+              <span className="text-[17px]">♥♦</span> {t.rbRed}
+            </button>
+            <button type="button" className={pickCls("black")} onClick={() => setPick("black")}>
+              <span className="text-[17px]">♠♣</span> {t.rbBlack}
+            </button>
+          </div>
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || drawing} lang={lang} winPreview={{ mult: REDBLACK_MULT }} />
+          <Button className="w-full" size="lg" disabled={pending || drawing || !parseFloat(bet)} onClick={play}>
+            {drawing ? t.drawing : t.draw}
+          </Button>
+        </>
+      }
+    />
+  );
+}
+
+function HiLoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+  const t = getT(lang ?? "en");
+  const { pending, run } = useGame(lang);
+  const [bet, setBet] = useState("10");
+  const [lev, setLev] = useState("1");
+  const [roundId, setRoundId] = useState<string>();
+  const [face, setFace] = useState<number>();
+  const [next, setNext] = useState<number>();
+  const [net, setNet] = useState<Net>(null);
+  const [dealer, setDealer] = useState<Persona | null>(null);
+  const inRound = roundId != null;
+
+  const deal = () => {
+    const bc = Math.round(parseFloat(bet || "0") * 100);
+    run(() => hiloStart({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })).then((r) => {
+      if (!r || !r.roundId || r.faceCard == null) return;
+      playSfx("flip", 0.4);
+      setRoundId(r.roundId);
+      setFace(r.faceCard);
+      setNext(undefined);
+      setNet(null);
+      setDealer(r.dealer ?? null);
+    });
+  };
+
+  const call = (dir: HiloDir) => {
+    if (!roundId) return;
+    const bc = Math.round(parseFloat(bet || "0") * 100);
+    run(() => hiloPlay({ roundId, dir, dealerId })).then((r) => {
+      if (!r || r.card == null) return;
+      playSfx(r.push ? "trade" : r.won ? "win" : "lose", 0.5);
+      setNext(r.card);
+      setRoundId(undefined);
+      const won = !!r.won && !r.push;
+      setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+      dealerWinFx(r.dealer ?? dealer, won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
+    });
+  };
+
+  const callBtn = (dir: HiloDir) => {
+    const mult = face != null ? hiloMult(face, dir) : 0;
+    return (
+      <button
+        type="button"
+        disabled={pending || mult <= 0}
+        onClick={() => call(dir)}
+        className="flex-1 h-14 rounded-xl border-2 border-brand bg-brand-soft font-bold text-[15px] text-brand-strong transition-all hover:bg-brand/20 disabled:opacity-40 disabled:hover:bg-brand-soft cursor-pointer disabled:cursor-not-allowed"
+      >
+        <span className="block">{dir === "higher" ? `↑ ${t.hiloHigher}` : `↓ ${t.hiloLower}`}</span>
+        <span className="block num text-[11.5px] font-semibold opacity-75">{mult > 0 ? `×${mult.toFixed(2)}` : "—"}</span>
+      </button>
+    );
+  };
+
+  return (
+    <GameCard
+      icon={<ArrowUpDown className="size-4.5" />}
+      title={t.gHilo}
+      sub={t.gHiloSub}
+      stage={
+        <div className="flex items-center gap-4">
+          <BigCard v={face} hidden={face === undefined} />
+          <ArrowUpDown className="size-4 text-faint rotate-90" />
+          <div className="flex flex-col items-center gap-1">
+            <BigCard v={next} hidden={next === undefined} />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-faint">{t.hiloNext}</span>
+          </div>
+        </div>
+      }
+      controls={
+        <>
+          {net && <div className="flex justify-center"><ResultTag net={net} lang={lang} /></div>}
+          {inRound ? (
+            <>
+              <div className="flex gap-2">
+                {callBtn("higher")}
+                {callBtn("lower")}
+              </div>
+              <p className="text-[11px] text-faint text-center">{t.hiloPush}</p>
+            </>
+          ) : (
+            <>
+              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} />
+              <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet)} onClick={deal}>
+                {t.bjDeal}
+              </Button>
+            </>
+          )}
+        </>
+      }
+    />
+  );
+}
+
 export const GAME_COMPONENTS = {
   coinflip: CoinFlipCard,
   dice: DiceCard,
@@ -1400,6 +1622,8 @@ export const GAME_COMPONENTS = {
   slots: SlotsCard,
   blackjack: BlackjackCard,
   plinko: PlinkoCard,
+  hilo: HiLoCard,
+  redblack: RedBlackCard,
 } as const;
 
 export type GameSlug = keyof typeof GAME_COMPONENTS;
@@ -1627,12 +1851,14 @@ export function GameView({
   lang,
   dealers,
   inDebt,
+  disabled,
 }: {
   game: GameSlug;
   balanceCents: number;
   lang?: Lang;
   dealers?: (Persona & { id: string })[];
   inDebt?: boolean;
+  disabled?: boolean;
 }) {
   const t = getT(lang ?? "en");
   const Game = GAME_COMPONENTS[game];
@@ -1677,8 +1903,15 @@ export function GameView({
           )}
         </div>
       )}
-      <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt}
-        onWinFx={(amt, fx, tav) => setSplash({ amt, fx, tav })} />
+      {disabled && (
+        <div className="mb-3 rounded-xl border border-no/40 bg-no/10 px-3.5 py-2.5 text-center text-[12.5px] font-semibold text-no-strong">
+          {t.gameDisabled}
+        </div>
+      )}
+      <div inert={disabled} className={cn(disabled && "opacity-50 select-none")}>
+        <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt}
+          onWinFx={(amt, fx, tav) => setSplash({ amt, fx, tav })} />
+      </div>
       {splash?.fx === "splash" && <BonnieSplash amountCents={splash.amt} lang={lang} />}
       {splash?.fx === "plane" && <PlaneSplash amountCents={splash.amt} lang={lang} />}
       {splash?.fx === "pride" && <PrideSplash amountCents={splash.amt} lang={lang} />}

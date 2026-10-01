@@ -440,7 +440,7 @@ export async function getHouseStats() {
       })
       .from(schema.ledger)
       .where(eq(schema.ledger.kind, "game")),
-    db.select({ rigBps: schema.casinoConfig.rigBps }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house")),
+    db.select({ rigBps: schema.casinoConfig.rigBps, disabledGames: schema.casinoConfig.disabledGames }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house")),
     // Loans pay the house on the way back: disbursement is a positive row
     // (cash out the door), a cash repayment a negative one, a garnished win a
     // zero row with the amount in the memo ("win repaid XⱮ").
@@ -463,27 +463,36 @@ export async function getHouseStats() {
       .from(schema.user)
       .where(sql`${schema.user.debtCents} > 0`),
   ]);
+  // pg returns bigint fragments as strings — coerce everything before math,
+  // otherwise "a" + "b" concatenates and the loans position goes astronomical.
   const w = windows[0] ?? { wageredCents: 0, paidCents: 0, profit24h: 0, profit7d: 0 };
   const loan = loanRows[0] ?? { count: 0, disbursedCents: 0 };
   const rep = garnishRows[0] ?? { repaidCents: 0, garnishedCents: 0 };
-  const outstandingCents = debtors.reduce((s, d) => s + accruedDebtCents(d.debtCents, d.debtRateBps, d.debtSince), 0);
+  const repaidCents = Number(rep.repaidCents) + Number(rep.garnishedCents);
+  const outstandingCents = debtors.reduce((s, d) => s + accruedDebtCents(Number(d.debtCents), d.debtRateBps, d.debtSince), 0);
   return {
-    games: perGame.map((r) => ({ ...r, profitCents: r.wageredCents - r.paidCents })),
-    wageredCents: w.wageredCents,
-    paidCents: w.paidCents,
-    profitCents: w.wageredCents - w.paidCents,
-    profit24hCents: w.profit24h,
-    profit7dCents: w.profit7d,
+    games: perGame.map((r) => ({
+      ...r,
+      wageredCents: Number(r.wageredCents),
+      paidCents: Number(r.paidCents),
+      profitCents: Number(r.wageredCents) - Number(r.paidCents),
+    })),
+    wageredCents: Number(w.wageredCents),
+    paidCents: Number(w.paidCents),
+    profitCents: Number(w.wageredCents) - Number(w.paidCents),
+    profit24hCents: Number(w.profit24h),
+    profit7dCents: Number(w.profit7d),
     rigBps: cfg[0]?.rigBps ?? 0,
+    disabledGames: cfg[0]?.disabledGames ?? [],
     // Bank position on loans: cash repaid + garnished wins + live debt claims
     // still on the books, minus cash lent out. Debt forgiven by the wall or
     // lost to liquidation simply isn't in outstanding — it shows as a loss.
     loans: {
       count: loan.count,
-      disbursedCents: loan.disbursedCents,
-      repaidCents: rep.repaidCents + rep.garnishedCents,
+      disbursedCents: Number(loan.disbursedCents),
+      repaidCents,
       outstandingCents,
-      positionCents: rep.repaidCents + rep.garnishedCents + outstandingCents - loan.disbursedCents,
+      positionCents: repaidCents + outstandingCents - Number(loan.disbursedCents),
     },
   };
 }
@@ -936,6 +945,17 @@ async function drawJackpot(roundId: string): Promise<boolean> {
 // Whoever loads the games page after draw_at settles the round and opens the
 // next — same idempotent lazy-rollover as ensureSeason. cache() dedupes it
 // within a request.
+// Admin's disabled-game list — cheap, no cache: the kill-switch must show up
+// on the lobby the moment it's flipped.
+export async function getDisabledGames(): Promise<string[]> {
+  const [cfg] = await db
+    .select({ d: schema.casinoConfig.disabledGames })
+    .from(schema.casinoConfig)
+    .where(eq(schema.casinoConfig.id, "house"))
+    .limit(1);
+  return cfg?.d ?? [];
+}
+
 export const getJackpot = cache(async (userId?: string) => {
   for (let i = 0; i < 4; i++) {
     const [round] = await db

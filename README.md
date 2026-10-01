@@ -42,7 +42,7 @@ exists for fun, bragging rights, and settling arguments.
 
 - **Binary & multi-outcome markets** priced by LMSR — instant liquidity, prices move with every trade; "X by when?" groups render each option as its own Yes/No line, resolved options collapse under "View resolved"
 - **Leveraged trading** — buy at up to 100× (per-market ceiling, default 10×): collateral covers the margin, the loan lives on the position, sells/resolves repay it first, and positions auto-liquidate when their value can't cover the debt
-- **Minigames arcade** (`/games`) — coin flip, dice roll-over, blind stop-the-timer (server-timestamped rounds), limbo multiplier, a spinner wheel, slots, and blackjack with side bets; all take variable bets at up to 100× margin leverage — wins pay amplified profit, losses cap at the stake plus a small funding fee, never debt
+- **Minigames arcade** (`/games`) — coin flip, dice roll-over, blind stop-the-timer (server-timestamped rounds with hidden jitter), limbo multiplier, a spinner wheel, slots, blackjack with side bets, plinko, hi-lo and red-or-black cards; all take variable bets up to Ɱ1 000 at up to 100× margin leverage — wins pay amplified profit, losses cap at the stake plus a small funding fee, never debt
 - **Anyone can create a market** — it goes live instantly; the creator picks per-option starting odds (1–99%) and liquidity depth (Thin/Standard/Deep)
 - **Creator & admin management** — edit rules/images/dates without breaking live markets (question locks once bets exist), resolve YES/NO, cancel with refunds
 - **User-managed categories** — starts empty; anyone can mint one inline in the market form, admins rename (markets carry over) and delete empty ones
@@ -53,7 +53,7 @@ exists for fun, bragging rights, and settling arguments.
 - **Live charts** — animated probability chart with crosshair tooltip, multi-line option charts, sparklines on every card, live bets ticker
 - **Dark & light themes** — system-aware, persisted, no flash on load
 - **Portfolio & leaderboard** — positions, trade history, auditable cash-flow ledger, net-worth ranking
-- **Admin panel** — resolve/cancel/delete any market, create users, grant balances, manage categories; user management with password resets, comment mutes, full bans (sessions dropped + sign-in blocked), and role toggles; `SUPER_ADMIN_EMAIL` pins the owner account
+- **Admin panel** — resolve/cancel/delete any market, create users, grant balances, manage categories; user management with password resets, comment mutes, full bans (sessions dropped + sign-in blocked), and role toggles; casino knobs: house riggedness dial, per-user luck, per-game kill switch, jackpot and whale/balance resets; `SUPER_ADMIN_EMAIL` pins the owner account
 - **Terms of Use** — `/terms` states plainly: fun-only demo, virtual Marks, no real market; linked in the footer and on signup
 
 ## Architecture
