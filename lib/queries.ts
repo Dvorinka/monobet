@@ -164,6 +164,31 @@ export async function getGroupOptionsFor(parentIds: string[]) {
   return map;
 }
 
+// Distinct traders across a group's options. Per-option traderCount can't be
+// summed — the same user trading three options would count three times.
+export async function getGroupTraderCount(optionIds: string[]) {
+  if (!optionIds.length) return 0;
+  const [r] = await db
+    .select({ n: sql<number>`count(distinct ${schema.trade.userId})::int` })
+    .from(schema.trade)
+    .where(inArray(schema.trade.marketId, optionIds));
+  return r?.n ?? 0;
+}
+
+// Batched variant for market grids — one query grouped by parent, no N+1.
+export async function getGroupTraderCounts(parentIds: string[]) {
+  const map = new Map<string, number>();
+  if (!parentIds.length) return map;
+  const rows = await db
+    .select({ parentId: schema.market.parentId, n: sql<number>`count(distinct ${schema.trade.userId})::int` })
+    .from(schema.trade)
+    .innerJoin(schema.market, eq(schema.trade.marketId, schema.market.id))
+    .where(inArray(schema.market.parentId, parentIds))
+    .groupBy(schema.market.parentId);
+  for (const r of rows) if (r.parentId) map.set(r.parentId, r.n);
+  return map;
+}
+
 // Latest trades across all options of a group.
 export async function getGroupTrades(parentId: string, limit = 25) {
   return db
@@ -1467,6 +1492,7 @@ export async function getGroupHolders(optionIds: string[], limit = 12) {
   if (!optionIds.length) return [];
   const rows = await db
     .select({
+      userId: schema.position.userId,
       username: schema.user.username,
       name: schema.user.name,
       image: schema.user.image,
@@ -1488,7 +1514,7 @@ export async function getGroupHolders(optionIds: string[], limit = 12) {
     { username: string | null; name: string; image: string | null; marketId: string; side: "yes" | "no"; shares: number; holdings: Holding[] }
   >();
   for (const r of rows) {
-    const key = r.username ?? r.name;
+    const key = r.userId;
     const entry = best.get(key) ?? {
       username: r.username,
       name: r.name,

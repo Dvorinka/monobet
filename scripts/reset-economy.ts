@@ -44,6 +44,8 @@ async function main() {
   console.log(`\njackpot rounds reset: ${result.jackpotRounds}`);
   console.log(`positions unwound: ${result.unwound}`);
   console.log(`balances clamped: ${result.clamped}`);
+  console.log(`whale trades purged: ${result.purgedTrades}`);
+  console.log(`markets recounted: ${result.recounted}`);
   await pool.end();
 }
 

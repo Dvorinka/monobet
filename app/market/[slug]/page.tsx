@@ -25,6 +25,7 @@ import {
   getResolutionStates,
   getTopHolders,
   getGroupHolders,
+  getGroupTraderCount,
   getUserPublic,
   listMarkets,
   getCommunityNotes,
@@ -75,12 +76,16 @@ export async function generateMetadata({
   } else if (m && m.kind !== "group") {
     pct = Math.round(marketYesPrice(m) * 100);
   }
+  // Group parents hold seed volume only — the real number is the sum of
+  // option volumes, same as the page header and OG image.
+  const groupVolume = m?.kind === "group" ? (await getGroupOptions(m.id)).reduce((s, o) => s + o.volumeCents, 0) : 0;
+  const shownVolume = m?.kind === "group" ? groupVolume : (m?.volumeCents ?? 0);
   return {
     title: m?.question ?? "Market",
     description: m
       ? m.kind === "group"
-        ? `${fmtMonos(m.volumeCents)} traded on MonoBet — play-money markets`
-        : `${pct}% YES · ${fmtMonos(m.volumeCents)} traded on MonoBet — play-money markets`
+        ? `${fmtMonos(shownVolume)} traded on MonoBet — play-money markets`
+        : `${pct}% YES · ${fmtMonos(shownVolume)} traded on MonoBet — play-money markets`
       : "MonoBet market",
     openGraph: m ? { title: m.question } : undefined,
   };
@@ -592,7 +597,7 @@ async function GroupMarketView({
   const optionIds = options.map((o) => o.id);
   const live = options.filter((o) => o.status === "live");
   const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
-  const [optionSparks, histories, betCount, categories, posRows, myPositions, creator, res, holders, resStates, notesMap] = await Promise.all([
+  const [optionSparks, histories, betCount, categories, posRows, myPositions, creator, res, holders, resStates, notesMap, groupTraders] = await Promise.all([
     getSparklines(optionIds),
     getGroupHistories(optionIds),
     getMarketBetCount(market.id),
@@ -604,6 +609,7 @@ async function GroupMarketView({
     getGroupHolders(optionIds),
     getResolutionStates(optionIds, user?.id),
     canManage ? getNotesFor(optionIds) : getNotesFor(optionIds, { publishedOnly: true }),
+    getGroupTraderCount(optionIds),
   ]);
   // Comment badges: each commenter's dominant option position. YES-side holders
   // get the option color, NO-side holders a red "No <option>" tag.
@@ -624,7 +630,7 @@ async function GroupMarketView({
         : { label: `${t.no} ${label}`, shares: no, tone: "no" };
   }
   const volume = options.reduce((s, o) => s + o.volumeCents, 0);
-  const traders = options.reduce((s, o) => s + o.traderCount, 0);
+  const traders = groupTraders;
   // A live group past its close is done taking bets; it just awaits resolution.
   const expired = !!market.closesAt && market.closesAt <= new Date();
   const anyLive = live.length > 0 && !expired;

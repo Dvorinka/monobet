@@ -32,6 +32,7 @@ export function MarketCard({
   liked,
   likes = 0,
   trending,
+  groupTraders,
 }: {
   market: MarketRow;
   spark: number[];
@@ -43,9 +44,10 @@ export function MarketCard({
   liked?: boolean;
   likes?: number;
   trending?: boolean;
+  groupTraders?: number;
 }) {
   const t = getT(lang ?? "en");
-  if (market.kind === "group") return <GroupCard market={market} options={options ?? []} index={index} lang={lang} watching={watching} liked={liked} likes={likes} trending={trending} />;
+  if (market.kind === "group") return <GroupCard market={market} options={options ?? []} index={index} lang={lang} watching={watching} liked={liked} likes={likes} trending={trending} traders={groupTraders} />;
 
   const py = marketYesPrice(market);
   const resolved = market.status === "resolved";
@@ -122,7 +124,7 @@ export function MarketCard({
 
 // Multi-outcome card — Polymarket's "X by when?" style. Each option row links
 // to its own binary market; resolved options collapse under "View resolved".
-function GroupCard({ market, options, index, lang, watching, liked, likes = 0, trending }: { market: MarketRow; options: MarketRow[]; index: number; lang?: Lang; watching?: boolean; liked?: boolean; likes?: number; trending?: boolean }) {
+function GroupCard({ market, options, index, lang, watching, liked, likes = 0, trending, traders }: { market: MarketRow; options: MarketRow[]; index: number; lang?: Lang; watching?: boolean; liked?: boolean; likes?: number; trending?: boolean; traders?: number }) {
   const t = getT(lang ?? "en");
   const parentExpired = !!market.closesAt && market.closesAt <= new Date();
   const live = options.filter((o) => o.status === "live");
@@ -130,7 +132,9 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
   // Shared book — the group's probabilities are exclusive and sum to 100%.
   const livePrices = groupPrices(live);
   const volume = options.reduce((s, o) => s + o.volumeCents, 0);
-  const traders = options.reduce((s, o) => s + o.traderCount, 0);
+  // Summing per-option counts double-counts users who traded several options —
+  // the caller passes the distinct count; the sum stays as a fallback.
+  const traderCount = traders ?? options.reduce((s, o) => s + o.traderCount, 0);
   // Color index must match the option's position in the full list — same color
   // on the card, the group page, and the chart.
   const idxOf = new Map(options.map((o, i) => [o.id, i]));
@@ -179,7 +183,7 @@ function GroupCard({ market, options, index, lang, watching, liked, likes = 0, t
         <span className="num">{fmtMonos(volume, { lang })} {t.vol}</span>
         <span className="inline-flex items-center gap-1">
           <Users className="size-3" />
-          {traders}
+          {traderCount}
         </span>
         <span className={cn("inline-flex items-center gap-1", watching === undefined && liked === undefined && "ml-auto")}>
           <Clock className="size-3" />

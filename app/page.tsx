@@ -5,7 +5,7 @@ import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicker } from "@/components/trade-ticker";
 import { MarketCard } from "@/components/market-card";
 import { Sk, MarketCardSkeleton } from "@/components/skeletons";
-import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor, listCategories, getWatchlistIds, getLikedIds, getLikeCounts, getExpiredLive, maybeNotifyClosing } from "@/lib/queries";
+import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor, getGroupTraderCounts, listCategories, getWatchlistIds, getLikedIds, getLikeCounts, getExpiredLive, maybeNotifyClosing } from "@/lib/queries";
 import { fmtMonos } from "@/lib/money";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
@@ -94,13 +94,14 @@ async function MarketResults({
   const likedSet = new Set(likedIds);
   const ids = markets.map((m) => m.id);
   const groupIds = markets.filter((m) => m.kind === "group").map((m) => m.id);
-  const [sparks, comments, ticker, stats, groupOptions, likeCounts] = await Promise.all([
+  const [sparks, comments, ticker, stats, groupOptions, likeCounts, groupTraders] = await Promise.all([
     getSparklines(ids),
     getCommentCount(ids),
     getGlobalTrades(),
     getSiteStats(),
     getGroupOptionsFor(groupIds),
     getLikeCounts(ids),
+    getGroupTraderCounts(groupIds),
   ]);
   // Flame badge for the three busiest live markets on the page.
   const trendingIds = new Set(
@@ -149,7 +150,7 @@ async function MarketResults({
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {markets.map((m, i) => (
-            <MarketCard key={m.id} market={m} spark={sparks.get(m.id) ?? []} comments={comments.get(m.id) ?? 0} index={i} options={groupOptions.get(m.id)} lang={lang} watching={user ? watchSet.has(m.id) : undefined} liked={user ? likedSet.has(m.id) : undefined} likes={likeCounts.get(m.id) ?? 0} trending={trendingIds.has(m.id)} />
+            <MarketCard key={m.id} market={m} spark={sparks.get(m.id) ?? []} comments={comments.get(m.id) ?? 0} index={i} options={groupOptions.get(m.id)} lang={lang} watching={user ? watchSet.has(m.id) : undefined} liked={user ? likedSet.has(m.id) : undefined} likes={likeCounts.get(m.id) ?? 0} trending={trendingIds.has(m.id)} groupTraders={groupTraders.get(m.id)} />
           ))}
         </div>
       )}

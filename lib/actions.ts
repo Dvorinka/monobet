@@ -7,7 +7,7 @@ import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_SESSIO
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
-import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb, MAX_TRADE_CENTS } from "@/lib/lmsr";
+import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb, houseSeedCents, MAX_TRADE_CENTS } from "@/lib/lmsr";
 import { loanFor, liquidationValueCents, groupLiquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "@/lib/liq";
 import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, type Tx } from "@/lib/tx-market";
 import { resetEconomyTx } from "@/lib/economy-reset";
@@ -780,15 +780,15 @@ export async function resetJackpot(): Promise<{ ok: boolean; error?: string }> {
 // Economy reset — the whale fix. The heavy lifting lives in
 // lib/economy-reset.ts so scripts/reset-economy.ts runs the identical
 // transaction; this wrapper adds auth + revalidation.
-export async function adminResetEconomy(): Promise<{ ok: boolean; error?: string; unwound?: number; clamped?: number }> {
+export async function adminResetEconomy(): Promise<{ ok: boolean; error?: string; unwound?: number; clamped?: number; purgedTrades?: number; recounted?: number }> {
   try {
     await requireAdmin();
-    const { unwound, clamped } = await db.transaction((tx) => resetEconomyTx(tx, { exemptEmail: SUPER_ADMIN_EMAIL }));
+    const r = await db.transaction((tx) => resetEconomyTx(tx, { exemptEmail: SUPER_ADMIN_EMAIL }));
     revalidatePath("/admin");
     revalidatePath("/markets");
     revalidatePath("/leaderboard");
     revalidatePath("/");
-    return { ok: true, unwound, clamped };
+    return { ok: true, ...r };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Reset failed" };
   }
@@ -814,10 +814,7 @@ export async function setUserLuck(input: { userId: string; luckBps: number }): P
 const LIQUIDITY_OPTIONS = [300, 1000, 3000] as const;
 // New books default to deep liquidity — early trades move the price 3× less.
 const DEFAULT_LIQUIDITY = 3000;
-// House-provided seed shown as starting volume. Priced at 10× the bare LMSR
-// subsidy (b·ln2) so fresh books don't look empty — a real deposit that damps
-// early swings, no fake trades, no fake trader count.
-const houseSeedCents = (b: number) => Math.round(b * Math.LN2 * 10);
+
 const NEW_CATEGORY = "__new__";
 
 function normalizeCategory(raw: string): string {

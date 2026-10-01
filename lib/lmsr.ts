@@ -7,6 +7,12 @@
 // hit in one click.
 export const MAX_TRADE_CENTS = 100_000_00;
 
+// Display seed: a fresh market shows this much "volume" so it doesn't look
+// dead. Stat recounts add surviving turnover on top of this baseline.
+export function houseSeedCents(b: number): number {
+  return Math.round(b * Math.LN2 * 10);
+}
+
 export function lmsrCost(qYes: number, qNo: number, b: number): number {
   const m = Math.max(qYes, qNo);
   return m + b * Math.log(Math.exp((qYes - m) / b) + Math.exp((qNo - m) / b));
