@@ -12,6 +12,7 @@ import { multiCoords, multiPrices } from "@/lib/lmsr";
 import { fmtMonos } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn, slugifyLabel } from "@/lib/utils";
+import type { MyPositionEntry } from "@/lib/queries";
 
 export type GroupOption = {
   id: string;
@@ -66,7 +67,7 @@ export function GroupTrade({
   slug: string;
   options: GroupOption[];
   sparks: Record<string, number[]>;
-  positions: Record<string, { yes: number; no: number }>;
+  positions: Record<string, MyPositionEntry>;
   balanceCents: number | null;
   signedIn: boolean;
   maxLeverage: number;
@@ -137,6 +138,7 @@ export function GroupTrade({
       userBalanceCents={balanceCents}
       heldYes={selPos?.yes ?? 0}
       heldNo={selPos?.no ?? 0}
+      stops={selPos ? { tpYes: selPos.tpYes, slYes: selPos.slYes, tpNo: selPos.tpNo, slNo: selPos.slNo } : null}
       maxLeverage={maxLeverage}
       lang={lang}
       defaultOutcome={side}

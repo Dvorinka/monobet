@@ -7,12 +7,17 @@
 // hit in one click.
 export const MAX_TRADE_CENTS = 100_000_00;
 
+// Per-order caps: the cash a trader commits is capped at Ɱ5 000; leverage
+// multiplies into the notional cap above. Minimum order is Ɱ10.
+export const MIN_TRADE_CENTS = 1_000;
+export const MAX_TRADE_SPEND_CENTS = 500_000;
+
 // Display seed: a fresh market shows this much "volume" so it doesn't look
-// dead — scaled to the chosen liquidity tier (thin Ɱ100, standard Ɱ10 000,
-// deep Ɱ100 000). Stat recounts add surviving turnover on top of it.
+// dead — scaled to the chosen liquidity tier (thin Ɱ100, standard Ɱ5 000,
+// deep Ɱ25 000). Stat recounts add surviving turnover on top of it.
 export function houseSeedCents(b: number): number {
-  if (b >= 3000) return 10_000_000;
-  if (b >= 1000) return 1_000_000;
+  if (b >= 3000) return 2_500_000;
+  if (b >= 1000) return 500_000;
   return 10_000;
 }
 

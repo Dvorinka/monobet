@@ -174,6 +174,14 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
   const py = sharedQ ? multiPrices(sharedQ, market.b)[optIdx] : marketYesPrice(market);
   const heldYes = Number(position?.yesShares ?? 0);
   const heldNo = Number(position?.noShares ?? 0);
+  const stops = position
+    ? {
+        tpYes: position.tpYes == null ? null : Number(position.tpYes),
+        slYes: position.slYes == null ? null : Number(position.slYes),
+        tpNo: position.tpNo == null ? null : Number(position.tpNo),
+        slNo: position.slNo == null ? null : Number(position.slNo),
+      }
+    : null;
   const posValue = Math.round((heldYes * py + heldNo * (1 - py)) * 100);
   // A live market past its close is closed for trading — status stays "live"
   // in the DB until a resolver settles it, so expiry is derived here.
@@ -335,6 +343,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               userBalanceCents={user?.balanceCents ?? null}
               heldYes={heldYes}
               heldNo={heldNo}
+              stops={stops}
               maxLeverage={market.maxLeverage}
               lang={lang}
               opensAt={market.opensAt}
@@ -505,6 +514,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               userBalanceCents={user?.balanceCents ?? null}
               heldYes={heldYes}
               heldNo={heldNo}
+              stops={stops}
               maxLeverage={market.maxLeverage}
               lang={lang}
               opensAt={market.opensAt}

@@ -7,9 +7,9 @@ import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_WINDOW
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
-import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb, houseSeedCents, MAX_TRADE_CENTS, TRADE_FEE_CENTS } from "@/lib/lmsr";
+import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb, houseSeedCents, MAX_TRADE_CENTS, MAX_TRADE_SPEND_CENTS, MIN_TRADE_CENTS, TRADE_FEE_CENTS } from "@/lib/lmsr";
 import { loanFor, liquidationValueCents, groupLiquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "@/lib/liq";
-import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, garnishDebt, type Tx } from "@/lib/tx-market";
+import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, garnishDebt, runStops, runGroupStops, type Tx } from "@/lib/tx-market";
 import { resetEconomyTx } from "@/lib/economy-reset";
 import { accruedDebtCents, LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT, LOAN_OFFER_TTL_MS, rollRateBps, DEBT_CAP_CENTS } from "@/lib/loans";
 import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
@@ -339,7 +339,8 @@ export async function placeTrade(input: {
       if (side === "buy") {
         const spend = Math.round(input.spendCents ?? 0);
         const leverage = Math.round(input.leverage ?? 1);
-        if (!Number.isFinite(spend) || spend < 100) throw new Error("Minimum trade is Ɱ 1");
+        if (!Number.isFinite(spend) || spend < MIN_TRADE_CENTS) throw new Error("Minimum trade is Ɱ 10");
+        if (spend > MAX_TRADE_SPEND_CENTS) throw new Error("Max trade is Ɱ 5 000");
         if (!TRADE_LEVERAGES.includes(leverage)) throw new Error("Bad leverage");
         if (leverage > m.maxLeverage) throw new Error(`Max leverage on this market is ${m.maxLeverage}×`);
         // Credit gate on the locked row — the pre-tx snapshot could be stale
@@ -499,9 +500,17 @@ export async function placeTrade(input: {
       }
 
       // The book just moved — flush any leveraged position that can't cover
-      // its loan at the new prices.
-      if (book) await checkGroupLiquidations(tx, book);
-      else await checkLiquidations(tx, marketId);
+      // its loan at the new prices, then fill resting take-profit/stop-loss
+      // triggers, then re-check leverage (a stop fill can trip a cushion).
+      if (book) {
+        await checkGroupLiquidations(tx, book);
+        await runGroupStops(tx, book);
+        await checkGroupLiquidations(tx, book);
+      } else {
+        await checkLiquidations(tx, marketId);
+        await runStops(tx, marketId);
+        await checkLiquidations(tx, marketId);
+      }
 
       result = { shares: absShares, costCents: Math.abs(cashDelta), price: newPrice };
       revalidatePath(`/market/${updated.slug}`);
@@ -522,6 +531,76 @@ export async function placeTrade(input: {
     return { ok: true, ...result };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Trade failed" };
+  }
+}
+
+// ---------- position take-profit / stop-loss ----------
+//
+// Resting orders per side of a position: tp fills when the share price climbs
+// to it, sl when it falls to it. Both sell the WHOLE side at the book price
+// when a later trade moves the market past the trigger.
+
+export async function setStops(input: {
+  marketId: string;
+  outcome: "yes" | "no";
+  tpPrice: number | null;
+  slPrice: number | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const { marketId, outcome } = input;
+    const tp = input.tpPrice == null ? null : Number(input.tpPrice);
+    const sl = input.slPrice == null ? null : Number(input.slPrice);
+    for (const v of [tp, sl]) {
+      if (v != null && (!Number.isFinite(v) || v <= 0 || v >= 1)) throw new Error("Trigger price must be between 0.01 and 0.99");
+    }
+    if (tp != null && sl != null && tp <= sl) throw new Error("Take-profit must sit above stop-loss");
+    await db.transaction(async (tx) => {
+      const m = await lockMarket(tx, marketId);
+      if (m.status !== "live") throw new Error("Market is not live");
+      // The side's live price — group options price off the shared book.
+      let pYes = yesPrice(toNum(m.qYes), toNum(m.qNo), m.b);
+      if (m.parentId) {
+        const sibs = await tx
+          .select()
+          .from(schema.market)
+          .where(and(eq(schema.market.parentId, m.parentId), eq(schema.market.status, "live")))
+          .for("update");
+        const book = sibs.map((s) => ({ m: s, qYes: toNum(s.qYes), qNo: toNum(s.qNo), dirty: false }));
+        const idx = book.findIndex((s) => s.m.id === marketId);
+        if (idx >= 0 && book.length > 1) pYes = multiPrices(multiCoords(book), m.b)[idx];
+      }
+      const px = outcome === "yes" ? pYes : 1 - pYes;
+      const [pos] = await tx
+        .select()
+        .from(schema.position)
+        .where(and(eq(schema.position.marketId, marketId), eq(schema.position.userId, u.id)))
+        .for("update")
+        .limit(1);
+      const held = toNum(outcome === "yes" ? pos?.yesShares ?? "0" : pos?.noShares ?? "0");
+      if (held <= 1e-9) throw new Error("No shares on this side");
+      // A trigger at or past the live price would fire on the next trade
+      // regardless of intent — reject it now instead of filling silently.
+      if (tp != null && tp <= px) throw new Error("Take-profit must sit above the current price");
+      if (sl != null && sl >= px) throw new Error("Stop-loss must sit below the current price");
+      await tx
+        .update(schema.position)
+        .set(
+          outcome === "yes"
+            ? { tpYes: tp == null ? null : tp.toFixed(6), slYes: sl == null ? null : sl.toFixed(6) }
+            : { tpNo: tp == null ? null : tp.toFixed(6), slNo: sl == null ? null : sl.toFixed(6) }
+        )
+        .where(and(eq(schema.position.marketId, marketId), eq(schema.position.userId, u.id)));
+    });
+    const [slugRow] = await db
+      .select({ slug: schema.market.slug })
+      .from(schema.market)
+      .where(eq(schema.market.id, marketId))
+      .limit(1);
+    if (slugRow) revalidatePath(`/market/${slugRow.slug}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed to set triggers" };
   }
 }
 

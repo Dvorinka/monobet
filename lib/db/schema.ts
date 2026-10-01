@@ -212,6 +212,12 @@ export const position = pgTable(
     // Leverage: cents borrowed against this position. Repaid out of sells,
     // resolutions, and refunds; auto-liquidates when value can't cover it.
     debtCents: bigint("debt_cents", { mode: "number" }).notNull().default(0),
+    // Auto-exit triggers per side — a share price (0..1). tp fills the whole
+    // side when the price climbs to it, sl when it falls to it. Null = unset.
+    tpYes: numeric("tp_yes", { precision: 10, scale: 6 }),
+    slYes: numeric("sl_yes", { precision: 10, scale: 6 }),
+    tpNo: numeric("tp_no", { precision: 10, scale: 6 }),
+    slNo: numeric("sl_no", { precision: 10, scale: 6 }),
   },
   (t) => [primaryKey({ columns: [t.marketId, t.userId] }), index("position_user_idx").on(t.userId)]
 );
