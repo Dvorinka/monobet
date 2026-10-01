@@ -595,7 +595,7 @@ function TimerDigits({ phase, clockRef, frozen, targetMs, lang }: {
 function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
-  const [target, setTarget] = useState("10");
+  const [target, setTarget] = useState(String(TIMER_TARGETS[0] / 1000));
   const [bet, setBet] = useState("10");
   const [lev, setLev] = useState("1");
   const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
@@ -666,16 +666,37 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
               onChange={setTarget}
               disabled={phase === "running"}
             />
-            <div className="mt-1 text-right text-[11px] font-medium text-faint num">
-              {t.paysUpTo(timerTopMult(targetMs).toFixed(0))}
-            </div>
-            <div className="mt-0.5 text-[10px] font-medium text-faint num leading-tight">
-              {TIMER_TIERS.map((tier, i) => (
-                <span key={tier.errMs}>
-                  {i > 0 && " · "}
-                  ±{tier.errMs}ms ×{timerMult(tier.errMs, targetMs).toFixed(2)}
-                </span>
-              ))}
+            {/* Payout table — stop error vs multiplier, per target. The
+                selected target's column is lit; the last row is the miss. */}
+            <div className="mt-2 rounded-lg border border-line overflow-hidden">
+              <table className="w-full text-[10.5px] num text-center">
+                <thead>
+                  <tr className="bg-surface-2 text-faint">
+                    <th className="px-2 py-1 text-left font-semibold">{t.timerColErr}</th>
+                    {TIMER_TARGETS.map((ms) => (
+                      <th key={ms} className={cn("px-2 py-1 font-semibold", ms === targetMs && "text-brand-strong")}>
+                        {ms / 1000}s
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="text-mute">
+                  {TIMER_TIERS.map((tier) => (
+                    <tr key={tier.errMs} className="border-t border-line/60">
+                      <td className="px-2 py-1 text-left">±{tier.errMs}ms</td>
+                      {TIMER_TARGETS.map((ms) => (
+                        <td key={ms} className={cn("px-2 py-1", ms === targetMs && "text-ink font-semibold")}>
+                          ×{timerMult(tier.errMs, ms).toFixed(2)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  <tr className="border-t border-line/60 text-no-strong">
+                    <td className="px-2 py-1 text-left">{t.timerMiss}</td>
+                    <td colSpan={TIMER_TARGETS.length} className="px-2 py-1">×0</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
           <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || phase === "running"} lang={lang} winPreview={{ mult: timerTopMult(targetMs), max: true }} />
@@ -1819,7 +1840,7 @@ function BonnieSplash({ amountCents, lang }: { amountCents: number; lang?: Lang 
 // flash blooms at the impact point before the scene fades.
 function JetSvg() {
   return (
-    <svg aria-hidden viewBox="0 0 440 140" className="anim-plane-crash absolute left-0 top-0 w-[34vmin] min-w-44" style={{ filter: "drop-shadow(0 10px 18px rgba(0,0,0,.45))" }}>
+    <svg aria-hidden viewBox="0 0 440 140" className="anim-plane-crash absolute left-0 top-0 w-44" style={{ filter: "drop-shadow(0 8px 14px rgba(0,0,0,.45))" }}>
       <defs>
         <linearGradient id="epst-fus" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#ffffff" />
@@ -1859,25 +1880,35 @@ function PlaneSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }
   const t = getT(lang ?? "en");
   return (
     <div className="anim-plane-veil absolute inset-0 overflow-hidden bg-[#0b1d33]" role="status" aria-live="polite">
-      <div
-        aria-hidden
-        className="anim-island-zoom absolute -inset-[4%] bg-cover bg-center"
-        style={{ backgroundImage: "url(/fx/island.webp)" }}
-      />
-      <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(115% 85% at 50% 42%, transparent 52%, rgba(6,16,30,.55) 100%)" }} />
-      <JetSvg />
-      <div
-        aria-hidden
-        className="anim-crash-flash absolute rounded-full"
-        style={{
-          left: "58%",
-          top: "52%",
-          width: "32vmin",
-          height: "32vmin",
-          translate: "-50% -50%",
-          background: "radial-gradient(closest-side, #fff7d6 0%, #fbbf24 40%, rgba(249,115,22,0.55) 68%, transparent 72%)",
-        }}
-      />
+      {/* Bounded aerial frame — a framed approach-cam photo with margins,
+          not an edge-to-edge scene. Jet crosses inside the frame. */}
+      <div aria-hidden className="absolute inset-x-7 top-6 bottom-12 rounded-xl overflow-hidden border-4 border-[#33506b] shadow-[0_18px_50px_rgba(0,0,0,.55),inset_0_0_0_1px_rgba(255,255,255,.08)]">
+        <div
+          className="anim-island-zoom absolute -inset-[4%] bg-cover bg-center"
+          style={{ backgroundImage: "url(/fx/island.webp)" }}
+        />
+        <div className="absolute inset-0" style={{ background: "radial-gradient(115% 85% at 50% 42%, transparent 52%, rgba(6,16,30,.55) 100%)" }} />
+        <JetSvg />
+        <div
+          className="anim-crash-flash absolute rounded-full"
+          style={{
+            left: "74%",
+            top: "66%",
+            width: "130px",
+            height: "130px",
+            translate: "-50% -50%",
+            background: "radial-gradient(closest-side, #fff7d6 0%, #fbbf24 40%, rgba(249,115,22,0.55) 68%, transparent 72%)",
+          }}
+        />
+      </div>
+      {/* caption strip — the cam label under the frame */}
+      <div aria-hidden className="absolute inset-x-8 bottom-5 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.18em] text-[#7fa3c4]">
+        <span>Little St. James</span>
+        <span className="flex items-center gap-1.5 text-[#e06c5b]">
+          <span className="live-dot size-1.5 rounded-full bg-[#e06c5b]" />
+          approach cam
+        </span>
+      </div>
       <div className="relative h-full grid place-items-center">
         <div className="anim-win-pop text-center px-6 [text-shadow:0_2px_18px_rgba(0,0,0,.65)]">
           <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-white/80">{t.bonnieWin}</div>
@@ -1888,8 +1919,8 @@ function PlaneSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }
   );
 }
 
-// Clavicular win easter egg — a pride parade floods the screen: the flag
-// ripples stripe-by-stripe like cloth while confetti rains over the payout.
+// Clavicular win easter egg — a bounded flag on a pole: stripes ripple in
+// sequence like cloth while confetti rains over the payout.
 const PRIDE_STRIPES = ["#e40303", "#ff8c00", "#ffed00", "#008026", "#24408e", "#732982"] as const;
 const CONFETTI_COLORS = [...PRIDE_STRIPES, "#ff69b4", "#5bcffa", "#ffffff"] as const;
 // Fixed seeds — deterministic, no per-render randomness.
@@ -1904,13 +1935,20 @@ const CONFETTI = Array.from({ length: 42 }, (_, i) => ({
 function PrideSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   return (
-    <div className="anim-pride-veil absolute inset-0 overflow-hidden pointer-events-none" role="status" aria-live="polite">
-      <div aria-hidden className="absolute -inset-x-[12%] -inset-y-[8%] flex flex-col" style={{ transform: "rotate(-3deg)" }}>
-        {PRIDE_STRIPES.map((c, i) => (
-          <div key={c} className="anim-pride-stripe flex-1" style={{ background: c, animationDelay: `${i * 110}ms` }} />
-        ))}
+    <div className="anim-pride-veil absolute inset-0 overflow-hidden pointer-events-none bg-[#170a24]" role="status" aria-live="polite">
+      {/* Bounded flag on a pole — the cloth waves center-stage instead of
+          flooding the card; confetti stays inside the card bounds. */}
+      <div aria-hidden className="absolute left-1/2 top-[13%] -translate-x-1/2 w-[68%] max-w-80">
+        <div className="flex items-stretch gap-0" style={{ transform: "rotate(-2deg)" }}>
+          <div className="w-[5px] self-stretch rounded-full bg-gradient-to-b from-[#b8ac93] via-[#8a7f6a] to-[#5d5445] shadow-[1px_0_2px_rgba(0,0,0,.4)]" />
+          <div className="h-32 sm:h-36 flex-1 flex flex-col rounded-r-md overflow-hidden shadow-[0_14px_34px_rgba(0,0,0,.45)]">
+            {PRIDE_STRIPES.map((c, i) => (
+              <div key={c} className="anim-pride-stripe flex-1" style={{ background: c, animationDelay: `${i * 110}ms` }} />
+            ))}
+          </div>
+        </div>
       </div>
-      <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(120% 90% at 50% 46%, transparent 40%, rgba(20,7,31,.5) 100%)" }} />
+      <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(120% 90% at 50% 46%, transparent 40%, rgba(20,7,31,.55) 100%)" }} />
       {CONFETTI.map((c, i) => (
         <div
           key={i}
@@ -1926,7 +1964,7 @@ function PrideSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }
           }}
         />
       ))}
-      <div className="relative h-full grid place-items-center">
+      <div className="relative h-full grid place-items-center pt-16">
         <div className="anim-win-pop text-center px-6 [text-shadow:0_2px_18px_rgba(0,0,0,.65)]">
           <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-white/85">{t.bonnieWin}</div>
           <div className="num text-5xl font-black text-white mt-1">+{fmtMonos(amountCents, { lang })}</div>
@@ -1950,45 +1988,47 @@ const MONEY_RAIN = Array.from({ length: 56 }, (_, i) => ({
 function ShekelSplash({ amountCents, tavCents, lang }: { amountCents: number; tavCents?: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   return (
-    <div className="anim-shekel-veil absolute inset-0 overflow-hidden pointer-events-none bg-[#f4f7ff]" role="status" aria-live="polite">
-      {/* the flag — blue bands on a white field, star faint behind it all */}
-      <div aria-hidden className="absolute inset-x-0 top-[12%] h-[13%] bg-[#0038b8]" />
-      <div aria-hidden className="absolute inset-x-0 bottom-[12%] h-[13%] bg-[#0038b8]" />
-      <svg aria-hidden viewBox="0 0 100 100" className="absolute left-1/2 top-1/2 w-[42vmin] -translate-x-1/2 -translate-y-1/2 opacity-[0.12]">
-        <g fill="none" stroke="#0038b8" strokeWidth="5">
-          <path d="M50 14 L82 68 L18 68 Z" />
-          <path d="M50 86 L18 32 L82 32 Z" />
-        </g>
-      </svg>
-      {/* money rain */}
-      {MONEY_RAIN.map((m, i) => (
-        <span
-          key={i}
-          aria-hidden
-          className="anim-money absolute -top-8 font-black text-[#0a7d2c] select-none"
-          style={{
-            left: `${m.x}%`,
-            fontSize: m.s,
-            opacity: m.o,
-            animationDelay: `${m.d}ms`,
-            ["--drift" as string]: `${m.drift}px`,
-            textShadow: "0 1px 2px rgba(255,255,255,.7)",
-          }}
-        >
-          ₪
-        </span>
-      ))}
+    <div className="anim-shekel-veil absolute inset-0 overflow-hidden pointer-events-none bg-[#0c1428]" role="status" aria-live="polite">
+      {/* Bounded flag banner — the white field with blue bands is an inset
+          panel; ₪ rain falls inside it, gif + payout float on top. */}
+      <div aria-hidden className="absolute inset-x-7 inset-y-6 rounded-xl overflow-hidden bg-[#f4f7ff] shadow-[0_18px_50px_rgba(0,0,0,.5),inset_0_0_0_1px_rgba(0,56,184,.15)]">
+        <div className="absolute inset-x-0 top-[13%] h-[13%] bg-[#0038b8]" />
+        <div className="absolute inset-x-0 bottom-[13%] h-[13%] bg-[#0038b8]" />
+        <svg aria-hidden viewBox="0 0 100 100" className="absolute left-1/2 top-1/2 w-[46%] -translate-x-1/2 -translate-y-1/2 opacity-[0.10]">
+          <g fill="none" stroke="#0038b8" strokeWidth="5">
+            <path d="M50 14 L82 68 L18 68 Z" />
+            <path d="M50 86 L18 32 L82 32 Z" />
+          </g>
+        </svg>
+        {MONEY_RAIN.map((m, i) => (
+          <span
+            key={i}
+            aria-hidden
+            className="anim-money absolute -top-8 font-black text-[#0a7d2c] select-none"
+            style={{
+              left: `${m.x}%`,
+              fontSize: m.s,
+              opacity: m.o,
+              animationDelay: `${m.d}ms`,
+              ["--drift" as string]: `${m.drift}px`,
+              textShadow: "0 1px 2px rgba(255,255,255,.7)",
+            }}
+          >
+            ₪
+          </span>
+        ))}
+      </div>
       <div className="relative h-full grid place-items-center">
         <div className="anim-gif-pop text-center px-6">
           {/* eslint-disable-next-line @next/next/no-img-element -- user-provided remote gif */}
           <img
             src={SHEKEL_GIF}
             alt=""
-            className="mx-auto w-48 sm:w-60 rounded-xl shadow-[0_18px_50px_rgba(0,30,90,.45)] border-4 border-white/90"
+            className="mx-auto w-40 sm:w-48 rounded-xl shadow-[0_18px_50px_rgba(0,30,90,.45)] border-4 border-white/90"
           />
-          <div className="mt-4 [text-shadow:0_2px_14px_rgba(255,255,255,.9)]">
-            <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-[#0038b8]/80">{t.bonnieWin}</div>
-            <div className="num text-5xl font-black text-[#0a3d1a] mt-1">+{fmtMonos(amountCents, { lang })}</div>
+          <div className="mt-3 [text-shadow:0_2px_14px_rgba(255,255,255,.9)]">
+            <div className="text-[13px] font-bold uppercase tracking-[0.2em] text-[#0038b8]/90">{t.bonnieWin}</div>
+            <div className="num text-4xl font-black text-[#0a3d1a] mt-1">+{fmtMonos(amountCents, { lang })}</div>
             {tavCents ? (
               <div className="num mt-2 inline-block rounded-full bg-white/90 px-3 py-1 text-sm font-bold text-[#0038b8] shadow-sm">{t.tavBonus(fmtMonos(tavCents, { lang }))}</div>
             ) : null}

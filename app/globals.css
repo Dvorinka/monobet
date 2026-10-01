@@ -223,15 +223,16 @@ body {
 }
 .anim-pie-out { animation: pie-out 2.15s cubic-bezier(0.5, 0, 0.75, 0.4) both; }
 
-/* J. EPST. — jet sweeps in over the island photo, pitches into a dive,
-   and vanishes where the flash blooms on the hillside. */
+/* J. EPST. — jet sweeps in over the framed island photo, pitches into a
+   dive, and vanishes where the flash blooms on the hillside. Distances are
+   card-relative (px), not viewport — the scene lives inside a bounded frame. */
 @keyframes plane-crash {
-  0% { transform: translate(-40vw, 12vh) rotate(-6deg); opacity: 0; }
-  8% { opacity: 1; }
-  50% { transform: translate(22vw, 20vh) rotate(-4deg); opacity: 1; }
-  68% { transform: translate(40vw, 30vh) rotate(18deg); opacity: 1; }
-  80% { transform: translate(44vw, 40vh) rotate(52deg); opacity: 1; }
-  86%, 100% { transform: translate(44vw, 40vh) rotate(52deg); opacity: 0; }
+  0% { transform: translate(-300px, 30px) rotate(-6deg); opacity: 0; }
+  10% { opacity: 1; }
+  52% { transform: translate(150px, 92px) rotate(-3deg); opacity: 1; }
+  70% { transform: translate(296px, 150px) rotate(16deg); opacity: 1; }
+  80% { transform: translate(322px, 198px) rotate(50deg); opacity: 1; }
+  87%, 100% { transform: translate(322px, 198px) rotate(50deg); opacity: 0; }
 }
 .anim-plane-crash { animation: plane-crash 2.3s cubic-bezier(0.35, 0.4, 0.6, 1) both; transform-origin: 78% 55%; }
 @keyframes crash-flash {
@@ -251,17 +252,17 @@ body {
 }
 .anim-plane-veil { animation: plane-veil 2.5s ease both; }
 
-/* Clavicular — a pride flag floods the screen on a win: stripes ripple in
-   sequence like cloth on a pole while confetti drifts down over it. */
+/* Clavicular — a bounded flag on a pole waves center-stage on a win:
+   stripes ripple in sequence like cloth while confetti drifts down. */
 @keyframes pride-stripe {
   0%, 100% { transform: translateY(0) scaleY(1); }
-  50% { transform: translateY(-1.4vh) scaleY(1.02); }
+  50% { transform: translateY(-2.5px) scaleY(1.03); }
 }
 .anim-pride-stripe { animation: pride-stripe 1.05s ease-in-out infinite; }
 @keyframes confetti-fall {
-  0% { transform: translate3d(0, -4vh, 0) rotate(0deg); opacity: 1; }
+  0% { transform: translate3d(0, -20px, 0) rotate(0deg); opacity: 1; }
   88% { opacity: 1; }
-  100% { transform: translate3d(var(--drift, 0px), 108vh, 0) rotate(620deg); opacity: 0; }
+  100% { transform: translate3d(var(--drift, 0px), 460px, 0) rotate(620deg); opacity: 0; }
 }
 .anim-confetti { animation: confetti-fall 2.35s cubic-bezier(0.3, 0.35, 0.6, 1) both; }
 @keyframes pride-veil {
@@ -272,11 +273,11 @@ body {
 
 /* Bibi — a win under Tel Aviv's man rains shekel notes over the flag. */
 @keyframes money-fall {
-  0% { transform: translate3d(0, -8vh, 0) rotate(-12deg); opacity: 0; }
+  0% { transform: translate3d(0, -40px, 0) rotate(-12deg); opacity: 0; }
   7% { opacity: 1; }
-  50% { transform: translate3d(calc(var(--drift, 0px) * 0.6), 46vh, 0) rotate(14deg); }
+  50% { transform: translate3d(calc(var(--drift, 0px) * 0.6), 220px, 0) rotate(14deg); }
   88% { opacity: 1; }
-  100% { transform: translate3d(var(--drift, 0px), 112vh, 0) rotate(-18deg); opacity: 0; }
+  100% { transform: translate3d(var(--drift, 0px), 460px, 0) rotate(-18deg); opacity: 0; }
 }
 .anim-money { animation: money-fall 2.3s cubic-bezier(0.3, 0.35, 0.6, 1) both; }
 @keyframes shekel-veil {
