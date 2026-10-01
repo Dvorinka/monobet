@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Swords, Trophy, AlertTriangle, Check, X, Play, OctagonX } from "lucide-react";
+import { ArrowLeft, Swords, Trophy, AlertTriangle, Check, X, Play, OctagonX, Mountain, Newspaper, Scissors, Coins, Heart, Spade } from "lucide-react";
 import { Button, Input } from "@/components/ui/primitives";
 import { respondDuel, cancelDuel, proposeDuelWinner, duelPlay } from "@/lib/actions";
 import { fmtMonos } from "@/lib/money";
@@ -75,6 +75,12 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
         className="pointer-events-none absolute inset-x-0 top-0 h-[46vh] opacity-60"
         style={{ background: "radial-gradient(60% 100% at 50% 0%, rgba(64,128,92,0.28), transparent 70%)" }}
       />
+      {/* floor glow */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-[30vh] opacity-40"
+        style={{ background: "radial-gradient(60% 100% at 50% 100%, rgba(255,217,112,0.14), transparent 70%)" }}
+      />
       <div className="relative mx-auto flex min-h-dvh w-full max-w-xl flex-col px-4 pb-10">
         {/* top bar */}
         <div className="flex items-center gap-3 py-4">
@@ -87,9 +93,17 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
             <ArrowLeft className="size-4" />
           </button>
           <div className="flex-1 min-w-0 text-center">
-            <div className="mx-auto inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-[#9fd4b4]">
-              {KIND_ICONS[d.kind] ?? <Swords className="size-3" />}
-              {duelKindLabels(t)[d.kind] ?? d.kind}
+            <div className="inline-flex items-center gap-2">
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-[#9fd4b4]">
+                {KIND_ICONS[d.kind] ?? <Swords className="size-3" />}
+                {duelKindLabels(t)[d.kind] ?? d.kind}
+              </div>
+              {d.status === "accepted" && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-no/40 bg-no-soft/10 px-2.5 py-1 text-[10px] font-black tracking-widest text-[#ff9d94]">
+                  <span className="size-1.5 rounded-full bg-[#ff9d94] animate-pulse" />
+                  {t.duelLive}
+                </span>
+              )}
             </div>
           </div>
           <span className="w-9" />
@@ -105,10 +119,21 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
         </div>
 
         {/* matchup */}
-        <div className="mt-8 flex items-center justify-center gap-5 sm:gap-8">
-          <Fighter name={myName} you active={toMove} />
-          <span className="num text-[15px] font-black tracking-[0.3em] text-white/35">VS</span>
-          <Fighter name={otherName} active={!settled && !open && !disputed && game && myDone && !oppDone} />
+        <div className="mt-8 flex items-start justify-center gap-5 sm:gap-8">
+          <Fighter
+            name={myName}
+            you
+            active={toMove}
+            state={!game || settled || open || dead ? undefined : myDone ? "locked" : midRound ? "playing" : "idle"}
+            stateText={t}
+          />
+          <span className="num pt-8 text-[15px] font-black tracking-[0.3em] text-white/35">VS</span>
+          <Fighter
+            name={otherName}
+            active={!settled && !open && !disputed && game && myDone && !oppDone}
+            state={!game || settled || open || dead ? undefined : otherMove === undefined ? "idle" : oppDone ? "locked" : "playing"}
+            stateText={t}
+          />
         </div>
 
         {/* stage */}
@@ -153,7 +178,7 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
           {settled && (
             <>
               {Object.keys(moves).length === 2 && (
-                <div className="flex items-center gap-6 num text-[40px] font-black tabular-nums">
+                <div className="anim-win-pop flex items-center gap-6 num text-[40px] font-black tabular-nums">
                   <span className={iWon ? "text-[#6fdc9c]" : "text-white/45"}>{duelFmtMove(t, d.kind, myMove)}</span>
                   <span className="text-[16px] text-white/25">:</span>
                   <span className={!iWon && !draw ? "text-[#6fdc9c]" : "text-white/45"}>{duelFmtMove(t, d.kind, otherMove)}</span>
@@ -202,13 +227,14 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
               </>
             ) : d.kind === "rps" ? (
               <div className="grid w-full max-w-sm grid-cols-3 gap-3">
-                {(["rock", "paper", "scissors"] as const).map((m) => (
+                {([["rock", <Mountain key="r" className="size-6" />], ["paper", <Newspaper key="p" className="size-6" />], ["scissors", <Scissors key="s" className="size-6" />]] as const).map(([m, icon]) => (
                   <button
                     key={m}
                     disabled={pending}
                     onClick={() => play(d.id, m)}
-                    className="aspect-square rounded-2xl border border-white/12 bg-white/[0.05] text-[15px] font-bold flex items-center justify-center hover:border-[#9fd4b4]/60 hover:bg-[#9fd4b4]/10 active:scale-95 transition disabled:opacity-50 cursor-pointer"
+                    className="aspect-square rounded-2xl border border-white/12 bg-white/[0.05] text-[13px] font-bold flex flex-col items-center justify-center gap-1.5 hover:border-[#9fd4b4]/60 hover:bg-[#9fd4b4]/10 active:scale-95 transition disabled:opacity-50 cursor-pointer"
                   >
+                    {icon}
                     {duelMoveLabel(t, m)}
                   </button>
                 ))}
@@ -217,18 +243,19 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
               <div className="w-full max-w-sm space-y-3">
                 <div className="text-center text-[12px] font-semibold uppercase tracking-widest text-white/45">{t.duelPickSide}</div>
                 <div className="grid grid-cols-2 gap-3">
-                  {(d.kind === "coinflip" ? ["heads", "tails"] : ["red", "black"]).map((m) => (
+                  {(d.kind === "coinflip" ? (["heads", "tails"] as const) : (["red", "black"] as const)).map((m) => (
                     <button
                       key={m}
                       disabled={pending}
                       onClick={() => play(d.id, m)}
                       className={cn(
-                        "h-14 rounded-2xl border text-[15px] font-bold active:scale-95 transition disabled:opacity-50 cursor-pointer",
+                        "h-14 rounded-2xl border text-[15px] font-bold flex items-center justify-center gap-2 active:scale-95 transition disabled:opacity-50 cursor-pointer",
                         m === "red" ? "border-no/50 bg-no-soft/10 text-[#ff9d94] hover:bg-no-soft/20"
                           : m === "black" ? "border-white/15 bg-white/[0.07] text-white hover:bg-white/[0.12]"
                           : "border-white/12 bg-white/[0.05] hover:border-[#9fd4b4]/60 hover:bg-[#9fd4b4]/10",
                       )}
                     >
+                      {d.kind === "coinflip" ? <Coins className="size-4" /> : m === "red" ? <Heart className="size-4" /> : <Spade className="size-4" />}
                       {duelMoveLabel(t, m)}
                     </button>
                   ))}
@@ -291,7 +318,13 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
   );
 }
 
-function Fighter({ name, you, active }: { name: string; you?: boolean; active?: boolean }) {
+function Fighter({ name, you, active, state, stateText }: {
+  name: string;
+  you?: boolean;
+  active?: boolean;
+  state?: "idle" | "playing" | "locked";
+  stateText: ReturnType<typeof getT>;
+}) {
   return (
     <div className="flex min-w-0 flex-col items-center gap-2">
       <span
@@ -304,6 +337,20 @@ function Fighter({ name, you, active }: { name: string; you?: boolean; active?: 
         {name.slice(0, 1).toUpperCase()}
       </span>
       <span className="max-w-[130px] truncate text-[14px] font-semibold text-white/85">@{name}</span>
+      {state && (
+        <span
+          className={cn(
+            "inline-flex h-6 min-w-6 items-center justify-center gap-1 rounded-full border px-2 text-[10px] font-bold uppercase tracking-wider",
+            state === "locked" ? "border-[#9fd4b4]/50 bg-[#9fd4b4]/15 text-[#9fd4b4]"
+              : state === "playing" ? "border-[#ffd970]/40 bg-[#ffd970]/10 text-[#ffd970]"
+              : "border-white/15 bg-white/5 text-white/40",
+          )}
+        >
+          {state === "locked" ? <><Check className="size-3" /> {stateText.duelMoveDone}</>
+            : state === "playing" ? <><span className="size-1.5 rounded-full bg-[#ffd970] animate-pulse" /> {stateText.duelMovePlaying}</>
+            : "…"}
+        </span>
+      )}
     </div>
   );
 }
