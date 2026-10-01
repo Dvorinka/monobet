@@ -1414,6 +1414,27 @@ export async function getDuels(userId: string) {
   return rows;
 }
 
+// Single duel for the arena route — scoped to the participant so a deep link
+// can't peek at other people's duels.
+export async function getDuel(userId: string, duelId: string) {
+  const rows = await db
+    .select({
+      duel: schema.challenge,
+      creatorName: sql<string>`(select username from ${schema.user} u2 where u2.id = ${schema.challenge.creatorId})`,
+      opponentName: sql<string>`(select username from ${schema.user} u3 where u3.id = ${schema.challenge.opponentId})`,
+      winnerName: sql<string | null>`(select username from ${schema.user} u4 where u4.id = ${schema.challenge.winnerId})`,
+    })
+    .from(schema.challenge)
+    .where(
+      and(
+        eq(schema.challenge.id, duelId),
+        or(eq(schema.challenge.creatorId, userId), eq(schema.challenge.opponentId, userId))
+      )
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 // Duels needing admin eyes: disputed ones, plus accepted duels where neither
 // side has proposed a winner — without this they'd sit invisible forever.
 export async function getDisputedDuels() {

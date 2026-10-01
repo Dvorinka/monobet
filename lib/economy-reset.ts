@@ -8,6 +8,9 @@
 //     conviction — positions under the cap ("those that make sense") stay.
 //  2. Every non-admin balance above the cap is clamped just under Ɱ5 000;
 //     the difference is ledgered as an admin debit so the ledger still sums.
+//  3. Flagged churners (unwound, clamped, or lifetime turnover > 5× cap) have
+//     ALL their positions unwound — an honest liquidation at book prices —
+//     then their trade rows are purged and market stats recount.
 import { schema } from "@/lib/db";
 import { eq, and, sql, asc, inArray } from "drizzle-orm";
 import { yesPrice, tradeCost, multiCoords, multiPrices, multiTradeCost } from "@/lib/lmsr";
@@ -26,7 +29,28 @@ export async function resetEconomyTx(
   // Users the reset touched — their trade rows are purged in phase 3.
   const flagged = new Set<string>();
 
-  // ---- Phase 1: oversized positions ----
+  // ---- Phase 0: flag churners BEFORE unwinding ----
+  // Flagging must precede phase 1 so a churner's positions unwind even when
+  // each sits under the cap — lifetime turnover > 5× cap marks a whale.
+  const protectedRows = await tx
+    .select({ id: schema.user.id })
+    .from(schema.user)
+    .where(
+      exemptEmail
+        ? sql`${schema.user.role} = 'admin' OR lower(${schema.user.email}) = ${exemptEmail.toLowerCase()}`
+        : sql`${schema.user.role} = 'admin'`
+    );
+  const protectedIds = new Set(protectedRows.map((u) => u.id));
+  // Lifetime turnover comes from the ledger — trade rows get purged, ledger
+  // never does, so a churner can't reset their flag by being reset once.
+  const churn = await tx
+    .select({ userId: schema.ledger.userId, total: sql<string>`sum(abs(${schema.ledger.amountCents}))` })
+    .from(schema.ledger)
+    .where(inArray(schema.ledger.kind, ["buy", "sell"]))
+    .groupBy(schema.ledger.userId);
+  for (const t of churn) if (Number(t.total) > WHALE_CAP_CENTS * 5 && !protectedIds.has(t.userId)) flagged.add(t.userId);
+
+  // ---- Phase 1: oversized positions, plus every position a churner holds ----
   const posRows = await tx.select().from(schema.position).orderBy(asc(schema.position.marketId));
   const byId = new Map(
     (posRows.length
@@ -70,7 +94,7 @@ export async function resetEconomyTx(
       const valueCents = isGroup
         ? groupLiquidationValueCents(multiCoords(book), b, k, y, n)
         : liquidationValueCents(book[k].qYes, book[k].qNo, b, y, n);
-      if (valueCents <= WHALE_CAP_CENTS) continue; // sane size — keep it
+      if (valueCents <= WHALE_CAP_CENTS && !flagged.has(p.userId)) continue; // sane size, unflagged — keep it
       // Sell both sides at current prices; loan eats the proceeds first.
       let grossCents = 0;
       for (const [outcome, held] of [["yes", y], ["no", n]] as const) {
@@ -158,20 +182,6 @@ export async function resetEconomyTx(
   // surviving trades: volume = house seed + real turnover, traders = distinct
   // users. Flagging also catches anyone who churned more than 5× the cap over
   // their lifetime — honest small accounts can't reach that.
-  const protectedRows = await tx
-    .select({ id: schema.user.id })
-    .from(schema.user)
-    .where(
-      exemptEmail
-        ? sql`${schema.user.role} = 'admin' OR lower(${schema.user.email}) = ${exemptEmail.toLowerCase()}`
-        : sql`${schema.user.role} = 'admin'`
-    );
-  const protectedIds = new Set(protectedRows.map((u) => u.id));
-  const churn = await tx
-    .select({ userId: schema.trade.userId, total: sql<string>`sum(${schema.trade.amountCents})` })
-    .from(schema.trade)
-    .groupBy(schema.trade.userId);
-  for (const t of churn) if (Number(t.total) > WHALE_CAP_CENTS * 5) flagged.add(t.userId);
   for (const id of protectedIds) flagged.delete(id);
 
   const purgedTrades = flagged.size

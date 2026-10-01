@@ -45,6 +45,7 @@ import {
   SLOT_TRIPLE,
   BJ_NATURAL_MULT,
   cardLabel,
+  cardOrder,
   hiloMult,
   REDBLACK_MULT,
   dealerFx,
@@ -56,9 +57,27 @@ import { type DealerFx, type Persona } from "@/lib/games";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, Shuffle, CircleDot, X, ArrowUpDown, Contrast, Sparkles } from "lucide-react";
+import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, Shuffle, CircleDot, X, ArrowUpDown, Contrast, Sparkles, FlaskConical } from "lucide-react";
 
-type Net = { netCents: number; won: boolean; stamp: number; feeCents?: number; stakeCents?: number; skimCents?: number } | null;
+type Net = { netCents: number; won: boolean; stamp: number; feeCents?: number; stakeCents?: number; skimCents?: number; demo?: boolean } | null;
+
+// Demo rounds resolve entirely client-side — no balance, no ledger, no
+// house stats. Results are rigged toward the player (DEMO_WIN) so trying
+// a game feels generous; the fabricated result feeds the same reveal
+// animations as a real settle.
+const DEMO_WIN = 0.62;
+const demoHit = (p = DEMO_WIN) => Math.random() < p;
+const demoNet = (stakeCents: number, won: boolean, mult: number) =>
+  won ? Math.round(stakeCents * (mult - 1)) : -stakeCents;
+const demoDelay = <T extends { ok: boolean }>(r: T): Promise<T> =>
+  new Promise((res) => setTimeout(() => res(r), 120));
+// Games that support demo play — timer and blackjack are multi-phase and
+// gain little from a canned outcome.
+const DEMO_GAMES = new Set(["coinflip", "dice", "limbo", "wheel", "slots", "plinko", "redblack", "hilo"]);
+const ri = (n: number) => Math.floor(Math.random() * n);
+// Optional settle fields the reveal code reads — demo results carry the
+// same shape so the existing .then() continuations run untouched.
+const demoBase = { dealer: undefined as Persona | undefined, feeCents: 0, skimCents: 0, tavCents: undefined as number | undefined };
 
 // Dealer-FX opt-out — persisted per device in localStorage.
 const subscribeFx = (cb: () => void) => {
@@ -123,6 +142,11 @@ function ResultTag({ net, lang }: { net: Net; lang?: Lang }) {
       <div className={cn("text-[15px] font-bold", net.won ? "text-yes-strong" : isPush ? "text-ink" : "text-no-strong")}>
         {net.won ? `+${fmtMonos(gross + skim, { lang })}` : isPush ? fmtMonos(gross, { lang }) : `−${fmtMonos(-net.netCents, { lang })}`}
         <span className="ml-1.5 text-[11px] font-semibold text-mute">{net.won ? t.win : isPush ? t.push : t.lose}</span>
+        {net.demo && (
+          <span className="ml-1.5 rounded-full border border-warn/50 bg-warn-soft px-1.5 py-0.5 text-[10px] font-bold text-warn-strong uppercase tracking-wide align-middle">
+            {t.demoTag}
+          </span>
+        )}
         {(net.feeCents ?? 0) > 0 && (
           <span className="ml-1.5 rounded-full border border-no/40 bg-no-soft px-1.5 py-0.5 text-[10px] font-bold text-no-strong align-middle">
             {t.gameFeeChip(fmtMonos(net.feeCents!, { lang }))}
@@ -321,9 +345,9 @@ function GameCard({
 
 // ---------- coin flip ----------
 
-type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; inDebt?: boolean; onWinFx?: (amt: number, fx: WinFx, tavCents?: number) => void };
+type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; inDebt?: boolean; demo?: boolean; onWinFx?: (amt: number, fx: WinFx, tavCents?: number) => void };
 
-function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [pick, setPick] = useState<"heads" | "tails">("heads");
@@ -336,7 +360,14 @@ function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
 
   const flip = () => {
     const bc = Math.round(parseFloat(bet || "0") * 100);
-    run(() => playCoinFlip({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)), pick })).then(
+    const levN = Number(lockedLev(lev, inDebt));
+    run(() => {
+      if (!demo) return playCoinFlip({ dealerId, betCents: bc, leverage: levN, pick });
+      const win = demoHit();
+      const landed = win ? pick : pick === "heads" ? "tails" : "heads";
+      const fake: Awaited<ReturnType<typeof playCoinFlip>> = { ...demoBase, ok: true, landed, netCents: demoNet(bc * levN, win, COINFLIP_MULT) };
+      return demoDelay(fake);
+    }).then(
       (r) => {
         if (!r || !r.landed) return;
         playSfx("flip", 0.5);
@@ -347,7 +378,7 @@ function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
         setRot((prev) => Math.ceil((prev + 1) / 360) * 360 + 4 * 360 + (r.landed === "tails" ? 180 : 0));
         setTimeout(() => {
           setSpinning(false);
-          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents, demo });
           dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
         }, 1150);
       }
@@ -427,7 +458,7 @@ function DiceFace({ value, rolling }: { value: number; rolling: boolean }) {
   );
 }
 
-function DiceCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+function DiceCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [over, setOver] = useState(3);
@@ -445,14 +476,22 @@ function DiceCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
     setDealer(null);
     playSfx("roll", 0.45);
     const cyc = setInterval(() => setFace(1 + Math.floor(Math.random() * 6)), 70);
-    run(() => playDice({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)), over })).then((r) => {
+    const levN = Number(lockedLev(lev, inDebt));
+    run(() => {
+      if (!demo) return playDice({ dealerId, betCents: bc, leverage: levN, over });
+      // Winning roll lands in over+1..6, a losing one in 1..over.
+      const win = demoHit();
+      const roll = win ? over + 1 + ri(6 - over) : 1 + ri(over);
+      const fake: Awaited<ReturnType<typeof playDice>> = { ...demoBase, ok: true, roll, netCents: demoNet(bc * levN, win, diceMult(over)) };
+      return demoDelay(fake);
+    }).then((r) => {
       if (r?.dealer) setDealer(r.dealer);
       setTimeout(() => {
         clearInterval(cyc);
         setRolling(false);
         if (r?.roll) {
           setFace(r.roll);
-          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents, demo });
           dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
         }
       }, 650);
@@ -661,7 +700,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
 
 // ---------- limbo ----------
 
-function LimboCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+function LimboCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [target, setTarget] = useState(2);
@@ -678,7 +717,15 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
 
   const play = () => {
     const bc = Math.round(parseFloat(bet || "0") * 100);
-    run(() => playLimbo({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)), target })).then(
+    const levN = Number(lockedLev(lev, inDebt));
+    run(() => {
+      if (!demo) return playLimbo({ dealerId, betCents: bc, leverage: levN, target });
+      // Wins crash above the target (sometimes way above), losses under it.
+      const roll = demoHit() ? target * (1 + Math.random() * 1.5) : 1 + Math.random() * (target - 1);
+      const won = roll >= target;
+      const fake: Awaited<ReturnType<typeof playLimbo>> = { ...demoBase, ok: true, roll, won, netCents: demoNet(bc * levN, won, target * 0.98) };
+      return demoDelay(fake);
+    }).then(
       (r) => {
         if (r?.roll == null) return;
         const roll = r.roll;
@@ -781,7 +828,7 @@ function wheelColor(m: number, i: number) {
   return i % 2 ? "var(--color-brand-strong)" : "var(--color-brand)";
 }
 
-function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+function WheelCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -794,7 +841,16 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
 
   const spin = () => {
     const bc = Math.round(parseFloat(bet || "0") * 100);
-    run(() => playWheel({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })).then((r) => {
+    const levN = Number(lockedLev(lev, inDebt));
+    run(() => {
+      if (!demo) return playWheel({ dealerId, betCents: bc, leverage: levN });
+      // Winning wedges (≥1×) hit often; losses include the partial-return
+      // wedges so the reveal stays honest-looking.
+      const index = demoHit() ? [1, 10, 4, 8, 1, 10][ri(6)] : [0, 3, 5, 7, 9, 2, 6, 11][ri(8)];
+      const mult = WHEEL_SEGMENTS[index];
+      const fake: Awaited<ReturnType<typeof playWheel>> = { ...demoBase, ok: true, index, mult, netCents: Math.round(bc * levN * (mult - 1)) };
+      return demoDelay(fake);
+    }).then((r) => {
       if (r?.index == null) return;
       playSfx("spin", 0.5);
       setNet(null);
@@ -808,7 +864,7 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
         setSpinning(false);
         setLanded(r.mult ?? null);
         // 0.5×/0.6×/0.8× segments return part of the stake — still a loss.
-        setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+        setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents, demo });
         dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
       }, 3250);
     });
@@ -900,7 +956,7 @@ function buildStrip(prevSym: number, final: number): number[] {
   return cells;
 }
 
-function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+function SlotsCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -919,7 +975,31 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
 
   const spin = () => {
     const bc = Math.round(parseFloat(bet || "0") * 100);
-    run(() => playSlots({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })).then(
+    const levN = Number(lockedLev(lev, inDebt));
+    run(() => {
+      if (demo) {
+        // Triples on the low-pay symbols, an occasional pair push, else a miss.
+        const r0 = Math.random();
+        let reels: number[];
+        let mult: number;
+        if (r0 < 0.5) {
+          const s = [4, 3, 4, 2, 3, 4, 1, 0][ri(8)];
+          reels = [s, s, s];
+          mult = SLOT_TRIPLE[s];
+        } else if (r0 < 0.62) {
+          const s = ri(5);
+          reels = [s, s, s === 0 ? 1 : s - 1];
+          mult = 1;
+        } else {
+          const p = [0, 1, 2, 3, 4];
+          reels = [p.splice(ri(p.length), 1)[0], p.splice(ri(p.length), 1)[0], p.splice(ri(p.length), 1)[0]];
+          mult = 0;
+        }
+        const fake: Awaited<ReturnType<typeof playSlots>> = { ...demoBase, ok: true, reels, netCents: Math.round(bc * levN * (mult - 1)) };
+        return demoDelay(fake);
+      }
+      return playSlots({ dealerId, betCents: bc, leverage: levN });
+    }).then(
       (r) => {
         const drawn = r?.reels;
         if (!drawn) return;
@@ -949,7 +1029,7 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
         timers.current.push(
           setTimeout(() => {
             setSpinning(false);
-            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents, demo });
             dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
           }, REEL_MS[2] + 150)
         );
@@ -1325,7 +1405,7 @@ function pkPos(path: number[], t: number) {
 const PK_MAX_BALLS = 16;
 const PK_MAX_AIRBORNE = 8;
 
-function PlinkoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+function PlinkoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -1351,7 +1431,21 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps
   const drop = () => {
     if (airborne >= PK_MAX_AIRBORNE) return;
     const bc = Math.round(parseFloat(bet || "0") * 100);
-    run(() => playPlinko({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })).then((r) => {
+    const levN = Number(lockedLev(lev, inDebt));
+    run(() => {
+      if (!demo) return playPlinko({ dealerId, betCents: bc, leverage: levN });
+      // Wins land in paying pockets (mostly the modest 1.8×/3.7× ones);
+      // losses drop into the sub-1× middle.
+      const bucket = demoHit() ? [3, 9, 2, 10, 3, 9, 1, 11, 0, 12][ri(10)] : 4 + ri(5);
+      const path: (0 | 1)[] = Array.from({ length: PLINKO_ROWS }, (_, i) => (i < bucket ? 1 : 0));
+      for (let i = PLINKO_ROWS - 1; i > 0; i--) {
+        const j = ri(i + 1);
+        [path[i], path[j]] = [path[j], path[i]];
+      }
+      const mult = PLINKO_MULT[bucket];
+      const fake: Awaited<ReturnType<typeof playPlinko>> = { ...demoBase, ok: true, path, bucket, mult, netCents: Math.round(bc * levN * (mult - 1)) };
+      return demoDelay(fake);
+    }).then((r) => {
       const path = r?.path;
       const bucket = r?.bucket;
       if (!path || bucket == null) return;
@@ -1362,7 +1456,7 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps
       setBalls((bs) => [...bs.slice(-(PK_MAX_BALLS - 1)), { id, path, bucket, t: -0.4 }]);
       setTimeout(() => {
         const won = (r.mult ?? 0) > 1;
-        setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+        setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents, demo });
         dealerWinFx(r.dealer, won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
       }, PLINKO_ROWS * PK_SEG_MS + 300);
     });
@@ -1473,7 +1567,7 @@ function BigCard({ v, hidden }: { v?: number; hidden?: boolean }) {
   );
 }
 
-function RedBlackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+function RedBlackCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [pick, setPick] = useState<"red" | "black">("red");
@@ -1488,7 +1582,16 @@ function RedBlackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
 
   const play = () => {
     const bc = Math.round(parseFloat(bet || "0") * 100);
-    run(() => playRedBlack({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)), pick })).then((r) => {
+    const levN = Number(lockedLev(lev, inDebt));
+    run(() => {
+      if (!demo) return playRedBlack({ dealerId, betCents: bc, leverage: levN, pick });
+      const win = demoHit();
+      // Suits 1,2 are red; 0,3 black. Win = card matches the pick.
+      const suit = ((win === (pick === "red")) ? [1, 2] : [0, 3])[ri(2)];
+      const card = suit * 13 + ri(13);
+      const fake: Awaited<ReturnType<typeof playRedBlack>> = { ...demoBase, ok: true, card, netCents: demoNet(bc * levN, win, REDBLACK_MULT) };
+      return demoDelay(fake);
+    }).then((r) => {
       if (!r || r.card == null) return;
       playSfx("flip", 0.5);
       setNet(null);
@@ -1501,7 +1604,7 @@ function RedBlackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
           clearInterval(iv);
           setCard(r.card);
           setDrawing(false);
-          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents, demo });
           dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
         }, 750)
       );
@@ -1550,7 +1653,7 @@ function RedBlackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
   );
 }
 
-function HiLoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+function HiLoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -1564,7 +1667,11 @@ function HiLoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
 
   const deal = () => {
     const bc = Math.round(parseFloat(bet || "0") * 100);
-    run(() => hiloStart({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })).then((r) => {
+    run(() =>
+      demo
+        ? demoDelay({ ...demoBase, ok: true, roundId: "demo", faceCard: ri(52) } satisfies Awaited<ReturnType<typeof hiloStart>>)
+        : hiloStart({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })
+    ).then((r) => {
       if (!r || !r.roundId || r.faceCard == null) return;
       playSfx("flip", 0.4);
       setRoundId(r.roundId);
@@ -1578,13 +1685,29 @@ function HiLoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
   const call = (dir: HiloDir) => {
     if (!roundId) return;
     const bc = Math.round(parseFloat(bet || "0") * 100);
-    run(() => hiloPlay({ roundId, dir, dealerId })).then((r) => {
+    const levN = Number(lockedLev(lev, inDebt));
+    run(() => {
+      if (!demo) return hiloPlay({ roundId, dir, dealerId });
+      const fo = cardOrder(face ?? 0);
+      // Ranks that beat the face for this call, the losing ones, and a
+      // small push slice — same shape the real settle returns.
+      const wins = Array.from({ length: 13 }, (_, i) => i + 1).filter((o) => (dir === "higher" ? o > fo : o < fo));
+      const losses = Array.from({ length: 13 }, (_, i) => i + 1).filter((o) => (dir === "higher" ? o < fo : o > fo));
+      const r0 = Math.random();
+      const order =
+        r0 < 0.58 && wins.length ? wins[ri(wins.length)] : r0 < 0.66 || !losses.length ? fo : losses[ri(losses.length)];
+      const card = ri(4) * 13 + (order === 13 ? 0 : order);
+      const push = order === fo;
+      const won = !push && (dir === "higher" ? order > fo : order < fo);
+      const fake: Awaited<ReturnType<typeof hiloPlay>> = { ...demoBase, ok: true, card, push, won, netCents: push ? 0 : demoNet(bc * levN, won, hiloMult(face ?? 0, dir)) };
+      return demoDelay(fake);
+    }).then((r) => {
       if (!r || r.card == null) return;
       playSfx(r.push ? "trade" : r.won ? "win" : "lose", 0.5);
       setNext(r.card);
       setRoundId(undefined);
       const won = !!r.won && !r.push && (r.netCents ?? 0) > 0;
-      setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+      setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents, demo });
       dealerWinFx(r.dealer ?? dealer, won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
     });
   };
@@ -1895,6 +2018,10 @@ export function GameView({
   const [splash, setSplash] = useState<{ amt: number; fx: WinFx; tav?: number } | null>(null);
   // Dealer celebrations are opt-out per device — some are loud on purpose.
   const fxOff = useSyncExternalStore(subscribeFx, readFxOff, () => false);
+  // Demo mode — rounds resolve locally, no money moves. Rigged toward the
+  // player so trying a game feels generous.
+  const [demo, setDemo] = useState(false);
+  const demoOk = DEMO_GAMES.has(game);
   const toggleFx = () => {
     try {
       localStorage.setItem("mb_fx_off", fxOff ? "0" : "1");
@@ -1913,24 +2040,43 @@ export function GameView({
       on ? "border-brand bg-brand-soft" : "border-line bg-surface hover:border-mute"
     );
   const picked = dealers?.find((d) => d.id === dealerId);
+  const toolbar = (
+    <div className="flex items-center gap-1.5">
+      {demoOk && (
+        <button
+          type="button"
+          onClick={() => setDemo((d) => !d)}
+          aria-pressed={demo}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-semibold transition-colors cursor-pointer",
+            demo ? "border-warn/60 bg-warn-soft text-warn-strong" : "border-line bg-surface text-faint hover:text-mute"
+          )}
+        >
+          <FlaskConical className="size-3" />
+          {t.demoToggle}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={toggleFx}
+        aria-pressed={!fxOff}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-semibold transition-colors cursor-pointer",
+          fxOff ? "border-line bg-surface text-faint" : "border-brand bg-brand-soft text-brand-strong"
+        )}
+      >
+        <Sparkles className="size-3" />
+        {t.dealerFxToggle}
+      </button>
+    </div>
+  );
   return (
     <div>
-      {dealers && dealers.length > 0 && (
+      {dealers && dealers.length > 0 ? (
         <div className="mb-4">
           <div className="flex items-center justify-between mb-1.5">
             <div className="text-[12px] font-semibold text-mute">{t.dealerPick}</div>
-            <button
-              type="button"
-              onClick={toggleFx}
-              aria-pressed={!fxOff}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-semibold transition-colors cursor-pointer",
-                fxOff ? "border-line bg-surface text-faint" : "border-brand bg-brand-soft text-brand-strong"
-              )}
-            >
-              <Sparkles className="size-3" />
-              {t.dealerFxToggle}
-            </button>
+            {toolbar}
           </div>
           <div className="scrollbar-none -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
             <button type="button" onClick={() => setDealerId(undefined)} className={chipCls(dealerId == null)}>
@@ -1954,8 +2100,15 @@ export function GameView({
             </div>
           )}
         </div>
+      ) : (
+        <div className="mb-3 flex justify-end">{toolbar}</div>
       )}
-      <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt}
+      {demo && demoOk && (
+        <div className="mb-3 rounded-xl border border-warn/40 bg-warn-soft px-3.5 py-2 text-[12px] font-semibold text-warn-strong">
+          {t.demoNotice}
+        </div>
+      )}
+      <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt} demo={demo && demoOk}
         onWinFx={(amt, fx, tav) => { if (!fxOff) setSplash({ amt, fx, tav }); }} />
       {/* Dealer celebrations run inside a bounded card, not the viewport —
           any click dismisses. */}
