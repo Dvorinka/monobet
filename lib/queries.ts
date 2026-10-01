@@ -858,6 +858,7 @@ export async function getPublicProfile(username: string) {
 
   // One wave after the user row — squad, stats, positions, created markets,
   // leaderboard rank, faucet income, and game history are all independent.
+  const statsSince = await getStatsSince();
   const [[sq], [stats], positions, created, lb, [faucet], games] = await Promise.all([
     u.squadId
       ? db.select({ name: schema.squad.name }).from(schema.squad).where(eq(schema.squad.id, u.squadId)).limit(1)
@@ -881,6 +882,8 @@ export async function getPublicProfile(username: string) {
       .orderBy(desc(schema.market.createdAt)),
     getLeaderboard(),
     // Play PnL = net worth minus faucet income — isolates trading/game skill.
+    // Both sides are epoch-bound: pre-reset free money and pre-reset game
+    // history are stats-dead, like everywhere else.
     db
       .select({ cents: sql<number>`coalesce(sum(${schema.ledger.amountCents}),0)::bigint` })
       .from(schema.ledger)
@@ -888,13 +891,20 @@ export async function getPublicProfile(username: string) {
         and(
           eq(schema.ledger.userId, u.id),
           sql`${schema.ledger.amountCents} > 0`,
-          inArray(schema.ledger.kind, ["signup", "claim", "weekly", "ad", "bonus", "grant"])
+          inArray(schema.ledger.kind, ["signup", "claim", "weekly", "ad", "bonus", "grant"]),
+          statsSince ? gte(schema.ledger.createdAt, statsSince) : undefined
         )
       ),
     db
       .select({ id: schema.ledger.id, amountCents: schema.ledger.amountCents, memo: schema.ledger.memo, createdAt: schema.ledger.createdAt })
       .from(schema.ledger)
-      .where(and(eq(schema.ledger.userId, u.id), eq(schema.ledger.kind, "game")))
+      .where(
+        and(
+          eq(schema.ledger.userId, u.id),
+          eq(schema.ledger.kind, "game"),
+          statsSince ? gte(schema.ledger.createdAt, statsSince) : undefined
+        )
+      )
       .orderBy(desc(schema.ledger.createdAt))
       .limit(12),
   ]);
