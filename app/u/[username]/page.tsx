@@ -12,7 +12,7 @@ import { BalanceChart } from "@/components/balance-chart";
 import { fmtMonos, fmtDate, fmtShares, timeAgo } from "@/lib/money";
 import { marketYesPrice } from "@/lib/queries";
 import { cn } from "@/lib/utils";
-import { ChartLine, CheckCircle2, ListOrdered, Lock, ShieldCheck, Trophy } from "lucide-react";
+import { ChartLine, CheckCircle2, ListOrdered, Lock, ShieldCheck, TrendingDown, TrendingUp, Trophy } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +76,14 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
     squad: { title: t.bonusSquad, desc: t.bonusSquadDesc },
     ten_trades: { title: t.bonusTenTrades, desc: t.bonusTenTradesDesc },
     streak7: { title: t.bonusStreak7, desc: t.bonusStreak7Desc },
+    first_sell: { title: t.bonusFirstSell, desc: t.bonusFirstSellDesc },
+    note: { title: t.bonusNote, desc: t.bonusNoteDesc },
+    vote: { title: t.bonusVote, desc: t.bonusVoteDesc },
+    duel_win: { title: t.bonusDuelWin, desc: t.bonusDuelWinDesc },
+    squad_owner: { title: t.bonusSquadOwner, desc: t.bonusSquadOwnerDesc },
+    referrer: { title: t.bonusReferrer, desc: t.bonusReferrerDesc },
+    fifty_trades: { title: t.bonusFiftyTrades, desc: t.bonusFiftyTradesDesc },
+    active7: { title: t.bonusActive7, desc: t.bonusActive7Desc },
     streak_7: { title: t.achStreak7, desc: t.achStreak7Desc },
     trades_10: { title: t.achTrades10, desc: t.achTrades10Desc },
     trades_50: { title: t.achTrades50, desc: t.achTrades50Desc },
@@ -110,18 +118,24 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
         <div className="w-full sm:w-auto text-left sm:text-right">
           <div className="num text-[24px] font-bold leading-none">{fmtMonos(netWorthCents, { lang })}</div>
           <div className="text-[11px] text-mute mt-1">{t.lbNetWorth}</div>
+          <div
+            className={`num mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] font-bold ${
+              playPnlCents >= 0 ? "bg-yes/10 text-yes-strong" : "bg-no/10 text-no-strong"
+            }`}
+            title={t.playPnl}
+          >
+            {playPnlCents >= 0 ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}
+            {playPnlCents >= 0 ? "+" : ""}
+            {fmtMonos(playPnlCents, { lang })}
+            <span className="font-medium opacity-70">{t.playPnl}</span>
+          </div>
         </div>
       </Card>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
         <Stat label={t.lbBalance} value={fmtMonos(u.balanceCents, { lang })} />
         <Stat label={t.lbPositions} value={fmtMonos(positions.reduce((s, p) => s + p.valueCents, 0), { lang })} />
-        <Stat
-          label={t.playPnl}
-          value={`${playPnlCents >= 0 ? "+" : ""}${fmtMonos(playPnlCents, { lang })}`}
-          tone={playPnlCents >= 0 ? "up" : "down"}
-        />
         <Stat label={t.duelsTitle} value={String(stats.duels)} />
         <Stat label={t.trades} value={String(stats.trades)} />
         <Stat label={t.markets} value={String(stats.markets)} />
