@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Swords, Trophy, AlertTriangle, Check, X } from "lucide-react";
-import { Button } from "@/components/ui/primitives";
+import { ArrowLeft, Swords, Trophy, AlertTriangle, Check, X, Play, OctagonX } from "lucide-react";
+import { Button, Input } from "@/components/ui/primitives";
 import { respondDuel, cancelDuel, proposeDuelWinner, duelPlay } from "@/lib/actions";
 import { fmtMonos } from "@/lib/money";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { cardLabel, handTotal, DUEL_TIMER_MS } from "@/lib/games";
 import { KIND_ICONS, duelFmtMove, duelKindLabels, duelMoveLabel, type DuelRow, type DuelState } from "@/components/duels-panel";
 
 // Full-screen event stage for a single duel — a dedicated route so the fight
@@ -17,6 +18,7 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
   const t = getT(lang ?? "en");
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [limboTarget, setLimboTarget] = useState("2");
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -38,7 +40,7 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
       const r = await duelPlay({ id, move });
       if (!r.ok) toast.error(t.serverErr(r.error));
       else if (r.tie) toast(t.duelTieToast);
-      else if (r.waiting) toast.success(t.duelMoveLockedToast);
+      else if (r.waiting && !r.mid) toast.success(t.duelMoveLockedToast);
       router.refresh();
     });
 
@@ -47,6 +49,11 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
   const myMove = moves[me];
   const otherId = d.creatorId === me ? d.opponentId : d.creatorId;
   const otherMove = moves[otherId];
+  // A structured move with done:false is a mid-round state (hilo face, live
+  // timer, blackjack hand) — the player is still acting, not locked in.
+  const midRound = typeof myMove === "object" && myMove !== null && !myMove.done ? myMove : null;
+  const myDone = myMove !== undefined && midRound === null;
+  const oppDone = otherMove !== undefined && (typeof otherMove !== "object" || otherMove.done);
   const myName = (d.creatorId === me ? row.creatorName : row.opponentName) ?? "?";
   const otherName = (d.creatorId === me ? row.opponentName : row.creatorName) ?? "?";
   const title = d.kind === "claim" ? d.claim : (duelKindLabels(t)[d.kind] ?? d.claim);
@@ -58,7 +65,7 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
   const draw = settled && !d.winnerId;
   const game = d.kind !== "claim";
   const awaiting = d.pendingById === me;
-  const toMove = !settled && !open && !disputed && game && myMove === undefined;
+  const toMove = !settled && !open && !disputed && game && !myDone;
 
   return (
     <div className="fixed inset-0 z-[60] overflow-y-auto bg-[#0b0e0d] text-[#eef3ee]">
@@ -101,7 +108,7 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
         <div className="mt-8 flex items-center justify-center gap-5 sm:gap-8">
           <Fighter name={myName} you active={toMove} />
           <span className="num text-[15px] font-black tracking-[0.3em] text-white/35">VS</span>
-          <Fighter name={otherName} active={!settled && !open && !disputed && game && myMove !== undefined && otherMove === undefined} />
+          <Fighter name={otherName} active={!settled && !open && !disputed && game && myDone && !oppDone} />
         </div>
 
         {/* stage */}
@@ -161,12 +168,36 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
           )}
 
           {!settled && !open && !disputed && game && (
-            myMove !== undefined ? (
+            midRound ? (
+              // Mid-round phases — the round is live, keep playing.
+              d.kind === "hilo" ? (
+                <div className="flex flex-col items-center gap-4">
+                  <MiniCard v={Number(midRound.data?.face)} size="lg" />
+                  <div className="flex gap-3 w-full max-w-xs">
+                    <Button size="lg" variant="yes" className="flex-1" disabled={pending} onClick={() => play(d.id, "higher")}>{t.hiloHigher}</Button>
+                    <Button size="lg" variant="outline" className="flex-1" disabled={pending} onClick={() => play(d.id, "lower")}>{t.hiloLower}</Button>
+                  </div>
+                </div>
+              ) : d.kind === "blackjack" ? (
+                <div className="flex flex-col items-center gap-4">
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {((midRound.data?.hand as number[] | undefined) ?? []).map((v, i) => <MiniCard key={i} v={v} />)}
+                  </div>
+                  <div className="num text-[30px] font-black text-[#9fd4b4]">{handTotal((midRound.data?.hand as number[] | undefined) ?? []).total}</div>
+                  <div className="flex gap-3 w-full max-w-xs">
+                    <Button size="lg" variant="yes" className="flex-1" disabled={pending} onClick={() => play(d.id, "hit")}>{t.bjHit}</Button>
+                    <Button size="lg" variant="outline" className="flex-1" disabled={pending} onClick={() => play(d.id, "stand")}>{t.bjStand}</Button>
+                  </div>
+                </div>
+              ) : (
+                <TimerStage t0={Number(midRound.data?.t0)} targetMs={DUEL_TIMER_MS} pending={pending} label={t.duelTimedTarget} onStop={() => play(d.id, "stop")} stopLabel={t.duelStop} />
+              )
+            ) : myDone ? (
               <>
                 <div className="num text-[46px] font-black tabular-nums text-[#6fdc9c]">{duelFmtMove(t, d.kind, myMove)}</div>
                 <div className="flex items-center gap-2 text-[13.5px] text-white/60">
                   <span className="size-2 rounded-full bg-[#9fd4b4] animate-pulse" />
-                  {t.duelWaitingArena}
+                  {oppDone ? t.duelWaitMove : t.duelWaitingArena}
                 </div>
               </>
             ) : d.kind === "rps" ? (
@@ -182,6 +213,45 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
                   </button>
                 ))}
               </div>
+            ) : d.kind === "coinflip" || d.kind === "redblack" ? (
+              <div className="w-full max-w-sm space-y-3">
+                <div className="text-center text-[12px] font-semibold uppercase tracking-widest text-white/45">{t.duelPickSide}</div>
+                <div className="grid grid-cols-2 gap-3">
+                  {(d.kind === "coinflip" ? ["heads", "tails"] : ["red", "black"]).map((m) => (
+                    <button
+                      key={m}
+                      disabled={pending}
+                      onClick={() => play(d.id, m)}
+                      className={cn(
+                        "h-14 rounded-2xl border text-[15px] font-bold active:scale-95 transition disabled:opacity-50 cursor-pointer",
+                        m === "red" ? "border-no/50 bg-no-soft/10 text-[#ff9d94] hover:bg-no-soft/20"
+                          : m === "black" ? "border-white/15 bg-white/[0.07] text-white hover:bg-white/[0.12]"
+                          : "border-white/12 bg-white/[0.05] hover:border-[#9fd4b4]/60 hover:bg-[#9fd4b4]/10",
+                      )}
+                    >
+                      {duelMoveLabel(t, m)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : d.kind === "limbo" ? (
+              <div className="w-full max-w-sm space-y-3">
+                <Input value={limboTarget} onChange={(e) => setLimboTarget(e.target.value)} placeholder={t.duelTargetPh} inputMode="decimal" className="text-center text-[17px]" />
+                <Button size="lg" variant="yes" className="w-full h-14 text-[17px]" disabled={pending || !Number.isFinite(Number(limboTarget))} onClick={() => play(d.id, limboTarget)}>
+                  {KIND_ICONS[d.kind]} {t.duelLaunch}
+                </Button>
+              </div>
+            ) : d.kind === "hilo" || d.kind === "blackjack" ? (
+              <Button size="lg" variant="yes" className="w-full max-w-sm h-14 text-[17px]" disabled={pending} onClick={() => play(d.id, "deal")}>
+                {KIND_ICONS[d.kind]} {t.bjDeal}
+              </Button>
+            ) : d.kind === "timer" ? (
+              <div className="w-full max-w-sm space-y-3">
+                <div className="text-center text-[12px] font-semibold uppercase tracking-widest text-white/45">{t.duelTimedTarget}</div>
+                <Button size="lg" variant="yes" className="w-full h-14 text-[17px]" disabled={pending} onClick={() => play(d.id, "start")}>
+                  <Play className="size-4" /> {t.duelStart}
+                </Button>
+              </div>
             ) : (
               <Button
                 size="lg"
@@ -190,7 +260,7 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
                 disabled={pending}
                 onClick={() => play(d.id)}
               >
-                {KIND_ICONS[d.kind]} {d.kind === "roll" ? t.duelRollBtn : d.kind === "wheel" ? t.duelSpinBtn : t.duelDrawBtn}
+                {KIND_ICONS[d.kind]} {d.kind === "roll" || d.kind === "dice" ? t.duelRollBtn : d.kind === "wheel" ? t.duelSpinBtn : t.duelDrawBtn}
               </Button>
             )
           )}
@@ -234,6 +304,60 @@ function Fighter({ name, you, active }: { name: string; you?: boolean; active?: 
         {name.slice(0, 1).toUpperCase()}
       </span>
       <span className="max-w-[130px] truncate text-[14px] font-semibold text-white/85">@{name}</span>
+    </div>
+  );
+}
+
+// Compact playing card for duel hands — rank + suit, red suits in red.
+function MiniCard({ v, size }: { v: number; size?: "lg" }) {
+  const c = cardLabel(v);
+  return (
+    <span
+      className={cn(
+        "inline-flex flex-col items-center justify-center rounded-xl border border-white/15 bg-white/[0.06] font-black tabular-nums",
+        size === "lg" ? "size-24 text-[26px]" : "size-14 text-[17px]",
+        c.red ? "text-[#ff9d94]" : "text-white",
+      )}
+    >
+      {c.rank}
+      <span className={cn(size === "lg" ? "text-[22px]" : "text-[13px]", "leading-none")}>{c.suit}</span>
+    </span>
+  );
+}
+
+// Live stopwatch for the timer duel — ticks client-side, the server's stored
+// t0 is authoritative for the error measurement.
+function TimerStage({ t0, targetMs, pending, label, stopLabel, onStop }: {
+  t0: number;
+  targetMs: number;
+  pending: boolean;
+  label: string;
+  stopLabel: string;
+  onStop: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 41);
+    return () => clearInterval(id);
+  }, []);
+  const elapsed = Math.max(0, now - t0);
+  const remaining = targetMs - elapsed;
+  return (
+    <div className="flex w-full max-w-xs flex-col items-center gap-4">
+      <div className="num text-[52px] font-black tabular-nums leading-none">
+        {(elapsed / 1000).toFixed(2)}
+        <span className="ml-1 text-[16px] font-semibold text-white/40">s</span>
+      </div>
+      <div className="text-[12px] font-semibold uppercase tracking-widest text-white/45">{label}</div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className={cn("h-full rounded-full transition-[width] duration-75", remaining > 0 ? "bg-[#9fd4b4]" : "bg-[#ff9d94]")}
+          style={{ width: `${Math.min(100, (elapsed / targetMs) * 100)}%` }}
+        />
+      </div>
+      <Button size="lg" variant="yes" className="w-full h-14 text-[17px]" disabled={pending} onClick={onStop}>
+        <OctagonX className="size-4" /> {stopLabel}
+      </Button>
     </div>
   );
 }

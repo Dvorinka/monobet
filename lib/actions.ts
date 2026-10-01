@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, ne, and, sql, desc, asc, isNull, inArray } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_SESSION_MS, GAME_BREAK_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, type DuelKind, type RpsMove, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_SESSION_MS, GAME_BREAK_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, DUEL_GAME_KEY, DUEL_TIMER_MS, type DuelKind, type DuelMove, type RpsMove, type Persona } from "@/lib/games";
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -3140,6 +3140,12 @@ export async function createDuel(input: {
   try {
     const u = await requireUser();
     const kind = (DUEL_KINDS as readonly string[]).includes(input.kind ?? "claim") ? (input.kind as DuelKind) : "claim";
+    // Kill-switch — a disabled game can't host new duels.
+    const gameKey = DUEL_GAME_KEY[kind];
+    if (gameKey) {
+      const [cfg] = await db.select({ d: schema.casinoConfig.disabledGames }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house"));
+      if (cfg?.d?.includes(gameKey)) throw new Error("This game is temporarily disabled");
+    }
     const claim = kind === "claim" ? input.claim.trim() : DUEL_NAMES[kind];
     if (kind === "claim" && claim.length < 5) throw new Error("Describe the bet (min 5 chars)");
     if (kind === "claim" && claim.length > 200) throw new Error("Claim too long (max 200)");
@@ -3261,56 +3267,164 @@ export async function proposeDuelWinner(input: {
   }
 }
 
-// Game duels: each side submits one move — rps takes the player's pick, the
-// luck kinds draw server-side (roll = d100, wheel = one segment, slots = one
-// payout draw). Moves stay hidden until both are in; equal results clear the
-// board and replay. The pot is the locked stakes — game rounds cost nothing.
+// Game duels: each side plays one free round of the chosen game inside the
+// duel — nothing is wagered in the round itself, only the locked stake moves.
+// Kinds fall into three shapes: pick-pairs resolved by one shared draw
+// (coinflip/redblack), one-shot draws scored numerically, and multi-phase
+// rounds (hilo deal→call, timer start→stop, blackjack hit/stand) that hold a
+// mid-round state until done. Moves stay hidden from the opponent until the
+// duel settles; equal scores clear the board and replay.
 export async function duelPlay(input: {
   id: string;
   move?: string;
-}): Promise<{ ok: boolean; error?: string; waiting?: boolean; tie?: boolean; settled?: boolean }> {
+}): Promise<{ ok: boolean; error?: string; waiting?: boolean; mid?: boolean; tie?: boolean; settled?: boolean }> {
   try {
     const u = await requireUser();
-    const outcome = await db.transaction(async (tx): Promise<"waiting" | "tie" | "settled"> => {
+    const outcome = await db.transaction(async (tx): Promise<{ o: "waiting" | "tie" | "settled"; mid?: boolean }> => {
       const [c] = await tx.select().from(schema.challenge).where(eq(schema.challenge.id, input.id)).for("update").limit(1);
       if (!c || (u.id !== c.creatorId && u.id !== c.opponentId)) throw new Error("Not your duel");
       if (c.status !== "accepted") throw new Error("Not playable");
       if (c.kind === "claim") throw new Error("Claim duels settle by agreement");
-      const moves = { ...(((c.state as { moves?: Record<string, string | number> } | null)?.moves) ?? {}) };
-      if (moves[u.id] !== undefined) throw new Error("Move already locked");
-      let mv: string | number;
-      if (c.kind === "rps") {
-        const pick = (input.move ?? "") as RpsMove;
-        if (!(RPS_MOVES as readonly string[]).includes(pick)) throw new Error("Pick rock, paper or scissors");
-        mv = pick;
-      } else if (c.kind === "roll") {
-        mv = randomInt(1, 101); // d100
-      } else if (c.kind === "wheel") {
-        mv = WHEEL_SEGMENTS[randomInt(0, WHEEL_SEGMENTS.length)];
-      } else if (c.kind === "slots") {
-        const draw = [slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT))];
-        mv = slotPayout(draw[0], draw[1], draw[2]);
-      } else if (c.kind === "plinko") {
-        mv = PLINKO_MULT[plinkoBucket(Array.from({ length: PLINKO_ROWS }, () => randomInt(2)))];
-      } else throw new Error("Unknown duel kind");
-      moves[u.id] = mv;
+      type MoveMap = Record<string, DuelMove>;
+      const moves: MoveMap = { ...(((c.state as { moves?: MoveMap } | null)?.moves) ?? {}) };
+      const mine = moves[u.id];
+      if (mine !== undefined && (typeof mine !== "object" || mine.done)) throw new Error("Move already locked");
+      const act = input.move ?? "go";
+
+      // One step of the player's round; returns their (new) move value.
+      const step = (): DuelMove => {
+        switch (c.kind) {
+          case "rps": {
+            const pick = act as RpsMove;
+            if (!(RPS_MOVES as readonly string[]).includes(pick)) throw new Error("Pick rock, paper or scissors");
+            return pick;
+          }
+          case "coinflip": {
+            if (act !== "heads" && act !== "tails") throw new Error("Pick heads or tails");
+            return { done: true, pick: act };
+          }
+          case "redblack": {
+            if (act !== "red" && act !== "black") throw new Error("Pick red or black");
+            return { done: true, pick: act };
+          }
+          case "roll":
+            return randomInt(1, 101); // d100
+          case "dice":
+            return randomInt(1, 7); // d6
+          case "wheel":
+            return WHEEL_SEGMENTS[randomInt(0, WHEEL_SEGMENTS.length)];
+          case "slots": {
+            const draw = [slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT)), slotDraw(randomInt(0, SLOT_TOTAL_WEIGHT))];
+            return { done: true, s: slotPayout(draw[0], draw[1], draw[2]), data: { reels: draw } };
+          }
+          case "plinko": {
+            const path = Array.from({ length: PLINKO_ROWS }, () => randomInt(2));
+            const bucket = plinkoBucket(path);
+            return { done: true, s: PLINKO_MULT[bucket], data: { path, bucket } };
+          }
+          case "limbo": {
+            const target = Number(act);
+            if (!Number.isFinite(target) || target < LIMBO_MIN || target > LIMBO_MAX)
+              throw new Error(`Pick a target between ${LIMBO_MIN} and ${LIMBO_MAX}`);
+            const crash = Math.floor((0.99 / (1 - randomInt(1_000_000_000) / 1_000_000_000)) * 100) / 100;
+            const hit = crash >= target;
+            return { done: true, s: hit ? target : 0, data: { target, crash } };
+          }
+          case "hilo": {
+            if (mine === undefined) {
+              if (act !== "deal") throw new Error("Deal first");
+              return { done: false, data: { face: randomInt(52) } };
+            }
+            const pending = typeof mine === "object" && !mine.done ? mine : null;
+            if (!pending || (act !== "higher" && act !== "lower")) throw new Error("Call higher or lower");
+            const face = Number(pending.data?.face);
+            const card = randomInt(52);
+            const fo = cardOrder(face);
+            const co = cardOrder(card);
+            const push = co === fo;
+            const won = !push && (act === "higher" ? co > fo : co < fo);
+            // Score = the drawn rank when the call survives; 0 on a miss.
+            return { done: true, s: push || won ? co : 0, data: { face, card, dir: act, won, push } };
+          }
+          case "timer": {
+            if (mine === undefined) {
+              if (act !== "start") throw new Error("Start the timer first");
+              return { done: false, data: { t0: Date.now() } };
+            }
+            const pending = typeof mine === "object" && !mine.done ? mine : null;
+            if (!pending || act !== "stop") throw new Error("Stop the timer");
+            const err = Math.abs(Date.now() - Number(pending.data?.t0) - DUEL_TIMER_MS);
+            return { done: true, s: -err, data: { err } };
+          }
+          case "blackjack": {
+            if (mine === undefined) {
+              if (act !== "deal") throw new Error("Deal first");
+              const hand = [randomInt(BJ_DECKS * 52), randomInt(BJ_DECKS * 52)];
+              if (isNatural(hand)) return { done: true, s: 22, data: { hand, natural: true } };
+              return { done: false, data: { hand } };
+            }
+            const pending = typeof mine === "object" && !mine.done ? mine : null;
+            if (!pending || (act !== "hit" && act !== "stand")) throw new Error("Hit or stand");
+            const hand = [...((pending.data?.hand as number[] | undefined) ?? [])];
+            if (act === "hit") hand.push(randomInt(BJ_DECKS * 52));
+            const { total } = handTotal(hand);
+            const bust = total > 21;
+            if (bust) return { done: true, s: 0, data: { hand, bust: true } };
+            if (act === "stand" || total === 21) return { done: true, s: total, data: { hand } };
+            return { done: false, data: { hand } };
+          }
+          default:
+            throw new Error("Unknown duel kind");
+        }
+      };
+      moves[u.id] = step();
+
       const other = u.id === c.creatorId ? c.opponentId : c.creatorId;
       const theirs = moves[other];
-      if (theirs === undefined) {
-        await tx.update(schema.challenge).set({ state: { moves } }).where(eq(schema.challenge.id, c.id));
-        await ping(tx, other, `Duel waiting for your move: ${c.claim.slice(0, 60)}`);
-        return "waiting";
+      const done = (mv: DuelMove | undefined) => mv !== undefined && (typeof mv !== "object" || mv.done);
+      const save = () => tx.update(schema.challenge).set({ state: { moves } }).where(eq(schema.challenge.id, c.id));
+      if (!done(moves[u.id]) || !done(theirs)) {
+        await save();
+        // Only ping once the round actually concludes — mid-round steps stay quiet.
+        const mid = !done(moves[u.id]);
+        if (!mid) await ping(tx, other, `Duel waiting for your move: ${c.claim.slice(0, 60)}`);
+        return { o: "waiting", mid };
       }
+
       let winner: string | null = null;
+      const mineF = moves[u.id]!;
+      const theirsF = theirs!;
       if (c.kind === "rps") {
-        if (mv !== theirs) winner = RPS_BEATS[mv as RpsMove] === theirs ? u.id : other;
-      } else if (Number(mv) !== Number(theirs)) {
-        winner = Number(mv) > Number(theirs) ? u.id : other;
+        if (mineF !== theirsF) winner = RPS_BEATS[mineF as RpsMove] === theirsF ? u.id : other;
+      } else if (c.kind === "coinflip" || c.kind === "redblack") {
+        const myPick = typeof mineF === "object" ? mineF.pick : undefined;
+        const theirPick = typeof theirsF === "object" ? theirsF.pick : undefined;
+        if (myPick !== theirPick) {
+          // Opposing picks — one shared draw decides who called it right.
+          if (c.kind === "coinflip") {
+            const landed = randomInt(2) === 0 ? "heads" : "tails";
+            winner = myPick === landed ? u.id : other;
+            (mineF as { data?: Record<string, unknown> }).data = { landed };
+            (theirsF as { data?: Record<string, unknown> }).data = { landed };
+          } else {
+            const card = randomInt(52);
+            const landed = cardIsRed(card) ? "red" : "black";
+            winner = myPick === landed ? u.id : other;
+            (mineF as { data?: Record<string, unknown> }).data = { card };
+            (theirsF as { data?: Record<string, unknown> }).data = { card };
+          }
+        }
+      } else {
+        const scoreOf = (mv: DuelMove) => (typeof mv === "object" ? Number(mv.s ?? 0) : Number(mv));
+        const a = scoreOf(mineF);
+        const b = scoreOf(theirsF);
+        if (a !== b) winner = a > b ? u.id : other;
       }
+
       if (winner === null) {
         await tx.update(schema.challenge).set({ state: { moves: {} } }).where(eq(schema.challenge.id, c.id));
         await ping(tx, other, `Duel tied — play again: ${c.claim.slice(0, 60)}`);
-        return "tie";
+        return { o: "tie" };
       }
       const loser = winner === c.creatorId ? c.opponentId : c.creatorId;
       const g = await garnishDebt(tx, winner, c.stakeCents, "Duel");
@@ -3321,10 +3435,11 @@ export async function duelPlay(input: {
         .update(schema.challenge)
         .set({ status: "settled", winnerId: winner, settledAt: new Date(), state: { moves } })
         .where(eq(schema.challenge.id, c.id));
-      return "settled";
+      return { o: "settled" };
     });
     revalidatePath("/duels");
-    return { ok: true, waiting: outcome === "waiting", tie: outcome === "tie", settled: outcome === "settled" };
+    revalidatePath(`/duels/${input.id}`);
+    return { ok: true, waiting: outcome.o === "waiting", mid: outcome.mid, tie: outcome.o === "tie", settled: outcome.o === "settled" };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed" };
   }
