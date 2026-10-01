@@ -71,6 +71,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-[20px] font-bold tracking-tight">@{u.username ?? u.name}</h1>
             {isAdmin(u) && <Badge tone="yes"><ShieldCheck className="size-3" /> {t.umAdmin}</Badge>}
+            {u.bannedAt && <Badge tone="no">{t.umBanned}</Badge>}
             {squadName && <Badge tone="warn">{squadName}</Badge>}
             {isSelf && <Badge tone="ink">{t.umYou}</Badge>}
             {rank > 0 && <Badge tone="warn"><Trophy className="size-3" /> #{rank}</Badge>}

@@ -3738,7 +3738,7 @@ export async function blackjackDouble(input: { roundId: string }): Promise<{ ok:
       const { r, expired } = await lockRound(tx, input.roundId, u.id);
       if (expired) { state = bjState(r, false); return; }
       if (r.player.length !== 2 || r.doubled) throw new Error("Double is a first-move option");
-      if (2 * r.betCents * r.leverage > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
+      // The stake cap applies at deal time; a double is part of that hand, not a new wager.
       // The fee scales with the bet, so doubling costs bet + one more fee unit.
       const extraFee = levFeeCents(r.betCents, r.leverage);
       await credit(tx, u.id, -(r.betCents + extraFee), "game", null, `Blackjack vs ${r.persona.name} — doubled`);

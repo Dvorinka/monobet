@@ -98,6 +98,11 @@ export async function SiteHeader() {
           <ThemeToggle lang={lang} />
         </div>
       </div>
+      {user?.bannedAt && (
+        <div className="border-t border-no/30 bg-no-soft px-4 py-1.5 text-center text-[12.5px] font-medium text-no-strong">
+          {t.bannedBanner(user.banReason)}
+        </div>
+      )}
     </header>
   );
 }

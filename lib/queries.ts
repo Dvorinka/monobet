@@ -670,6 +670,7 @@ export async function getPublicProfile(username: string) {
       balanceCents: schema.user.balanceCents,
       createdAt: schema.user.createdAt,
       squadId: schema.user.squadId,
+      bannedAt: schema.user.bannedAt,
       notifResolve: schema.user.notifResolve,
       notifClosing: schema.user.notifClosing,
     })
