@@ -347,6 +347,7 @@ function KindBadge({ kind, lang }: { kind: string; lang?: Lang }) {
     repay: { label: t.kindRepay, tone: "yes" },
     burn: { label: t.kindBurn, tone: "mute" },
     debt: { label: t.kindDebt, tone: "no" },
+    transfer: { label: t.kindTransfer, tone: "ink" },
   };
   const { label, tone } = map[kind] ?? { label: kind, tone: "mute" as const };
   return <Badge tone={tone}>{label}</Badge>;

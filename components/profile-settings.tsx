@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { toast } from "sonner";
 import { Users, Bell, LogOut } from "lucide-react";
 import { Avatar, Button, Card, Input } from "@/components/ui/primitives";
@@ -61,7 +62,7 @@ export function ProfileSettings({
         {squadName ? (
           <>
             <div className="mt-2 flex items-center gap-2">
-              <span className="text-[13px] font-medium text-ink flex-1">{squadName}</span>
+              <Link href="/squads" className="text-[13px] font-medium text-ink flex-1 hover:text-brand-strong">{squadName}</Link>
               <Button size="xs" variant="outline" disabled={pending} onClick={() => run(leaveSquad, t.squadLeftToast)}>
                 <LogOut className="size-3" /> {t.squadLeave}
               </Button>

@@ -1525,6 +1525,58 @@ export async function getSquads() {
     .sort((a, b) => b.netWorthCents - a.netWorthCents);
 }
 
+// The squad hub: members with balances + net worth, the pot, outstanding
+// loans, and a merged activity feed of member trades for the page sidebar.
+export async function getSquadHub(squadId: string, viewerId: string) {
+  const [sq] = await db.select().from(schema.squad).where(eq(schema.squad.id, squadId)).limit(1);
+  if (!sq) return null;
+  const members = await db
+    .select({
+      id: schema.user.id,
+      username: schema.user.username,
+      name: schema.user.name,
+      image: schema.user.image,
+      balanceCents: schema.user.balanceCents,
+      squadDebtCents: schema.user.squadDebtCents,
+    })
+    .from(schema.user)
+    .where(eq(schema.user.squadId, squadId));
+  const board = await getLeaderboard();
+  const worth = new Map(board.map((u) => [u.id, u.netWorthCents]));
+  const ids = members.map((m) => m.id);
+  const activity = ids.length
+    ? await db
+        .select({
+          id: schema.trade.id,
+          userId: schema.trade.userId,
+          username: schema.user.username,
+          name: schema.user.name,
+          image: schema.user.image,
+          side: schema.trade.side,
+          outcome: schema.trade.outcome,
+          shares: schema.trade.shares,
+          amountCents: schema.trade.amountCents,
+          createdAt: schema.trade.createdAt,
+          marketId: schema.market.id,
+          question: schema.market.question,
+          slug: schema.market.slug,
+        })
+        .from(schema.trade)
+        .innerJoin(schema.user, eq(schema.trade.userId, schema.user.id))
+        .innerJoin(schema.market, eq(schema.trade.marketId, schema.market.id))
+        .where(inArray(schema.trade.userId, ids))
+        .orderBy(desc(schema.trade.createdAt))
+        .limit(20)
+    : [];
+  return {
+    squad: sq,
+    members: members
+      .map((m) => ({ ...m, netWorthCents: worth.get(m.id) ?? m.balanceCents, isMe: m.id === viewerId }))
+      .sort((a, b) => b.netWorthCents - a.netWorthCents),
+    activity,
+  };
+}
+
 // Inviter details for the ?ref= login card — name + avatar only.
 export async function getInviter(username: string) {
   const rows = await db

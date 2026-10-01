@@ -56,6 +56,8 @@ export const user = pgTable("user", {
   debtCents: bigint("debt_cents", { mode: "number" }).notNull().default(0),
   debtRateBps: integer("debt_rate_bps").notNull().default(0),
   debtSince: timestamp("debt_since", { withTimezone: true }),
+  // Owed to the squad pot — interest-free, but you can't leave until repaid.
+  squadDebtCents: bigint("squad_debt_cents", { mode: "number" }).notNull().default(0),
   // The Wall — last prayer timestamp for the cooldown, and the vow: a pledged
   // share of every win (bps) garnished to debt until it's clear.
   wallPrayerAt: timestamp("wall_prayer_at", { withTimezone: true }),
@@ -284,7 +286,8 @@ export type LedgerKind =
   | "loan"
   | "repay"
   | "burn"
-  | "debt";
+  | "debt"
+  | "transfer";
 
 export const ledger = pgTable(
   "ledger",
@@ -469,6 +472,8 @@ export const squad = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull().unique(),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    // Shared pot — members contribute, members borrow against it.
+    treasuryCents: bigint("treasury_cents", { mode: "number" }).notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   }
 );

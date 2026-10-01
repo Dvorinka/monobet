@@ -71,6 +71,9 @@ export function UserMenu({
           <Link href="/duels" className={item} onClick={() => setOpen(false)}>
             {t.duelsTitle}
           </Link>
+          <Link href="/squads" className={item} onClick={() => setOpen(false)}>
+            {t.squadsTitle}
+          </Link>
           <Link href="/propose" className={item} onClick={() => setOpen(false)}>
             {t.newMarket}
           </Link>

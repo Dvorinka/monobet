@@ -22,6 +22,8 @@ export type CurrentUser = {
   debtCents: number;
   debtRateBps: number;
   debtSince: Date | null;
+  squadId: string | null;
+  squadDebtCents: number;
   wallPrayerAt: Date | null;
   vowBps: number;
   luckBps: number;
@@ -56,6 +58,8 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     debtCents?: number;
     debtRateBps?: number;
     debtSince?: Date | null;
+    squadId?: string | null;
+    squadDebtCents?: number;
     wallPrayerAt?: Date | null;
     vowBps?: number;
     luckBps?: number;
@@ -94,6 +98,8 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     debtCents: u.debtCents ?? 0,
     debtRateBps: u.debtRateBps ?? 0,
     debtSince: u.debtSince ?? null,
+    squadId: u.squadId ?? null,
+    squadDebtCents: u.squadDebtCents ?? 0,
     wallPrayerAt: u.wallPrayerAt ?? null,
     vowBps: u.vowBps ?? 0,
     luckBps: u.luckBps ?? 0,

@@ -39,6 +39,8 @@ export const auth = betterAuth({
       debtCents: { type: "number", required: false, input: false },
       debtRateBps: { type: "number", required: false, input: false },
       debtSince: { type: "date", required: false, input: false },
+      squadId: { type: "string", required: false, input: false },
+      squadDebtCents: { type: "number", required: false, input: false },
       wallPrayerAt: { type: "date", required: false, input: false },
       vowBps: { type: "number", required: false, input: false },
       luckBps: { type: "number", required: false, input: false },

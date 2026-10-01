@@ -3539,6 +3539,8 @@ export async function leaveSquad(): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
     await db.transaction(async (tx) => {
+      const me = await lockUser(tx, u.id);
+      if (me.squadDebtCents > 0) throw new Error("Repay your squad loan first");
       await tx.update(schema.user).set({ squadId: null }).where(eq(schema.user.id, u.id));
       await tx.delete(schema.squadInvite).where(eq(schema.squadInvite.inviteeId, u.id));
     });
@@ -3617,6 +3619,110 @@ export async function respondSquadInvite(input: {
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
+// ---------- squad money ----------
+
+// Transfers and the shared pot — money stays inside the squad. Ledger kind
+// "transfer" is net-zero for the house: it never touches stats or volume.
+const SQUAD_MIN_CENTS = 100; // Ɱ1
+
+async function lockMySquad(tx: Tx, userId: string) {
+  const me = await lockUser(tx, userId);
+  if (!me.squadId) throw new Error("Join a squad first");
+  const [sq] = await tx.select().from(schema.squad).where(eq(schema.squad.id, me.squadId)).for("update").limit(1);
+  if (!sq) throw new Error("Squad not found");
+  return { me, sq };
+}
+
+// Direct member→member send. Squad-mates only — keeps it a trust circle,
+// not a public payments rail.
+export async function squadSend(username: string, amountCents: number): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const cents = Math.round(amountCents);
+    if (!Number.isSafeInteger(cents) || cents < SQUAD_MIN_CENTS) throw new Error("Minimum Ɱ1");
+    const clean = username.trim().replace(/^@/, "");
+    await db.transaction(async (tx) => {
+      const { me } = await lockMySquad(tx, u.id);
+      const [target] = await tx
+        .select()
+        .from(schema.user)
+        .where(sql`lower(${schema.user.username}) = lower(${clean})`)
+        .for("update")
+        .limit(1);
+      if (!target) throw new Error("User not found");
+      if (target.id === u.id) throw new Error("That's you");
+      if (target.squadId !== me.squadId) throw new Error("Not in your squad");
+      await credit(tx, u.id, -cents, "transfer", null, `Squad send → @${target.username ?? target.name}`);
+      await credit(tx, target.id, cents, "transfer", null, `Squad send ← @${me.username ?? me.name}`);
+      await ping(tx, target.id, `@${me.username ?? me.name} sent you Ɱ${(cents / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}`);
+    });
+    revalidatePath("/squads");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Transfer failed" };
+  }
+}
+
+// Balance → pot.
+export async function squadContribute(amountCents: number): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const cents = Math.round(amountCents);
+    if (!Number.isSafeInteger(cents) || cents < SQUAD_MIN_CENTS) throw new Error("Minimum Ɱ1");
+    await db.transaction(async (tx) => {
+      const { sq } = await lockMySquad(tx, u.id);
+      await credit(tx, u.id, -cents, "transfer", null, `Squad pot — contributed to ${sq.name}`);
+      await tx.update(schema.squad).set({ treasuryCents: sq.treasuryCents + cents }).where(eq(schema.squad.id, sq.id));
+    });
+    revalidatePath("/squads");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Contribution failed" };
+  }
+}
+
+// Pot → balance, tracked as squadDebtCents. Interest-free — the constraint
+// is social: you can't leave the squad until it's repaid.
+export async function squadBorrow(amountCents: number): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const cents = Math.round(amountCents);
+    if (!Number.isSafeInteger(cents) || cents < SQUAD_MIN_CENTS) throw new Error("Minimum Ɱ1");
+    await db.transaction(async (tx) => {
+      const { me, sq } = await lockMySquad(tx, u.id);
+      if (cents > sq.treasuryCents) throw new Error("Pot doesn't cover that");
+      await tx.update(schema.squad).set({ treasuryCents: sq.treasuryCents - cents }).where(eq(schema.squad.id, sq.id));
+      await tx.update(schema.user).set({ squadDebtCents: me.squadDebtCents + cents }).where(eq(schema.user.id, u.id));
+      await credit(tx, u.id, cents, "transfer", null, `Squad loan — from ${sq.name} pot`);
+    });
+    revalidatePath("/squads");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Borrow failed" };
+  }
+}
+
+// Balance → pot, paying down squadDebtCents. Overpay is refused.
+export async function squadRepay(amountCents: number): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const u = await requireUser();
+    const cents = Math.round(amountCents);
+    if (!Number.isSafeInteger(cents) || cents < SQUAD_MIN_CENTS) throw new Error("Minimum Ɱ1");
+    await db.transaction(async (tx) => {
+      const { me, sq } = await lockMySquad(tx, u.id);
+      if (me.squadDebtCents <= 0) throw new Error("Nothing to repay");
+      const pay = Math.min(cents, me.squadDebtCents);
+      await credit(tx, u.id, -pay, "transfer", null, `Squad repay — ${sq.name} pot`);
+      await tx.update(schema.user).set({ squadDebtCents: me.squadDebtCents - pay }).where(eq(schema.user.id, u.id));
+      await tx.update(schema.squad).set({ treasuryCents: sq.treasuryCents + pay }).where(eq(schema.squad.id, sq.id));
+    });
+    revalidatePath("/squads");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Repay failed" };
   }
 }
 
