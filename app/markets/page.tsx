@@ -4,6 +4,7 @@ import { MarketCard } from "@/components/market-card";
 import {
   listMarkets,
   getSparklines,
+  getStatsSince,
   getCommentCount,
   getGroupOptionsFor,
   getGroupTraderCounts,
@@ -52,7 +53,7 @@ export default async function MarketsPage({
   const ids = markets.map((m) => m.id);
   const groupIds = markets.filter((m) => m.kind === "group").map((m) => m.id);
   const [sparks, comments, groupOptions, likeCounts, groupTraders] = await Promise.all([
-    getSparklines(ids),
+    getStatsSince().then((since) => getSparklines(ids, since)),
     getCommentCount(ids),
     getGroupOptionsFor(groupIds),
     getLikeCounts(ids),

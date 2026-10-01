@@ -61,6 +61,9 @@ export function UserMenu({
             <Link href="/games" className={item} onClick={() => setOpen(false)}>
               {t.games}
             </Link>
+            <Link href="/rewards" className={item} onClick={() => setOpen(false)}>
+              {t.rewards}
+            </Link>
           </div>
           <Link href={`/u/${username ?? name}`} className={item} onClick={() => setOpen(false)}>
             {t.myProfile}

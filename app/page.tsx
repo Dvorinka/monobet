@@ -5,7 +5,7 @@ import { LiveRefresher } from "@/components/live-refresher";
 import { TradeTicker } from "@/components/trade-ticker";
 import { MarketCard } from "@/components/market-card";
 import { Sk, MarketCardSkeleton } from "@/components/skeletons";
-import { listMarkets, getSparklines, getCommentCount, getGlobalTrades, getSiteStats, getGroupOptionsFor, getGroupTraderCounts, listCategories, getWatchlistIds, getLikedIds, getLikeCounts, getExpiredLive, maybeNotifyClosing } from "@/lib/queries";
+import { listMarkets, getSparklines, getCommentCount, getStatsSince, getGlobalTrades, getSiteStats, getGroupOptionsFor, getGroupTraderCounts, listCategories, getWatchlistIds, getLikedIds, getLikeCounts, getExpiredLive, maybeNotifyClosing } from "@/lib/queries";
 import { fmtMonos } from "@/lib/money";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { getLang } from "@/lib/lang-server";
@@ -95,7 +95,7 @@ async function MarketResults({
   const ids = markets.map((m) => m.id);
   const groupIds = markets.filter((m) => m.kind === "group").map((m) => m.id);
   const [sparks, comments, ticker, stats, groupOptions, likeCounts, groupTraders] = await Promise.all([
-    getSparklines(ids),
+    getStatsSince().then((since) => getSparklines(ids, since)),
     getCommentCount(ids),
     getGlobalTrades(),
     getSiteStats(),

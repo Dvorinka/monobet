@@ -15,6 +15,7 @@ import {
   getPositionBadges,
   getRelatedMarkets,
   getSparklines,
+  getStatsSince,
   getGroupHistories,
   getMarketBetCount,
   listCategories,
@@ -134,7 +135,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
     market.parentId ? getMarketById(market.parentId) : null,
     // Options price off the group's shared book — softmax over live siblings.
     market.parentId ? getGroupOptions(market.parentId).then((o) => o.filter((s) => s.status === "live")) : null,
-    getPriceHistory(market.id),
+    getStatsSince().then((since) => getPriceHistory(market.id, since ?? undefined)),
     getRecentTrades(market.id),
     getComments(market.id, user?.id, !!user && isAdmin(user)),
     user ? getUserPosition(market.id, user.id) : null,
@@ -600,8 +601,8 @@ async function GroupMarketView({
   const live = options.filter((o) => o.status === "live");
   const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
   const [optionSparks, histories, betCount, categories, posRows, myPositions, creator, res, holders, resStates, notesMap, groupTraders] = await Promise.all([
-    getSparklines(optionIds),
-    getGroupHistories(optionIds),
+    getStatsSince().then((since) => getSparklines(optionIds, since)),
+    getStatsSince().then((since) => getGroupHistories(optionIds, since)),
     getMarketBetCount(market.id),
     listCategories(),
     getPositionBadges(optionIds),

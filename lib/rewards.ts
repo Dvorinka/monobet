@@ -25,6 +25,14 @@ export const BONUSES = [
   { key: "squad", amountCents: 5_000, href: null, check: "squad" },
   { key: "ten_trades", amountCents: 20_000, href: "/markets", check: "tenTrades" },
   { key: "streak7", amountCents: 25_000, href: null, check: "streak7" },
+  { key: "first_sell", amountCents: 5_000, href: "/markets", check: "sell" },
+  { key: "note", amountCents: 5_000, href: "/markets", check: "note" },
+  { key: "vote", amountCents: 2_500, href: "/markets", check: "vote" },
+  { key: "duel_win", amountCents: 10_000, href: "/duels", check: "duelWin" },
+  { key: "squad_owner", amountCents: 7_500, href: null, check: "squadOwner" },
+  { key: "referrer", amountCents: 10_000, href: null, check: "referrer" },
+  { key: "fifty_trades", amountCents: 30_000, href: "/markets", check: "fiftyTrades" },
+  { key: "active7", amountCents: 10_000, href: "/rewards", check: "active7" },
 ] as const;
 
 export type BonusKey = (typeof BONUSES)[number]["key"];

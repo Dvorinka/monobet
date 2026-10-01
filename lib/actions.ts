@@ -630,6 +630,24 @@ async function bonusMet(tx: Tx, cur: typeof schema.user.$inferSelect, check: str
     }
     case "streak7":
       return cur.claimStreak >= 7;
+    case "sell":
+      return one(tx.select({ id: schema.trade.id }).from(schema.trade).where(and(eq(schema.trade.userId, cur.id), eq(schema.trade.side, "sell"))).limit(1));
+    case "note":
+      return one(tx.select({ id: schema.communityNote.id }).from(schema.communityNote).where(eq(schema.communityNote.userId, cur.id)).limit(1));
+    case "vote":
+      return one(tx.select({ marketId: schema.resolutionVote.marketId }).from(schema.resolutionVote).where(eq(schema.resolutionVote.userId, cur.id)).limit(1));
+    case "duelWin":
+      return one(tx.select({ id: schema.challenge.id }).from(schema.challenge).where(eq(schema.challenge.winnerId, cur.id)).limit(1));
+    case "squadOwner":
+      return one(tx.select({ id: schema.squad.id }).from(schema.squad).where(eq(schema.squad.createdBy, cur.id)).limit(1));
+    case "referrer":
+      return one(tx.select({ id: schema.rewardClaim.id }).from(schema.rewardClaim).where(and(eq(schema.rewardClaim.userId, cur.id), sql`${schema.rewardClaim.kind} LIKE 'bonus:referrer:%'`)).limit(1));
+    case "fiftyTrades": {
+      const [r] = await tx.select({ n: sql<number>`count(*)::int` }).from(schema.trade).where(eq(schema.trade.userId, cur.id));
+      return (r?.n ?? 0) >= 50;
+    }
+    case "active7":
+      return cur.activityStreak >= 7;
     default:
       return false;
   }
@@ -649,6 +667,14 @@ function bonusFail(check: string): string {
     squad: "Join a squad first",
     tenTrades: "Place ten trades first",
     streak7: "Keep a seven-day claim streak first",
+    sell: "Sell a position first",
+    note: "Write a community note first",
+    vote: "Vote on a resolution first",
+    duelWin: "Win a duel first",
+    squadOwner: "Found a squad first",
+    referrer: "Refer a friend first",
+    fiftyTrades: "Place fifty trades first",
+    active7: "Show up seven days running first",
   };
   return msgs[check] ?? "Not eligible yet";
 }

@@ -519,6 +519,14 @@ export function RewardsPanels({
     squad: { title: t.bonusSquad, desc: t.bonusSquadDesc },
     ten_trades: { title: t.bonusTenTrades, desc: t.bonusTenTradesDesc },
     streak7: { title: t.bonusStreak7, desc: t.bonusStreak7Desc },
+    first_sell: { title: t.bonusFirstSell, desc: t.bonusFirstSellDesc },
+    note: { title: t.bonusNote, desc: t.bonusNoteDesc },
+    vote: { title: t.bonusVote, desc: t.bonusVoteDesc },
+    duel_win: { title: t.bonusDuelWin, desc: t.bonusDuelWinDesc },
+    squad_owner: { title: t.bonusSquadOwner, desc: t.bonusSquadOwnerDesc },
+    referrer: { title: t.bonusReferrer, desc: t.bonusReferrerDesc },
+    fifty_trades: { title: t.bonusFiftyTrades, desc: t.bonusFiftyTradesDesc },
+    active7: { title: t.bonusActive7, desc: t.bonusActive7Desc },
   };
 
   return (

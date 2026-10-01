@@ -218,11 +218,22 @@ export async function getGroupTrades(parentId: string, limit = 25) {
 // can't resolve more, and price_point grows without bound otherwise.
 export async function getPriceHistory(marketId: string, since?: Date) {
   if (since) {
-    return db
-      .select({ t: schema.pricePoint.createdAt, p: schema.pricePoint.yesPrice })
-      .from(schema.pricePoint)
-      .where(and(eq(schema.pricePoint.marketId, marketId), sql`${schema.pricePoint.createdAt} >= ${since}`))
-      .orderBy(asc(schema.pricePoint.createdAt));
+    // Anchor at the last pre-epoch price pinned to the epoch boundary — the
+    // chart starts at the reset, not at empty space or the whale-era swings.
+    const [[anchor], pts] = await Promise.all([
+      db
+        .select({ p: schema.pricePoint.yesPrice })
+        .from(schema.pricePoint)
+        .where(and(eq(schema.pricePoint.marketId, marketId), sql`${schema.pricePoint.createdAt} < ${since}`))
+        .orderBy(desc(schema.pricePoint.createdAt))
+        .limit(1),
+      db
+        .select({ t: schema.pricePoint.createdAt, p: schema.pricePoint.yesPrice })
+        .from(schema.pricePoint)
+        .where(and(eq(schema.pricePoint.marketId, marketId), sql`${schema.pricePoint.createdAt} >= ${since}`))
+        .orderBy(asc(schema.pricePoint.createdAt)),
+    ]);
+    return anchor ? [{ t: since, p: anchor.p }, ...pts] : pts;
   }
   const rows = await db.execute<{ t: string; p: number }>(sql`
     SELECT created_at AS t, yes_price AS p FROM (
@@ -542,16 +553,30 @@ export async function getHouseStats() {
 // multi-line chart on group pages. One query, grouped in JS.
 // Downsampled to ~240 points per market in SQL — charts can't resolve more
 // than that anyway, and history grows without bound otherwise.
-export async function getGroupHistories(marketIds: string[]) {
+export async function getGroupHistories(marketIds: string[], since?: Date | null) {
   const map = new Map<string, { t: string; p: number }[]>();
   if (marketIds.length === 0) return map;
+  // With an epoch, keep the last pre-epoch point as the anchor pinned at
+  // `since` so lines begin at the reset instead of replaying stale swings.
   const rows = await db.execute<{ market_id: string; p: number; t: string }>(sql`
+    WITH pts AS (
+      SELECT market_id, yes_price, created_at
+      FROM price_point
+      WHERE market_id IN ${marketIds}
+        ${since ? sql`AND created_at >= ${since}` : sql``}
+    ), anchors AS (
+      SELECT DISTINCT ON (market_id) market_id, yes_price, ${since ?? new Date(0)} AS created_at
+      FROM price_point
+      WHERE ${since ? sql`market_id IN ${marketIds} AND created_at < ${since}` : sql`false`}
+      ORDER BY market_id, created_at DESC
+    ), merged AS (
+      SELECT * FROM anchors UNION ALL SELECT market_id, yes_price, created_at FROM pts
+    )
     SELECT market_id, yes_price AS p, created_at AS t FROM (
       SELECT market_id, yes_price, created_at,
              ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY created_at) AS rn,
              COUNT(*) OVER (PARTITION BY market_id) AS cnt
-      FROM price_point
-      WHERE market_id IN ${marketIds}
+      FROM merged
     ) s
     WHERE rn = 1 OR rn = cnt OR rn % GREATEST(cnt / 240, 1) = 0
     ORDER BY market_id, created_at
@@ -565,16 +590,28 @@ export async function getGroupHistories(marketIds: string[]) {
 }
 
 // Latest ~40 price points per market, bounded in SQL — not in JS.
-export async function getSparklines(marketIds: string[]) {
+// With an epoch, only post-epoch points count; markets untouched since the
+// reset get a single anchor at their last pre-epoch price (flat sparkline).
+export async function getSparklines(marketIds: string[], since?: Date | null) {
   const map = new Map<string, number[]>();
   if (marketIds.length === 0) return map;
   const rows = await db.execute<{ market_id: string; p: number }>(sql`
-    SELECT market_id, yes_price AS p FROM (
+    WITH pts AS (
       SELECT market_id, yes_price,
         ROW_NUMBER() OVER (PARTITION BY market_id ORDER BY created_at DESC) AS rn
       FROM price_point
       WHERE market_id IN ${marketIds}
-    ) s WHERE rn <= 40
+        ${since ? sql`AND created_at >= ${since}` : sql``}
+    ), anchors AS (
+      SELECT DISTINCT ON (market_id) market_id, yes_price
+      FROM price_point
+      WHERE ${since ? sql`market_id IN ${marketIds} AND created_at < ${since}` : sql`false`}
+      ORDER BY market_id, created_at DESC
+    )
+    SELECT market_id, p FROM (
+      SELECT market_id, yes_price AS p, 41 AS rn FROM anchors
+      UNION ALL SELECT market_id, p, rn FROM pts WHERE rn <= 40
+    ) s
     ORDER BY market_id, rn DESC`);
   for (const r of rows.rows) {
     const arr = map.get(r.market_id) ?? [];
@@ -663,7 +700,7 @@ export async function getRewardsState(userId: string) {
       .where(eq(schema.rewardClaim.userId, userId))
       .orderBy(desc(schema.rewardClaim.createdAt)),
     db
-      .select({ image: schema.user.image, squadId: schema.user.squadId, claimStreak: schema.user.claimStreak })
+      .select({ image: schema.user.image, squadId: schema.user.squadId, claimStreak: schema.user.claimStreak, activityStreak: schema.user.activityStreak })
       .from(schema.user)
       .where(eq(schema.user.id, userId))
       .limit(1),
@@ -679,11 +716,17 @@ export async function getRewardsState(userId: string) {
         watching: sql<number>`(select count(*)::int from ${schema.watchlist} where ${schema.watchlist.userId} = ${userId})`,
         likes: sql<number>`(select count(*)::int from ${schema.marketLike} where ${schema.marketLike.userId} = ${userId})`,
         duels: sql<number>`(select count(*)::int from ${schema.challenge} where ${schema.challenge.creatorId} = ${userId} or ${schema.challenge.opponentId} = ${userId})`,
+        sells: sql<number>`(select count(*)::int from ${schema.trade} where ${schema.trade.userId} = ${userId} and ${schema.trade.side} = 'sell')`,
+        notes: sql<number>`(select count(*)::int from ${schema.communityNote} where ${schema.communityNote.userId} = ${userId})`,
+        votes: sql<number>`(select count(*)::int from ${schema.resolutionVote} where ${schema.resolutionVote.userId} = ${userId})`,
+        duelWins: sql<number>`(select count(*)::int from ${schema.challenge} where ${schema.challenge.winnerId} = ${userId})`,
+        squadsOwned: sql<number>`(select count(*)::int from ${schema.squad} where ${schema.squad.createdBy} = ${userId})`,
+        referrals: sql<number>`(select count(*)::int from ${schema.rewardClaim} where ${schema.rewardClaim.userId} = ${userId} and ${schema.rewardClaim.kind} like 'bonus:referrer:%')`,
       })
       .from(schema.user)
       .where(eq(schema.user.id, userId)),
   ]);
-  const c = cnts ?? { trades: 0, markets: 0, comments: 0, games: 0, gameWins: 0, watching: 0, likes: 0, duels: 0 };
+  const c = cnts ?? { trades: 0, markets: 0, comments: 0, games: 0, gameWins: 0, watching: 0, likes: 0, duels: 0, sells: 0, notes: 0, votes: 0, duelWins: 0, squadsOwned: 0, referrals: 0 };
   return {
     claimed: new Set(claims.map((c2) => c2.kind)),
     lastWeekly: claims.find((c2) => c2.kind === "weekly")?.createdAt ?? null,
@@ -701,6 +744,14 @@ export async function getRewardsState(userId: string) {
       squad: !!me?.squadId,
       tenTrades: c.trades >= 10,
       streak7: (me?.claimStreak ?? 0) >= 7,
+      sell: c.sells > 0,
+      note: c.notes > 0,
+      vote: c.votes > 0,
+      duelWin: c.duelWins > 0,
+      squadOwner: c.squadsOwned > 0,
+      referrer: c.referrals > 0,
+      fiftyTrades: c.trades >= 50,
+      active7: (me?.activityStreak ?? 0) >= 7,
     },
   };
 }
