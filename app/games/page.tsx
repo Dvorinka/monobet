@@ -6,6 +6,7 @@ import { getUserLedger, getJackpot } from "@/lib/queries";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { Card } from "@/components/ui/primitives";
+import { SessionChip } from "@/components/session-chip";
 import { fmtMonos, fmtCountdown, timeAgo } from "@/lib/money";
 import { Gamepad2, Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, CircleDot, ChevronRight, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -38,7 +39,10 @@ export default async function GamesPage() {
       <h1 className="text-[22px] font-bold tracking-tight flex items-center gap-2">
         <Gamepad2 className="size-5" /> {t.games}
       </h1>
-      <p className="text-[13px] text-mute mt-1">{t.gamesSub}</p>
+      <div className="mt-1 flex items-center gap-2.5 flex-wrap">
+        <p className="text-[13px] text-mute">{t.gamesSub}</p>
+        <SessionChip sessionStart={user.gameSessionStart?.getTime() ?? null} lang={lang} />
+      </div>
 
       {jackpot && (
         <Card className="mt-5 p-4 flex items-center gap-4 flex-wrap">
@@ -65,7 +69,7 @@ export default async function GamesPage() {
         </Card>
       )}
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {games.map((g) => (
           <Link
             key={g.slug}
@@ -97,7 +101,7 @@ export default async function GamesPage() {
                 {l.amountCents > 0 ? "+" : ""}
                 {fmtMonos(l.amountCents, { lang })}
               </span>
-              <span className="text-faint text-[11px] w-14 text-right">{timeAgo(l.createdAt, lang)}</span>
+              <span className="text-faint text-[11px] w-20 shrink-0 text-right whitespace-nowrap">{timeAgo(l.createdAt, lang)}</span>
             </div>
           ))}
         </Card>

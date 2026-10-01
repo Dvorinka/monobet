@@ -25,6 +25,9 @@ export type CurrentUser = {
   wallPrayerAt: Date | null;
   vowBps: number;
   luckBps: number;
+  gameSessionStart: Date | null;
+  bannedAt: Date | null;
+  banReason: string | null;
 };
 
 export function isAdmin(u: Pick<CurrentUser, "role" | "email"> | null | undefined): boolean {
@@ -56,16 +59,17 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     wallPrayerAt?: Date | null;
     vowBps?: number;
     luckBps?: number;
+    gameSessionStart?: Date | null;
+    banReason?: string | null;
   };
-  // Banned accounts keep a session cookie until it expires; treat them as
-  // signed out everywhere so requireUser blocks them.
-  if (u.bannedAt) return null;
   // Presence roll — first hit of a UTC day pays the streak bonus and stamps
   // last_seen. Best-effort: a failed write must not take the page down, and
   // the returned user is patched so pages don't render pre-roll values.
   let active = { lastActiveDay: u.lastActiveDay ?? null, activityStreak: u.activityStreak ?? 0, lastSeenAt: u.lastSeenAt ?? null, creditedCents: 0 };
   const seenStale = !active.lastSeenAt || Date.now() - new Date(active.lastSeenAt).getTime() > SEEN_THROTTLE_MS;
-  if (active.lastActiveDay !== todayUtc() || seenStale) {
+  // Banned accounts view only — skip the presence roll entirely: no daily
+  // bonus credit, no last_seen stamp.
+  if (!u.bannedAt && (active.lastActiveDay !== todayUtc() || seenStale)) {
     try {
       active = await touchActivity(u.id);
     } catch {
@@ -93,12 +97,18 @@ export const getCurrentUser = cache(async function getCurrentUser(): Promise<Cur
     wallPrayerAt: u.wallPrayerAt ?? null,
     vowBps: u.vowBps ?? 0,
     luckBps: u.luckBps ?? 0,
+    gameSessionStart: u.gameSessionStart ?? null,
+    bannedAt: u.bannedAt ?? null,
+    banReason: u.banReason ?? null,
   };
 });
 
 export async function requireUser(): Promise<CurrentUser> {
   const u = await getCurrentUser();
   if (!u) throw new Error("Sign in required");
+  // Read-only accounts: every server action funnels through here, so this one
+  // check blocks trades, games, comments, votes — the banned user can only view.
+  if (u.bannedAt) throw new Error("Account suspended");
   return u;
 }
 

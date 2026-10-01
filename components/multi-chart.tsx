@@ -175,7 +175,7 @@ export function MultiPriceChart({
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-2 mb-2">
+      <div className="flex items-center justify-between flex-wrap gap-x-2 gap-y-2 mb-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {data.map((s) => {
             const focused = !focusKey || s.key === focusKey;

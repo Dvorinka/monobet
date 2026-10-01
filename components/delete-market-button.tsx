@@ -35,7 +35,7 @@ export function DeleteMarketButton({
             toast.success(t.marketDeleted);
             router.push("/");
             router.refresh();
-          } else toast.error(r.error);
+          } else toast.error(t.serverErr(r.error));
         });
       }}
     >

@@ -63,6 +63,9 @@ export const user = pgTable("user", {
   // Admin-tuned luck: bps chance to rescue a loss into a win (− = unlucky).
   // Random games only — skill games (timer, blackjack) ignore it.
   luckBps: integer("luck_bps").notNull().default(0),
+  // Minigame session window: first stake opens a 30 min play window, then a
+  // forced 30 min break; NULL = no session yet (next stake opens one).
+  gameSessionStart: timestamp("game_session_start", { withTimezone: true }),
   // Notification prefs — resolve fan-out and closing-soon reminders.
   notifResolve: boolean("notif_resolve").notNull().default(true),
   notifClosing: boolean("notif_closing").notNull().default(true),
@@ -402,6 +405,24 @@ export const blackjackRound = pgTable(
     settledAt: timestamp("settled_at", { withTimezone: true }),
   },
   (t) => [index("blackjack_round_user_idx").on(t.userId, t.createdAt)]
+);
+
+// One row per stop-the-timer round. The stake is debited when the row is
+// created — an abandoned round forfeits the wager, and the atomic settled_at
+// claim makes the round single-use (no token replay, no forged elapsed).
+export const timerRound = pgTable(
+  "timer_round",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    targetMs: integer("target_ms").notNull(),
+    betCents: integer("bet_cents").notNull(),
+    leverage: integer("leverage").notNull().default(1),
+    feeCents: integer("fee_cents").notNull().default(0), // leverage funding fee, burned at start
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("timer_round_user_idx").on(t.userId, t.createdAt)]
 );
 
 // ---------- squads ----------

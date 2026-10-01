@@ -3,8 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { username } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { db, schema } from "@/lib/db";
-import { eq, sql } from "drizzle-orm";
-import { createAuthMiddleware, APIError } from "better-auth/api";
+import { eq } from "drizzle-orm";
 
 // Site owner — always admin on auth, regardless of the stored role.
 export const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL ?? "info@tdvorak.dev").toLowerCase();
@@ -30,6 +29,7 @@ export const auth = betterAuth({
       balanceCents: { type: "number", defaultValue: 100_000, input: false },
       lastClaimAt: { type: "date", required: false, input: false },
       bannedAt: { type: "date", required: false, input: false },
+      banReason: { type: "string", required: false, input: false },
       commentsBanned: { type: "boolean", required: false, input: false },
       commentBanUntil: { type: "date", required: false, input: false },
       claimStreak: { type: "number", required: false, input: false },
@@ -42,23 +42,11 @@ export const auth = betterAuth({
       wallPrayerAt: { type: "date", required: false, input: false },
       vowBps: { type: "number", required: false, input: false },
       luckBps: { type: "number", required: false, input: false },
+      gameSessionStart: { type: "date", required: false, input: false },
     },
   },
-  hooks: {
-    // Banned accounts cannot sign back in. Username logins post to
-    // /sign-in/username, email logins to /sign-in/email — cover both.
-    before: createAuthMiddleware(async (ctx) => {
-      if (!ctx.path.startsWith("/sign-in")) return;
-      const who = ctx.body?.username ?? ctx.body?.email;
-      if (typeof who !== "string" || !who) return;
-      const [row] = await db
-        .select({ bannedAt: schema.user.bannedAt })
-        .from(schema.user)
-        .where(sql`lower(${schema.user.username}) = lower(${who}) or lower(${schema.user.email}) = lower(${who})`)
-        .limit(1);
-      if (row?.bannedAt) throw new APIError("FORBIDDEN", { message: "Account suspended" });
-    }),
-  },
+  // Bans are read-only, not lockouts: suspended users still sign in and
+  // browse; every mutating action rejects them via requireUser.
   plugins: [username(), nextCookies()],
   databaseHooks: {
     user: {

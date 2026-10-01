@@ -78,7 +78,7 @@ export function ResolutionPanel({
       if (res.ok) {
         toast.success(ok);
         router.refresh();
-      } else toast.error(res.error);
+      } else toast.error(t.serverErr(res.error));
     });
 
   const disputed = disputes > 0;

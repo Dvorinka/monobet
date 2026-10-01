@@ -42,7 +42,7 @@ export default async function AdminPage() {
       {/* [&>*]:min-w-0 — grid items default to min-width:auto, so any nowrap
           text inside (dealer quips, long emails) would stretch the implicit
           mobile column past the viewport. */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2 [&>*]:min-w-0">
         <section className="lg:col-span-2">
           <SectionTitle icon={<Inbox className="size-4" />} title={t.pendingProposals(pending.length)} />
           <Card className="overflow-hidden">

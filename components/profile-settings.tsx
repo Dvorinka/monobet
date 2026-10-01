@@ -48,7 +48,7 @@ export function ProfileSettings({
       if (r.ok) {
         toast.success(ok);
         router.refresh();
-      } else toast.error(r.error);
+      } else toast.error(t.serverErr(r.error));
     });
 
   return (

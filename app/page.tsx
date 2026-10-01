@@ -51,7 +51,7 @@ function ResultsSkeleton() {
   return (
     <div aria-busy>
       <Sk className="my-5 h-7 w-44" />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {Array.from({ length: 6 }).map((_, i) => (
           <MarketCardSkeleton key={i} />
         ))}
@@ -147,7 +147,7 @@ async function MarketResults({
           </p>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {markets.map((m, i) => (
             <MarketCard key={m.id} market={m} spark={sparks.get(m.id) ?? []} comments={comments.get(m.id) ?? 0} index={i} options={groupOptions.get(m.id)} lang={lang} watching={user ? watchSet.has(m.id) : undefined} liked={user ? likedSet.has(m.id) : undefined} likes={likeCounts.get(m.id) ?? 0} trending={trendingIds.has(m.id)} />
           ))}

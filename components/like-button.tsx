@@ -46,7 +46,7 @@ export function LikeButton({
             setCount((c) => c + (r.liked ? 1 : -1));
             router.refresh();
           } else {
-            toast.error(r.error);
+            toast.error(t.serverErr(r.error));
           }
         });
       }}

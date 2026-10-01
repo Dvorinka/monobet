@@ -45,7 +45,7 @@ export function AvatarUpload({
     start(async () => {
       const r = await updateAvatar(img);
       if (r.ok) router.refresh();
-      else toast.error(r.error);
+      else toast.error(t.serverErr(r.error));
     });
 
   return (

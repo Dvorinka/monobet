@@ -48,7 +48,7 @@ export default async function PortfolioPage() {
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Stat icon={<Wallet className="size-4" />} label={t.cashBalance} value={<AnimatedMoney cents={user.balanceCents} lang={lang} />} />
         <Stat icon={<TrendingUp className="size-4" />} label={t.positionsValue} value={<AnimatedMoney cents={portfolioCents} lang={lang} />} />
         <Stat icon={<Landmark className="size-4" />} label={t.netWorth} value={<AnimatedMoney cents={netWorth} lang={lang} />} highlight />
@@ -124,7 +124,7 @@ export default async function PortfolioPage() {
         )}
       </section>
 
-      <div className="mt-10 grid gap-8 lg:grid-cols-2">
+      <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-2">
         <section>
           <h2 className="text-[16px] font-semibold mb-3 flex items-center gap-2">
             <ListOrdered className="size-4" /> {t.recentTrades}

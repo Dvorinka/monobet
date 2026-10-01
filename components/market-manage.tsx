@@ -88,7 +88,7 @@ export function MarketManagePanel({
       if (r.ok) {
         toast.success(r.paidOut ? `${ok} — ${fmtMonos(r.paidOut, { lang })}` : ok);
         router.refresh();
-      } else toast.error(r.error);
+      } else toast.error(t.serverErr(r.error));
     });
 
   return (

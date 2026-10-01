@@ -14,6 +14,7 @@ import { ImageCell, IconPicker } from "@/components/image-cell";
 import { DealerAvatar } from "@/components/dealer-avatar";
 
 function useAction(lang?: Lang) {
+  const t = getT(lang ?? "en");
   const [pending, start] = useTransition();
   const router = useRouter();
   const run = (fn: () => Promise<{ ok: boolean; error?: string; paidOut?: number }>, ok: string) =>
@@ -22,7 +23,7 @@ function useAction(lang?: Lang) {
       if (r.ok) {
         toast.success(r.paidOut ? `${ok} — ${fmtMonos(r.paidOut, { lang })}` : ok);
         router.refresh();
-      } else toast.error(r.error);
+      } else toast.error(t.serverErr(r.error));
     });
   return { pending, run };
 }
@@ -234,16 +235,7 @@ type HouseStats = {
   profit24hCents: number;
   profit7dCents: number;
   rigBps: number;
-};
-
-const HOUSE_GAME_NAMES: Record<string, string> = {
-  Coin: "Coin flip",
-  Dice: "Dice",
-  Limbo: "Limbo",
-  Wheel: "Wheel",
-  Slots: "Slots",
-  Timer: "Timer",
-  Blackjack: "Blackjack",
+  loans: { count: number; disbursedCents: number; repaidCents: number; outstandingCents: number; positionCents: number };
 };
 
 export function HousePanel({
@@ -260,6 +252,8 @@ export function HousePanel({
   const [rigPct, setRigPct] = useState((stats.rigBps / 100).toFixed(0));
   const [luckUser, setLuckUser] = useState(users[0]?.id ?? "");
   const [luckPct, setLuckPct] = useState("");
+  const houseGameName = (key: string) =>
+    (({ Coin: t.gCoinFlip, Dice: t.gDice, Timer: t.gTimer, Limbo: t.gLimbo, Wheel: t.gWheel, Slots: t.gSlots, Plinko: t.gPlinko, Blackjack: t.gBlackjack } as Record<string, string>)[key] ?? key);
   const luckyUsers = users.filter((u) => u.luckBps !== 0);
   const hold = stats.wageredCents > 0 ? (stats.profitCents / stats.wageredCents) * 100 : 0;
 
@@ -284,7 +278,7 @@ export function HousePanel({
         </div>
       </div>
 
-      {stats.games.length > 0 && (
+      {(stats.games.length > 0 || stats.loans.count > 0) && (
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]">
             <thead>
@@ -302,7 +296,7 @@ export function HousePanel({
                 .sort((a, b) => b.profitCents - a.profitCents)
                 .map((g) => (
                   <tr key={g.game} className="border-b border-line/60 last:border-0">
-                    <td className="py-1.5 pr-3 font-semibold text-ink">{HOUSE_GAME_NAMES[g.game] ?? g.game}</td>
+                    <td className="py-1.5 pr-3 font-semibold text-ink">{houseGameName(g.game)}</td>
                     <td className="py-1.5 pr-3 text-right num text-mute">{g.rounds.toLocaleString()}</td>
                     <td className="py-1.5 pr-3 text-right num text-mute">{fmtMonos(g.wageredCents, { lang })}</td>
                     <td className="py-1.5 pr-3 text-right num text-mute">{fmtMonos(g.paidCents, { lang })}</td>
@@ -314,12 +308,29 @@ export function HousePanel({
                     </td>
                   </tr>
                 ))}
+              {stats.loans.count > 0 && (
+                <tr className="border-b border-line/60 last:border-0">
+                  <td className="py-1.5 pr-3 font-semibold text-ink">{t.houseLoans}</td>
+                  <td className="py-1.5 pr-3 text-right num text-mute">{stats.loans.count}</td>
+                  <td className="py-1.5 pr-3 text-right num text-mute">{fmtMonos(stats.loans.disbursedCents, { lang })}</td>
+                  <td className="py-1.5 pr-3 text-right num text-mute">{fmtMonos(stats.loans.repaidCents, { lang })}</td>
+                  <td className={cn("py-1.5 pr-3 text-right num font-bold", stats.loans.positionCents >= 0 ? "text-yes-strong" : "text-no-strong")}>
+                    {stats.loans.positionCents >= 0 ? "+" : "−"}{fmtMonos(Math.abs(stats.loans.positionCents), { lang })}
+                  </td>
+                  <td className="py-1.5 text-right num text-mute">
+                    {stats.loans.disbursedCents > 0 ? `${((stats.loans.positionCents / stats.loans.disbursedCents) * 100).toFixed(1)}%` : "—"}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
+          {stats.loans.count > 0 && (
+            <p className="mt-1.5 text-[11px] text-faint">{t.houseLoansNote(fmtMonos(stats.loans.outstandingCents, { lang }))}</p>
+          )}
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <form
           className="rounded-xl border border-line bg-surface-2 p-3 space-y-2"
           onSubmit={(e) => {
@@ -329,7 +340,7 @@ export function HousePanel({
         >
           <div className="text-[12px] font-bold text-ink">{t.houseRigTitle}</div>
           <div className="flex gap-2">
-            <Input type="number" min={0} max={50} step="1" value={rigPct} onChange={(e) => setRigPct(e.target.value)} />
+            <Input type="number" min={0} max={100} step="1" value={rigPct} onChange={(e) => setRigPct(e.target.value)} />
             <Button size="sm" disabled={pending}>{t.save}</Button>
           </div>
           <p className="text-[11px] text-faint">{t.houseRigNote}</p>
@@ -580,7 +591,7 @@ export function CategoriesPanel({
         toast.success(ok);
         after?.();
         router.refresh();
-      } else toast.error(r.error);
+      } else toast.error(t.serverErr(r.error));
     });
 
   const dropAt = () => {
@@ -732,7 +743,7 @@ export function DuelAdminPanel({
       if (r.ok) {
         toast.success(ok);
         router.refresh();
-      } else toast.error(r.error);
+      } else toast.error(t.serverErr(r.error));
     });
 
   if (items.length === 0) return <p className="px-4 py-6 text-sm text-mute text-center">{t.duelNoDisputes}</p>;
@@ -788,7 +799,7 @@ export function DealersPanel({
         toast.success(ok);
         after?.();
         router.refresh();
-      } else toast.error(r.error);
+      } else toast.error(t.serverErr(r.error));
     });
 
   return (

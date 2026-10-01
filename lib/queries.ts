@@ -5,6 +5,7 @@ import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS, JACKPOT_RAKE_BPS, JACKPOT_TI
 import { randomInt } from "node:crypto";
 import { eq, ne, desc, asc, and, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { yesPrice, multiCoords, multiPrices } from "@/lib/lmsr";
+import { accruedDebtCents } from "@/lib/loans";
 import type { MarketStatus } from "@/lib/db/schema";
 
 export type MarketRow = typeof schema.market.$inferSelect;
@@ -419,7 +420,7 @@ export async function getAllUsers() {
 // wager row is negative, the payout row positive, so profit = −Σamount.
 // Game label is the first word of the memo ("Slots ★ ◆ ◆", "Dice >3 → 5").
 export async function getHouseStats() {
-  const [perGame, windows, cfg] = await Promise.all([
+  const [perGame, windows, cfg, loanRows, garnishRows, debtors] = await Promise.all([
     db
       .select({
         game: sql<string>`split_part(${schema.ledger.memo}, ' ', 1)`,
@@ -440,8 +441,32 @@ export async function getHouseStats() {
       .from(schema.ledger)
       .where(eq(schema.ledger.kind, "game")),
     db.select({ rigBps: schema.casinoConfig.rigBps }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house")),
+    // Loans pay the house on the way back: disbursement is a positive row
+    // (cash out the door), a cash repayment a negative one, a garnished win a
+    // zero row with the amount in the memo ("win repaid XⱮ").
+    db
+      .select({
+        count: sql<number>`count(*)::int`,
+        disbursedCents: sql<number>`coalesce(sum(${schema.ledger.amountCents}), 0)::bigint`,
+      })
+      .from(schema.ledger)
+      .where(and(eq(schema.ledger.kind, "loan"), sql`${schema.ledger.amountCents} > 0`)),
+    db
+      .select({
+        repaidCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}) filter (where ${schema.ledger.amountCents} < 0), 0)::bigint`,
+        garnishedCents: sql<number>`coalesce(sum((regexp_match(${schema.ledger.memo}, 'repaid ([0-9.]+)Ɱ'))[1]::numeric * 100) filter (where ${schema.ledger.amountCents} = 0), 0)::bigint`,
+      })
+      .from(schema.ledger)
+      .where(eq(schema.ledger.kind, "repay")),
+    db
+      .select({ debtCents: schema.user.debtCents, debtRateBps: schema.user.debtRateBps, debtSince: schema.user.debtSince })
+      .from(schema.user)
+      .where(sql`${schema.user.debtCents} > 0`),
   ]);
   const w = windows[0] ?? { wageredCents: 0, paidCents: 0, profit24h: 0, profit7d: 0 };
+  const loan = loanRows[0] ?? { count: 0, disbursedCents: 0 };
+  const rep = garnishRows[0] ?? { repaidCents: 0, garnishedCents: 0 };
+  const outstandingCents = debtors.reduce((s, d) => s + accruedDebtCents(d.debtCents, d.debtRateBps, d.debtSince), 0);
   return {
     games: perGame.map((r) => ({ ...r, profitCents: r.wageredCents - r.paidCents })),
     wageredCents: w.wageredCents,
@@ -450,6 +475,16 @@ export async function getHouseStats() {
     profit24hCents: w.profit24h,
     profit7dCents: w.profit7d,
     rigBps: cfg[0]?.rigBps ?? 0,
+    // Bank position on loans: cash repaid + garnished wins + live debt claims
+    // still on the books, minus cash lent out. Debt forgiven by the wall or
+    // lost to liquidation simply isn't in outstanding — it shows as a loss.
+    loans: {
+      count: loan.count,
+      disbursedCents: loan.disbursedCents,
+      repaidCents: rep.repaidCents + rep.garnishedCents,
+      outstandingCents,
+      positionCents: rep.repaidCents + rep.garnishedCents + outstandingCents - loan.disbursedCents,
+    },
   };
 }
 
@@ -635,6 +670,7 @@ export async function getPublicProfile(username: string) {
       balanceCents: schema.user.balanceCents,
       createdAt: schema.user.createdAt,
       squadId: schema.user.squadId,
+      bannedAt: schema.user.bannedAt,
       notifResolve: schema.user.notifResolve,
       notifClosing: schema.user.notifClosing,
     })

@@ -56,17 +56,8 @@ function useGame(lang?: Lang) {
   const t = getT(lang ?? "en");
   const [pending, start] = useTransition();
   const router = useRouter();
-  // Known server error strings -> localized text; anything else passes through.
-  const errText = (msg?: string) =>
-    msg === "Insufficient balance"
-      ? t.errInsufficient
-      : msg === "Minimum bet is Ɱ 1"
-        ? t.errMinBet
-        : msg === "Bet too large"
-          ? t.errBetTooLarge
-          : msg?.startsWith("Too fast")
-            ? t.errTooFast
-            : msg ?? "Error";
+  // Server error strings -> localized text; unknown strings pass through.
+  const errText = (msg?: string) => t.serverErr(msg);
   const run = <T extends { ok: boolean; error?: string }>(fn: () => Promise<T>): Promise<T | null> =>
     new Promise((resolve) =>
       start(async () => {
@@ -168,7 +159,7 @@ function BetControls({
   disabled,
   locked,
   lang,
-  sideUnits,
+  sideCents,
   winPreview,
 }: {
   bet: string;
@@ -179,7 +170,7 @@ function BetControls({
   disabled?: boolean;
   locked?: boolean;
   lang?: Lang;
-  sideUnits?: number;
+  sideCents?: number; // absolute side-bet stake in cents (blackjack PP / 21+3)
   // Multiplier a win pays — `max` marks a ceiling (variable-outcome games).
   // Shown lever-adjusted so the leverage's real effect is visible.
   winPreview?: { mult: number; max?: boolean };
@@ -187,13 +178,13 @@ function BetControls({
   const t = getT(lang ?? "en");
   const betCents = Math.round(parseFloat(bet || "0") * 100);
   const levN = Number(lev);
-  const sides = sideUnits ?? 0;
+  const sides = sideCents ?? 0;
   const fee = levFeeCents(betCents, levN);
-  const atRisk = betCents * (1 + sides) + fee;
-  // Max stake: balance must cover stake units + the funding fee, and the
-  // borrowed notional stays under the house cap.
+  const atRisk = betCents + sides + fee;
+  // Max stake: balance must cover stake + side bets + the funding fee, and
+  // the borrowed notional stays under the house cap.
   const maxCents = Math.min(
-    Math.floor(balanceCents / (1 + sides + ((levN - 1) * LEV_FEE_BPS) / 10_000)),
+    Math.floor((balanceCents - sides) / (1 + ((levN - 1) * LEV_FEE_BPS) / 10_000)),
     Math.floor(MAX_GAME_WAGER_CENTS / levN)
   );
   return (
@@ -523,9 +514,10 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
     setDisp(0);
     t0.current = performance.now();
     setPhase("running");
-    tokenRef.current = run(() => startTimerRound({ targetMs: Number(target) * 1000 })).then(
-      (r) => r?.token ?? null
-    );
+    const bc = Math.round(parseFloat(bet || "0") * 100);
+    tokenRef.current = run(() =>
+      startTimerRound({ targetMs: Number(target) * 1000, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })
+    ).then((r) => r?.token ?? null);
     tokenRef.current.then((token) => {
       if (!token) setPhase("idle");
     });
@@ -536,15 +528,13 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
     if (!p) return;
     const mine = Math.round(performance.now() - t0.current);
     const bc = Math.round(parseFloat(bet || "0") * 100);
-    // Show the measured stop instantly; the server confirms the same number.
+    // Show the measured stop instantly; the server reports its own measure.
     setPhase("done");
     setDisp(mine);
     setErr(Math.abs(mine - targetMs));
     p.then((token) => {
       if (!token) return null;
-      return run(() =>
-        stopTimerRound({ dealerId, token, betCents: bc, leverage: Number(lockedLev(lev, inDebt)), elapsedMs: mine })
-      );
+      return run(() => stopTimerRound({ dealerId, token, elapsedMs: mine }));
     }).then((r) => {
       if (!r) return;
       setDisp(r.elapsedMs ?? mine);
@@ -832,83 +822,82 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
 
 // ---------- slots ----------
 
+const REEL_CELL = 64; // px — one symbol in view per window
+const REEL_MS = [880, 1140, 1420]; // stop times, left to right
+// Ɱ gold, 7 red, ★ amber, ◆ green, ♣ ink — classic machine palette.
+const SLOT_TONE = ["text-brand-strong", "text-no-strong", "text-[#d9a521]", "text-yes-strong", "text-ink"];
+
+type Strip = { cells: number[]; pos: number; anim: boolean };
+
+// Strip = previous symbol, ~13 random cells, result last — the scroll reads
+// like a real reel decelerating onto the drawn symbol.
+function buildStrip(prevSym: number, final: number): number[] {
+  const cells = [prevSym];
+  for (let i = 0; i < 13; i++) cells.push(Math.floor(Math.random() * SLOT_SYMBOLS.length));
+  cells.push(final);
+  return cells;
+}
+
 function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
   const [lev, setLev] = useState("1");
-  const [reels, setReels] = useState([0, 1, 2]);
-  const [settled, setSettled] = useState([true, true, true]);
+  // Each reel is a symbol strip in an overflow-hidden window — `pos` is the
+  // cell index in view; a spin builds a fresh strip ending on the result and
+  // the CSS transition scrolls it there.
+  const [strips, setStrips] = useState<Strip[]>(() => [0, 1, 2].map((s) => ({ cells: [s], pos: 0, anim: false })));
+  const [landed, setLanded] = useState(3); // reels stopped
   const [spinning, setSpinning] = useState(false);
   const [net, setNet] = useState<Net>(null);
   const [dealer, setDealer] = useState<Persona | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  useEffect(
-    () =>
-      () =>
-        timers.current.forEach((id) => {
-          clearTimeout(id);
-          clearInterval(id);
-        }),
-    []
-  );
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   const spin = () => {
     const bc = Math.round(parseFloat(bet || "0") * 100);
     run(() => playSlots({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })).then(
       (r) => {
-        if (!r?.reels) return;
+        const drawn = r?.reels;
+        if (!drawn) return;
+        timers.current.forEach(clearTimeout); // a mid-flight re-spin supersedes the old timers
+        timers.current = [];
         playSfx("roll", 0.45);
         setNet(null);
         setDealer(r.dealer ?? null);
         setSpinning(true);
-        setSettled([false, false, false]);
-        // Reels settle left to right; each cycles symbols until its turn.
-        r.reels.forEach((sym, i) => {
-          const cyc = setInterval(
-            () =>
-              setReels((prev) => {
-                const n = [...prev];
-                n[i] = Math.floor(Math.random() * SLOT_SYMBOLS.length);
-                return n;
-              }),
-            80
-          );
-          timers.current.push(cyc);
+        setLanded(0);
+        setStrips((prev) => prev.map((s, i) => ({ cells: buildStrip(s.cells[s.pos] ?? 0, drawn[i]), pos: 0, anim: false })));
+        // Paint the strip top first, then scroll — two frames so the
+        // transition is live before the transform changes.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() =>
+            setStrips((prev) => prev.map((s) => ({ ...s, pos: s.cells.length - 1, anim: true })))
+          )
+        );
+        drawn.forEach((_, i) =>
           timers.current.push(
-            setTimeout(
-              () => {
-                clearInterval(cyc);
-                setReels((prev) => {
-                  const n = [...prev];
-                  n[i] = sym;
-                  return n;
-                });
-                setSettled((prev) => {
-                  const n = [...prev];
-                  n[i] = true;
-                  return n;
-                });
-                playSfx("trade", 0.2);
-              },
-              700 + i * 350
-            )
-          );
-        });
+            setTimeout(() => {
+              playSfx("trade", 0.2);
+              setLanded(i + 1);
+            }, REEL_MS[i])
+          )
+        );
         timers.current.push(
           setTimeout(() => {
             setSpinning(false);
             setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
             dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
-          }, 700 + r.reels.length * 350 + 150)
+          }, REEL_MS[2] + 150)
         );
       }
     );
   };
 
   const won = net?.won === true;
-  const counts = reels.reduce<Record<number, number>>((m, s) => ((m[s] = (m[s] ?? 0) + 1), m), {});
+  const finals = strips.map((s) => s.cells[s.pos]);
+  const counts = finals.reduce<Record<number, number>>((m, s) => ((m[s] = (m[s] ?? 0) + 1), m), {});
   const best = Math.max(...Object.values(counts));
   return (
     <GameCard
@@ -917,24 +906,45 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       sub={t.gSlotsSub}
       stage={
         <div className="flex flex-col items-center gap-3">
-          <div className="flex gap-2.5">
-            {reels.map((s, i) => (
-              <div
-                key={i}
-                className={cn(
-                  "size-16 rounded-xl grid place-items-center text-[26px] font-black border transition-all duration-200",
-                  !settled[i]
-                    ? "bg-surface-2 border-line-2 text-mute animate-pulse scale-95"
-                    : won && best === 3
-                      ? "bg-brand-soft border-brand/40 text-brand-strong scale-105"
-                      : counts[s] >= 2
-                        ? "bg-yes-soft border-yes/40 text-yes-strong"
-                        : "bg-surface border-line text-mute"
-                )}
-              >
-                {SLOT_SYMBOLS[s]}
-              </div>
-            ))}
+          <div
+            className={cn(
+              "rounded-2xl border bg-surface-2 p-2.5 transition-shadow duration-300",
+              won && best === 3 ? "border-brand/50 shadow-[0_0_28px_-4px_var(--color-brand)]" : "border-line-2 shadow-[inset_0_2px_10px_rgba(0,0,0,0.25)]"
+            )}
+          >
+            <div className="flex gap-2">
+              {strips.map((s, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "relative h-16 w-16 overflow-hidden rounded-lg border",
+                    !spinning && !pending && landed > i && finals[i] != null && counts[finals[i]] >= 2
+                      ? won && best === 3
+                        ? "border-brand/60 bg-brand-soft"
+                        : "border-yes/50 bg-yes-soft"
+                      : "border-line bg-surface"
+                  )}
+                >
+                  <div
+                    className="flex flex-col will-change-transform"
+                    style={{
+                      transform: `translateY(${-s.pos * REEL_CELL}px)`,
+                      transition: s.anim ? `transform ${REEL_MS[i]}ms cubic-bezier(.18,.72,.28,1.06)` : "none",
+                    }}
+                  >
+                    {s.cells.map((c, j) => (
+                      <div key={j} className={cn("grid h-16 w-16 shrink-0 place-items-center text-[30px] font-black", SLOT_TONE[c])}>
+                        {SLOT_SYMBOLS[c]}
+                      </div>
+                    ))}
+                  </div>
+                  {/* edge fades + payline sheen sell the reel-window depth */}
+                  <div className="pointer-events-none absolute inset-x-0 top-0 h-2.5 bg-gradient-to-b from-surface to-transparent" />
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2.5 bg-gradient-to-t from-surface to-transparent" />
+                  <div className="pointer-events-none absolute inset-0 rounded-lg shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04),inset_0_-8px_12px_-8px_rgba(0,0,0,0.35),inset_0_8px_12px_-8px_rgba(0,0,0,0.35)]" />
+                </div>
+              ))}
+            </div>
           </div>
           <div className="num text-[11px] font-semibold text-faint tabular-nums">
             {SLOT_SYMBOLS.map((s, i) => `${s}${s}${s} ${SLOT_TRIPLE[i]}×`).join(" · ")} · {t.slotPair}
@@ -946,7 +956,7 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       controls={
         <>
           <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} winPreview={{ mult: SLOT_TRIPLE[0], max: true }} />
-          <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={spin}>
+          <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet)} onClick={spin}>
             {spinning ? t.spinning : t.spin}
           </Button>
         </>
@@ -1007,7 +1017,9 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
   const [bet, setBet] = useState("10");
   const [lev, setLev] = useState("1");
   const [pp, setPp] = useState(false);
+  const [ppAmt, setPpAmt] = useState("1");
   const [t3, setT3] = useState(false);
+  const [t3Amt, setT3Amt] = useState("1");
   const [round, setRound] = useState<BjRound | null>(null);
   const [net, setNet] = useState<Net>(null);
 
@@ -1020,7 +1032,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
   };
 
   const deal = () =>
-    run(() => blackjackDeal({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lockedLev(lev, inDebt)), sides: { pp, t3 } })).then((r) => {
+    run(() => blackjackDeal({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lockedLev(lev, inDebt)), sides: { pp: pp ? Math.round(parseFloat(ppAmt || "0") * 100) : 0, t3: t3 ? Math.round(parseFloat(t3Amt || "0") * 100) : 0 } })).then((r) => {
       if (!r?.state) return;
       playSfx("flip", 0.4);
       setNet(null);
@@ -1147,31 +1159,40 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
         <>
           {!playing && (
             <>
-              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} sideUnits={(pp ? 1 : 0) + (t3 ? 1 : 0)} winPreview={{ mult: BJ_NATURAL_MULT, max: true }} />
+              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} sideCents={(pp ? Math.round(parseFloat(ppAmt || "0") * 100) : 0) + (t3 ? Math.round(parseFloat(t3Amt || "0") * 100) : 0)} winPreview={{ mult: BJ_NATURAL_MULT, max: true }} />
               <div className="flex gap-1.5">
                 {([
-                  { on: pp, set: setPp, name: "PP", desc: t.bjSidePP },
-                  { on: t3, set: setT3, name: "21+3", desc: t.bjSide21 },
+                  { on: pp, set: setPp, amt: ppAmt, setAmt: setPpAmt, name: "PP", desc: t.bjSidePP },
+                  { on: t3, set: setT3, amt: t3Amt, setAmt: setT3Amt, name: "21+3", desc: t.bjSide21 },
                 ] as const).map((s) => (
-                  <button
-                    key={s.name}
-                    type="button"
-                    onClick={() => s.set(!s.on)}
-                    disabled={pending}
-                    className={cn(
-                      "flex-1 h-8 rounded-lg border text-[11.5px] font-semibold transition-all cursor-pointer inline-flex items-center justify-center gap-1",
-                      s.on
-                        ? "border-brand bg-brand-soft text-brand-strong"
-                        : "border-line bg-surface-2 text-mute hover:text-ink"
+                  <div key={s.name} className={cn("flex-1 rounded-lg border transition-colors", s.on ? "border-brand bg-brand-soft" : "border-line bg-surface-2")}>
+                    <button
+                      type="button"
+                      onClick={() => s.set(!s.on)}
+                      disabled={pending}
+                      className={cn(
+                        "h-7 w-full text-[11.5px] font-semibold cursor-pointer",
+                        s.on ? "text-brand-strong" : "text-mute hover:text-ink"
+                      )}
+                      title={s.desc}
+                    >
+                      {s.name}
+                    </button>
+                    {s.on && (
+                      <div className="relative px-1 pb-1">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 pb-0.5 text-[10px] font-semibold text-brand-strong/70">Ɱ</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={s.amt}
+                          disabled={pending}
+                          onChange={(e) => s.setAmt(e.target.value)}
+                          className="num h-6 w-full rounded-md border border-brand/30 bg-surface pl-4.5 pr-1 text-[11px] font-semibold text-ink focus:outline-1 focus:outline-brand"
+                        />
+                      </div>
                     )}
-                    title={s.desc}
-                  >
-                    {s.name}
-                    {/* each side bet costs a full stake */}
-                    <span className={cn("num text-[10px] font-semibold", s.on ? "text-brand-strong/70" : "text-faint")}>
-                      +{fmtMonos(Math.round(parseFloat(bet || "0") * 100), { lang, decimals: false })}
-                    </span>
-                  </button>
+                  </div>
                 ))}
               </div>
             </>
@@ -1198,7 +1219,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
               )}
             </div>
           ) : (
-            <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet)} onClick={deal}>
+            <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet) || (pp && !(parseFloat(ppAmt) >= 1)) || (t3 && !(parseFloat(t3Amt) >= 1))} onClick={deal}>
               {round ? t.bjNewHand : t.bjDeal}
             </Button>
           )}
@@ -1215,48 +1236,76 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
 // 0/1 steps maps onto a visible zigzag that ends over pocket `bucket`.
 const PK_TOP = 24;
 const PK_ROW = 19;
+const PK_SEG_MS = 68; // one peg-to-pocket hop
 const pkX = (k: number, r: number) => 140 + (k - r / 2) * 20;
 const pkY = (r: number) => (r >= PLINKO_ROWS ? 260 : PK_TOP + r * PK_ROW);
+
+type Ball = { id: number; path: number[]; bucket: number; t: number };
+
+// Continuous position along the zigzag: t counts rows, the fraction eases
+// into each hop with a small arc off the peg.
+function pkPos(path: number[], t: number) {
+  const seg = Math.min(Math.max(t, 0), PLINKO_ROWS);
+  const r = Math.min(Math.floor(seg), PLINKO_ROWS);
+  const f = seg - r;
+  let rights = 0;
+  for (let i = 0; i < r && i < path.length; i++) rights += path[i];
+  const r1 = Math.min(r + 1, PLINKO_ROWS);
+  const rights1 = rights + (path[r] ?? 0);
+  const e = f * f * (3 - 2 * f);
+  return {
+    x: pkX(rights, r) + (pkX(rights1, r1) - pkX(rights, r)) * e,
+    y: pkY(r) + (pkY(r1) - pkY(r)) * e - Math.sin(f * Math.PI) * 5,
+  };
+}
+
+const PK_MAX_BALLS = 16;
+const PK_MAX_AIRBORNE = 8;
 
 function PlinkoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
   const [lev, setLev] = useState("1");
-  const [path, setPath] = useState<number[] | null>(null);
-  const [step, setStep] = useState(0);
-  const [bucket, setBucket] = useState<number | null>(null);
+  const [balls, setBalls] = useState<Ball[]>([]);
   const [net, setNet] = useState<Net>(null);
   const [dealer, setDealer] = useState<Persona | null>(null);
+  const nextId = useRef(1);
 
-  const dropping = path != null && step <= PLINKO_ROWS;
+  const airborne = balls.filter((b) => b.t < PLINKO_ROWS).length;
+  const dropping = airborne > 0;
+
+  // One ticker advances every live ball — t lands on PLINKO_ROWS in the pocket.
   useEffect(() => {
-    if (!dropping) return;
-    const id = setTimeout(() => setStep((s) => s + 1), 95);
-    return () => clearTimeout(id);
-  }, [dropping, step]);
-
-  const rights = path ? path.slice(0, Math.min(step, PLINKO_ROWS)).reduce((a, b) => a + b, 0) : 0;
-  const ballX = pkX(rights, Math.min(step, PLINKO_ROWS));
-  const ballY = pkY(step);
+    if (!balls.some((b) => b.t < PLINKO_ROWS)) return;
+    const id = setInterval(
+      () => setBalls((bs) => bs.map((b) => (b.t < PLINKO_ROWS ? { ...b, t: Math.min(b.t + 28 / PK_SEG_MS, PLINKO_ROWS) } : b))),
+      28
+    );
+    return () => clearInterval(id);
+  }, [balls]);
 
   const drop = () => {
+    if (airborne >= PK_MAX_AIRBORNE) return;
     const bc = Math.round(parseFloat(bet || "0") * 100);
     run(() => playPlinko({ dealerId, betCents: bc, leverage: Number(lockedLev(lev, inDebt)) })).then((r) => {
-      if (!r?.path || r.bucket == null) return;
+      const path = r?.path;
+      const bucket = r?.bucket;
+      if (!path || bucket == null) return;
       playSfx("roll", 0.4);
       setNet(null);
       setDealer(r.dealer ?? null);
-      setBucket(r.bucket);
-      setStep(0);
-      setPath(r.path);
+      const id = nextId.current++;
+      setBalls((bs) => [...bs.slice(-(PK_MAX_BALLS - 1)), { id, path, bucket, t: -0.4 }]);
       setTimeout(() => {
         const won = (r.mult ?? 0) > 1;
         setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
         dealerWinFx(r.dealer, won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
-      }, (PLINKO_ROWS + 1) * 95 + 200);
+      }, PLINKO_ROWS * PK_SEG_MS + 300);
     });
   };
+
+  const landed = new Set(balls.filter((b) => b.t >= PLINKO_ROWS).map((b) => b.bucket));
 
   return (
     <GameCard
@@ -1274,7 +1323,7 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps
             )}
             {/* pockets */}
             {PLINKO_MULT.map((m, k) => {
-              const hit = !dropping && bucket === k;
+              const hit = landed.has(k);
               const big = m >= 10;
               const pays = m > 1;
               return (
@@ -1304,11 +1353,17 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps
                 </g>
               );
             })}
-            {/* ball — CSS transform on an SVG g animates between rows */}
-            <g style={{ transform: `translate(${ballX}px, ${ballY}px)`, transition: "transform 95ms cubic-bezier(.35,.75,.45,1)" }}>
-              <circle r={6.5} fill="var(--color-ink)" />
-              <circle r={2.5} cy={-2} cx={-1.5} fill="var(--color-surface)" opacity={0.5} />
-            </g>
+            {/* balls — continuous hop interpolation, several live at once */}
+            {balls.map((b) => {
+              const p = pkPos(b.path, b.t);
+              const down = b.t >= PLINKO_ROWS;
+              return (
+                <g key={b.id} transform={`translate(${p.x}, ${p.y})`} style={down ? undefined : { filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.35))" }}>
+                  <circle r={down ? 5.5 : 6.5} fill={down ? "var(--color-mute)" : "var(--color-brand)"} />
+                  {!down && <circle r={2.5} cy={-2} cx={-1.5} fill="var(--color-brand-on)" opacity={0.55} />}
+                </g>
+              );
+            })}
           </svg>
           <ResultTag net={dropping ? null : net} lang={lang} />
           <DealerTag dealer={dealer} won={dropping ? null : net?.won} />
@@ -1323,12 +1378,12 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps
             setLev={setLev}
             balanceCents={balanceCents}
             locked={inDebt}
-            disabled={pending || dropping}
+            disabled={pending}
             lang={lang}
             winPreview={{ mult: PLINKO_MULT[0], max: true }}
           />
-          <Button className="w-full" size="lg" disabled={pending || dropping || !parseFloat(bet)} onClick={drop}>
-            {dropping ? t.plinkoDropping : t.plinkoDrop}
+          <Button className="w-full" size="lg" disabled={airborne >= PK_MAX_AIRBORNE || !parseFloat(bet)} onClick={drop}>
+            {t.plinkoDrop}
           </Button>
         </>
       }
@@ -1588,45 +1643,38 @@ export function GameView({
     const id = setTimeout(() => setSplash(null), 2600);
     return () => clearTimeout(id);
   }, [splash]);
-  const cardCls = (on: boolean) =>
+  const chipCls = (on: boolean) =>
     cn(
-      "flex items-center gap-3 rounded-xl border p-3 text-left cursor-pointer transition-colors",
+      "flex shrink-0 flex-col items-center gap-1 rounded-xl border px-3 py-2 cursor-pointer transition-colors min-w-[72px]",
       on ? "border-brand bg-brand-soft" : "border-line bg-surface hover:border-mute"
     );
+  const picked = dealers?.find((d) => d.id === dealerId);
   return (
     <div>
       {dealers && dealers.length > 0 && (
         <div className="mb-4">
           <div className="text-[12px] font-semibold text-mute mb-1.5">{t.dealerPick}</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            <button type="button" onClick={() => setDealerId(undefined)} className={cardCls(dealerId == null)}>
-              <span className={cn("size-11 grid place-items-center rounded-lg", dealerId == null ? "bg-brand-soft" : "bg-surface-2")}>
-                <Shuffle className="size-5 text-mute" />
+          <div className="scrollbar-none -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+            <button type="button" onClick={() => setDealerId(undefined)} className={chipCls(dealerId == null)}>
+              <span className={cn("size-10 grid place-items-center rounded-full", dealerId == null ? "bg-brand-soft" : "bg-surface-2")}>
+                <Shuffle className="size-4.5 text-mute" />
               </span>
-              <span className="min-w-0">
-                <span className="block text-[13px] font-bold text-ink leading-tight">{t.dealerRandom}</span>
-                <span className="block text-[11px] text-mute truncate">{t.dealerRandomHint}</span>
-              </span>
+              <span className="text-[10.5px] font-semibold text-ink leading-tight">{t.dealerRandom}</span>
             </button>
-            {dealers.map((d) => {
-              const fx = dealerFx(d);
-              return (
-                <button type="button" key={d.id} onClick={() => setDealerId(d.id)} className={cardCls(dealerId === d.id)}>
-                  <DealerAvatar avatar={d.avatar} className="size-11 rounded-lg shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-bold text-ink leading-tight">{d.name}</span>
-                    {d.quipWin && <span className="block text-[11px] leading-snug text-mute line-clamp-2 italic">“{d.quipWin}”</span>}
-                    {(fx.rigged || fx.blessed) && (
-                      <span className="mt-1 flex gap-1">
-                        {fx.rigged && <span className="rounded-full bg-no-soft px-1.5 py-px text-[9.5px] font-bold text-no-strong uppercase tracking-wide">{t.dealerRigged}</span>}
-                        {fx.blessed && <span className="rounded-full bg-yes-soft px-1.5 py-px text-[9.5px] font-bold text-yes-strong uppercase tracking-wide">{t.dealerBlessed}</span>}
-                      </span>
-                    )}
-                  </span>
-                </button>
-              );
-            })}
+            {dealers.map((d) => (
+              <button type="button" key={d.id} onClick={() => setDealerId(d.id)} className={chipCls(dealerId === d.id)}>
+                <DealerAvatar avatar={d.avatar} className="size-10 rounded-full shrink-0" />
+                <span className="text-[10.5px] font-semibold text-ink leading-tight max-w-[72px] truncate">{d.name}</span>
+              </button>
+            ))}
           </div>
+          {picked && (
+            <div className="mt-1.5 flex items-center gap-2 text-[11px] text-mute">
+              {picked.quipWin && <span className="min-w-0 flex-1 truncate italic">“{picked.quipWin}”</span>}
+              {dealerFx(picked).rigged && <span className="shrink-0 rounded-full bg-no-soft px-1.5 py-px text-[9.5px] font-bold text-no-strong uppercase tracking-wide">{t.dealerRigged}</span>}
+              {dealerFx(picked).blessed && <span className="shrink-0 rounded-full bg-yes-soft px-1.5 py-px text-[9.5px] font-bold text-yes-strong uppercase tracking-wide">{t.dealerBlessed}</span>}
+            </div>
+          )}
         </div>
       )}
       <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt}

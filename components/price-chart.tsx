@@ -139,7 +139,7 @@ export function PriceChart({ points, now, live, lang, trades }: { points: Pt[]; 
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between flex-wrap gap-x-3 gap-y-2 mb-2">
         <div className="num flex items-center gap-2.5">
           <AnimatedPct
             value={last?.p ?? 0}

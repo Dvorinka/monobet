@@ -110,7 +110,7 @@ export function Comments({
       router.refresh();
       return true;
     }
-    toast.error(r.error);
+    toast.error(t.serverErr(r.error));
     return false;
   };
 
@@ -321,7 +321,7 @@ function CommentItem({
                       if (r.ok) {
                         toast.success(c.hidden ? t.commentShownToast : t.commentCensoredToast);
                         refresh();
-                      } else toast.error(r.error);
+                      } else toast.error(t.serverErr(r.error));
                     })
                   }
                 >
@@ -335,7 +335,7 @@ function CommentItem({
                     start(async () => {
                       const r = await adminTimeoutComments({ userId: c.userId, hours: 24 });
                       if (r.ok) toast.success(t.commentMutedToast);
-                      else toast.error(r.error);
+                      else toast.error(t.serverErr(r.error));
                     })
                   }
                 >
@@ -349,7 +349,7 @@ function CommentItem({
                     start(async () => {
                       const r = await adminSetCommentsBanned({ userId: c.userId, banned: true });
                       if (r.ok) toast.success(t.commentBlockedToast);
-                      else toast.error(r.error);
+                      else toast.error(t.serverErr(r.error));
                     })
                   }
                 >
@@ -364,7 +364,7 @@ function CommentItem({
                   start(async () => {
                     const r = await deleteComment(c.id);
                     if (r.ok) refresh();
-                    else toast.error(r.error);
+                    else toast.error(t.serverErr(r.error));
                   })
                 }
                 aria-label={t.deleteComment}
@@ -395,7 +395,7 @@ function CommentItem({
                     if (r.ok) {
                       setEditing(false);
                       refresh();
-                    } else toast.error(r.error);
+                    } else toast.error(t.serverErr(r.error));
                   })
                 }
               >
@@ -430,7 +430,7 @@ function CommentItem({
                 onClick={() =>
                   start(async () => {
                     const r = await voteComment({ commentId: c.id, value: v });
-                    if (!r.ok) toast.error(r.error);
+                    if (!r.ok) toast.error(t.serverErr(r.error));
                     else refresh();
                   })
                 }

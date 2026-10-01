@@ -30,7 +30,7 @@ export function CategoryModal({
     setBusy(true);
     const r = await createCategory({ name: n });
     setBusy(false);
-    if (!r.ok || !r.name) return toast.error(r.error ?? t.catCreateFail);
+    if (!r.ok || !r.name) return toast.error(r.error ? t.serverErr(r.error) : t.catCreateFail);
     onPicked(r.name);
     setName("");
     onClose();

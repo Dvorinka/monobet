@@ -127,7 +127,7 @@ export function MarketForm({
             if (r.ok) {
               toast.success(t.live);
               router.push(`/market/${r.slug}`);
-            } else toast.error(r.error);
+            } else toast.error(t.serverErr(r.error));
           });
         }}
       >
