@@ -381,7 +381,11 @@ const en = {
   stopsTitle: "Auto-exit",
   stopsTp: "Take profit at",
   stopsSl: "Stop loss at",
-  stopsHint: (shares: string, oc: string) => `Sells all ${shares} ${oc} when the share price hits the level`,
+  stopsHint: (shares: string, oc: string, pct: number) =>
+    pct >= 100
+      ? `Sells all ${shares} ${oc} when the share price hits the level`
+      : `Sells ${pct}% of ${shares} ${oc} when the share price hits the level`,
+  stopsSize: "Sell",
   stopsBad: (px: number) => `TP must be above ¢${px}, SL below it`,
   stopsSet: "Set triggers",
   stopsSaved: "Auto-exit saved",
@@ -1335,7 +1339,11 @@ const cs: Dict = {
   stopsTitle: "Auto-exit",
   stopsTp: "Vzít zisk na",
   stopsSl: "Stop loss na",
-  stopsHint: (shares: string, oc: string) => `Prodá všech ${shares} ${oc}, když cena podílu dosáhne úrovně`,
+  stopsHint: (shares: string, oc: string, pct: number) =>
+    pct >= 100
+      ? `Prodá všech ${shares} ${oc}, když cena podílu dosáhne úrovně`
+      : `Prodá ${pct} % z ${shares} ${oc}, když cena podílu dosáhne úrovně`,
+  stopsSize: "Prodat",
   stopsBad: (px: number) => `TP musí být nad ¢${px}, SL pod ním`,
   stopsSet: "Nastavit triggery",
   stopsSaved: "Auto-exit uložen",
@@ -1962,6 +1970,7 @@ const ERR_CS: Record<string, string> = {
   "Max trade is Ɱ 5 000": "Maximální obchod je Ɱ 5 000",
   "Trigger price must be between 0.01 and 0.99": "Cena triggeru musí být mezi 0,01 a 0,99",
   "Take-profit must sit above stop-loss": "Take-profit musí být nad stop-lossem",
+  "Sell percent must be between 1 and 100": "Procento prodeje musí být 1–100",
   "Take-profit must sit above the current price": "Take-profit musí být nad aktuální cenou",
   "Stop-loss must sit below the current price": "Stop-loss musí být pod aktuální cenou",
   "No shares on this side": "Na této straně nemáš žádné akcie",

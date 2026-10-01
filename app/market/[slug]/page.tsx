@@ -180,6 +180,8 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
         slYes: position.slYes == null ? null : Number(position.slYes),
         tpNo: position.tpNo == null ? null : Number(position.tpNo),
         slNo: position.slNo == null ? null : Number(position.slNo),
+        yesPct: position.yesSellPct ?? null,
+        noPct: position.noSellPct ?? null,
       }
     : null;
   const posValue = Math.round((heldYes * py + heldNo * (1 - py)) * 100);

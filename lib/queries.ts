@@ -320,6 +320,8 @@ export type MyPositionEntry = {
   slYes: number | null;
   tpNo: number | null;
   slNo: number | null;
+  yesPct: number | null;
+  noPct: number | null;
 };
 
 export async function getMyPositions(userId: string, marketIds: string[]) {
@@ -333,6 +335,8 @@ export async function getMyPositions(userId: string, marketIds: string[]) {
       slYes: schema.position.slYes,
       tpNo: schema.position.tpNo,
       slNo: schema.position.slNo,
+      yesPct: schema.position.yesSellPct,
+      noPct: schema.position.noSellPct,
     })
     .from(schema.position)
     .where(and(eq(schema.position.userId, userId), inArray(schema.position.marketId, marketIds)));
@@ -346,6 +350,8 @@ export async function getMyPositions(userId: string, marketIds: string[]) {
         slYes: r.slYes == null ? null : Number(r.slYes),
         tpNo: r.tpNo == null ? null : Number(r.tpNo),
         slNo: r.slNo == null ? null : Number(r.slNo),
+        yesPct: r.yesPct == null ? null : Number(r.yesPct),
+        noPct: r.noPct == null ? null : Number(r.noPct),
       },
     ]),
   );
@@ -591,7 +597,7 @@ export async function getGroupHistories(marketIds: string[], since?: Date | null
       WHERE market_id IN ${marketIds}
         ${since ? sql`AND created_at >= ${since}` : sql``}
     ), anchors AS (
-      SELECT DISTINCT ON (market_id) market_id, yes_price, ${since ?? new Date(0)} AS created_at
+      SELECT DISTINCT ON (market_id) market_id, yes_price, ${since ?? new Date(0)}::timestamptz AS created_at
       FROM price_point
       WHERE ${since ? sql`market_id IN ${marketIds} AND created_at < ${since}` : sql`false`}
       ORDER BY market_id, created_at DESC

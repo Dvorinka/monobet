@@ -216,19 +216,29 @@ export async function checkGroupLiquidations(
 
 // ---------- take-profit / stop-loss fills ----------
 //
-// A stop is a resting sell of the WHOLE side at trigger. Fills pay the same
-// Ɱ1 close fee, service the position loan first, and the wall vow garnishes
-// the remainder — identical money flow to a manual close. Fills iterate to a
-// fixpoint with a hard pass cap: one fill moves the book and can trip the
-// next holder's stop.
+// A stop is a resting sell order on one side at a trigger price. The side's
+// *_sell_pct caps the fill to a fraction (null = 100%); the fired trigger is
+// always consumed — a partial fill leaves the rest of the side (and the
+// sibling trigger on it) untouched. Fills pay the same Ɱ1 close fee, service
+// the position loan first, and the wall vow garnishes the remainder —
+// identical money flow to a manual close. Fills iterate to a fixpoint with a
+// hard pass cap: one fill moves the book and can trip the next holder's stop.
 
 const STOP_MAX_PASSES = 50;
 
 type StopRow = typeof schema.position.$inferSelect;
+type Trigger = { outcome: "yes" | "no"; shares: number; held: number; kind: "tp" | "sl"; at: number; pct: number };
+
+// Shares a fired trigger sells: pct of the side, snapped to a full sell when
+// the remainder would be dust.
+function sellQty(held: number, pct: number) {
+  const q = pct >= 100 ? held : (held * pct) / 100;
+  return held - q < 1e-4 ? held : q;
+}
 
 // Which side tripped, if any. YES side watches yesPrice, NO side watches its
 // complement. Returns the fill reason for the ledger memo.
-function triggeredSide(p: StopRow, pYes: number): { outcome: "yes" | "no"; shares: number; kind: "tp" | "sl"; at: number } | null {
+function triggeredSide(p: StopRow, pYes: number): Trigger | null {
   const tpYes = p.tpYes == null ? null : toNum(p.tpYes);
   const slYes = p.slYes == null ? null : toNum(p.slYes);
   const tpNo = p.tpNo == null ? null : toNum(p.tpNo);
@@ -236,22 +246,25 @@ function triggeredSide(p: StopRow, pYes: number): { outcome: "yes" | "no"; share
   const pNo = 1 - pYes;
   const y = toNum(p.yesShares);
   const n = toNum(p.noShares);
-  if (y > 1e-9 && tpYes != null && pYes >= tpYes) return { outcome: "yes", shares: y, kind: "tp", at: tpYes };
-  if (y > 1e-9 && slYes != null && pYes <= slYes) return { outcome: "yes", shares: y, kind: "sl", at: slYes };
-  if (n > 1e-9 && tpNo != null && pNo >= tpNo) return { outcome: "no", shares: n, kind: "tp", at: tpNo };
-  if (n > 1e-9 && slNo != null && pNo <= slNo) return { outcome: "no", shares: n, kind: "sl", at: slNo };
+  const yPct = p.yesSellPct ?? 100;
+  const nPct = p.noSellPct ?? 100;
+  if (y > 1e-9 && tpYes != null && pYes >= tpYes) return { outcome: "yes", shares: sellQty(y, yPct), held: y, kind: "tp", at: tpYes, pct: yPct };
+  if (y > 1e-9 && slYes != null && pYes <= slYes) return { outcome: "yes", shares: sellQty(y, yPct), held: y, kind: "sl", at: slYes, pct: yPct };
+  if (n > 1e-9 && tpNo != null && pNo >= tpNo) return { outcome: "no", shares: sellQty(n, nPct), held: n, kind: "tp", at: tpNo, pct: nPct };
+  if (n > 1e-9 && slNo != null && pNo <= slNo) return { outcome: "no", shares: sellQty(n, nPct), held: n, kind: "sl", at: slNo, pct: nPct };
   return null;
 }
 
 // Fill one triggered side: price the refund off the book, take the close fee,
 // repay the position loan, garnish the vow share, credit the rest, write the
-// trade + ledger rows, and zero that side (drops the row when nothing is left).
-// Returns the gross proceeds in cents so the caller can bump market volume.
+// trade + ledger rows, and decrement that side by the filled shares. The
+// fired trigger clears; a surviving remainder keeps the sibling trigger.
+// Drops the row when nothing is left.
 async function fillStop(
   tx: Tx,
   m: typeof schema.market.$inferSelect,
   p: StopRow,
-  trig: { outcome: "yes" | "no"; shares: number; kind: "tp" | "sl"; at: number },
+  trig: Trigger,
   proceedsCents: number,
   execPrice: number
 ) {
@@ -259,7 +272,8 @@ async function fillStop(
   const debtRepay = Math.min(rest, p.debtCents);
   rest -= debtRepay;
   rest -= Math.min(TRADE_FEE_CENTS, rest);
-  const label = `${trig.kind === "tp" ? "Take-profit" : "Stop-loss"} ${trig.outcome.toUpperCase()} @ ${trig.at.toFixed(2)}: ${m.question.slice(0, 50)}`;
+  const pctNote = trig.pct < 100 && trig.shares < trig.held - 1e-9 ? ` (${trig.pct}%)` : "";
+  const label = `${trig.kind === "tp" ? "Take-profit" : "Stop-loss"} ${trig.outcome.toUpperCase()} @ ${trig.at.toFixed(2)}${pctNote}: ${m.question.slice(0, 50)}`;
   const skim = Math.min(rest, await garnishDebt(tx, p.userId, rest, label));
   rest -= skim;
   if (rest > 0) await credit(tx, p.userId, rest, "sell", m.id, label);
@@ -278,20 +292,30 @@ async function fillStop(
     yesPriceAfter: execPrice.toFixed(5),
   });
 
-  const sideZero =
+  const remain = Math.max(0, trig.held - trig.shares);
+  const emptied = remain <= 1e-9;
+  const sideSet =
     trig.outcome === "yes"
-      ? { yesShares: "0", tpYes: null, slYes: null }
-      : { noShares: "0", tpNo: null, slNo: null };
+      ? {
+          yesShares: String(remain),
+          tpYes: emptied || trig.kind === "tp" ? null : p.tpYes,
+          slYes: emptied || trig.kind === "sl" ? null : p.slYes,
+        }
+      : {
+          noShares: String(remain),
+          tpNo: emptied || trig.kind === "tp" ? null : p.tpNo,
+          slNo: emptied || trig.kind === "sl" ? null : p.slNo,
+        };
   const otherShares = trig.outcome === "yes" ? toNum(p.noShares) : toNum(p.yesShares);
   const debtLeft = p.debtCents - debtRepay;
-  if (otherShares <= 1e-9 && debtLeft <= 0) {
+  if (emptied && otherShares <= 1e-9 && debtLeft <= 0) {
     await tx
       .delete(schema.position)
       .where(and(eq(schema.position.marketId, p.marketId), eq(schema.position.userId, p.userId)));
   } else {
     await tx
       .update(schema.position)
-      .set({ ...sideZero, debtCents: debtLeft })
+      .set({ ...sideSet, debtCents: debtLeft })
       .where(and(eq(schema.position.marketId, p.marketId), eq(schema.position.userId, p.userId)));
   }
 }

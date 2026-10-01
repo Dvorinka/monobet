@@ -316,6 +316,13 @@
       "when": 1790873216592,
       "tag": "0044_tpsl",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790878608970,
+      "tag": "0045_sellpct",
+      "breakpoints": true
     }
   ]
 }
