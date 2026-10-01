@@ -313,17 +313,42 @@ export async function getUserPosition(marketId: string, userId: string) {
 
 // The viewer's positions across a set of markets — feeds the group ticket so
 // it can show held shares for whichever option is selected.
+export type MyPositionEntry = {
+  yes: number;
+  no: number;
+  tpYes: number | null;
+  slYes: number | null;
+  tpNo: number | null;
+  slNo: number | null;
+};
+
 export async function getMyPositions(userId: string, marketIds: string[]) {
-  if (!marketIds.length) return {} as Record<string, { yes: number; no: number }>;
+  if (!marketIds.length) return {} as Record<string, MyPositionEntry>;
   const rows = await db
     .select({
       marketId: schema.position.marketId,
       yes: schema.position.yesShares,
       no: schema.position.noShares,
+      tpYes: schema.position.tpYes,
+      slYes: schema.position.slYes,
+      tpNo: schema.position.tpNo,
+      slNo: schema.position.slNo,
     })
     .from(schema.position)
     .where(and(eq(schema.position.userId, userId), inArray(schema.position.marketId, marketIds)));
-  return Object.fromEntries(rows.map((r) => [r.marketId, { yes: Number(r.yes), no: Number(r.no) }]));
+  return Object.fromEntries(
+    rows.map((r) => [
+      r.marketId,
+      {
+        yes: Number(r.yes),
+        no: Number(r.no),
+        tpYes: r.tpYes == null ? null : Number(r.tpYes),
+        slYes: r.slYes == null ? null : Number(r.slYes),
+        tpNo: r.tpNo == null ? null : Number(r.tpNo),
+        slNo: r.slNo == null ? null : Number(r.slNo),
+      },
+    ]),
+  );
 }
 
 export type PositionRow = {

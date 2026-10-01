@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Segmented, Button } from "@/components/ui/primitives";
-import { sharesForSpend, tradeCost, yesPrice, multiPrices, multiTradeCost, multiSharesForSpend, MAX_TRADE_CENTS, TRADE_FEE_CENTS } from "@/lib/lmsr";
+import { sharesForSpend, tradeCost, yesPrice, multiPrices, multiTradeCost, multiSharesForSpend, MAX_TRADE_CENTS, MAX_TRADE_SPEND_CENTS, MIN_TRADE_CENTS, TRADE_FEE_CENTS } from "@/lib/lmsr";
 import { fmtMonos, fmtCents, fmtShares, fmtDateTime } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Clock } from "lucide-react";
-import { placeTrade } from "@/lib/actions";
+import { Clock, Crosshair, TrendingDown } from "lucide-react";
+import { placeTrade, setStops } from "@/lib/actions";
 
 export function TradeTicket({
   marketId,
@@ -30,6 +30,7 @@ export function TradeTicket({
   opensAt,
   sharedQ,
   sharedIndex,
+  stops,
 }: {
   marketId: string;
   qYes: number;
@@ -52,6 +53,9 @@ export function TradeTicket({
   // this option's index in them. Absent → standalone binary market.
   sharedQ?: number[];
   sharedIndex?: number;
+  // Resting TP/SL triggers on the viewer's position (share price 0..1, per
+  // side). Null → none set.
+  stops?: { tpYes: number | null; slYes: number | null; tpNo: number | null; slNo: number | null } | null;
 }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [outcome, setOutcome] = useState<"yes" | "no">(defaultOutcome ?? "yes");
@@ -68,10 +72,10 @@ export function TradeTicket({
   const sellShares = parseFloat(amount || "0");
 
   const lev = Math.min(Number(leverage), maxLeverage);
-  const overCap = side === "buy" && spendCents * lev > MAX_TRADE_CENTS;
+  const overCap = side === "buy" && (spendCents > MAX_TRADE_SPEND_CENTS || spendCents * lev > MAX_TRADE_CENTS);
   const est = useMemo(() => {
     if (side === "buy") {
-      if (spendCents < 100) return null;
+      if (spendCents < MIN_TRADE_CENTS) return null;
       const sh = shared
         ? multiSharesForSpend(sharedQ, b, sharedIndex!, outcome, (spendCents * lev) / 100)
         : sharesForSpend(qYes, qNo, b, outcome, (spendCents * lev) / 100);
@@ -172,7 +176,7 @@ export function TradeTicket({
             </button>
           ))}
           <button
-            onClick={() => setAmount(side === "buy" ? String(Math.max(0, ((userBalanceCents ?? 0) - TRADE_FEE_CENTS) / 100)) : held.toFixed(2))}
+            onClick={() => setAmount(side === "buy" ? String(Math.max(0, Math.min((userBalanceCents ?? 0) - TRADE_FEE_CENTS, MAX_TRADE_SPEND_CENTS) / 100)) : held.toFixed(2))}
             className="flex-1 h-7 rounded-md bg-surface-2 text-[12px] font-semibold text-mute hover:bg-surface-3 hover:text-ink cursor-pointer"
           >
             {t.max}
@@ -180,7 +184,12 @@ export function TradeTicket({
         </div>
         {overCap && (
           <p className="mt-2 text-[12px] font-medium text-warn-strong">
-            {t.tradeLimit(fmtMonos(MAX_TRADE_CENTS, { lang }))}
+            {t.tradeLimit(fmtMonos(MAX_TRADE_SPEND_CENTS, { lang }))}
+          </p>
+        )}
+        {side === "buy" && spendCents > 0 && spendCents < MIN_TRADE_CENTS && (
+          <p className="mt-2 text-[12px] font-medium text-warn-strong">
+            {t.minTrade(fmtMonos(MIN_TRADE_CENTS, { lang }))}
           </p>
         )}
       </div>
@@ -235,6 +244,21 @@ export function TradeTicket({
         </div>
       )}
 
+      {/* Auto-exit: resting TP/SL triggers on the held side. Inputs are ¢ per
+          share — the whole side sells when the book price crosses the level. */}
+      {held > 0.001 && (
+        <StopsEditor
+          key={outcome}
+          marketId={marketId}
+          outcome={outcome}
+          held={held}
+          px={outcome === "yes" ? py : 1 - py}
+          current={outcome === "yes" ? { tp: stops?.tpYes ?? null, sl: stops?.slYes ?? null } : { tp: stops?.tpNo ?? null, sl: stops?.slNo ?? null }}
+          lang={lang}
+          onDone={() => router.refresh()}
+        />
+      )}
+
       <Button
         className="mt-4 w-full"
         size="lg"
@@ -273,6 +297,111 @@ export function TradeTicket({
       </Button>
 
       <p className="mt-3 text-center text-[11px] text-faint">{t.playMoneyNote}</p>
+    </div>
+  );
+}
+
+// Resting TP/SL editor — ¢ per share; empty field clears that trigger. The
+// whole held side sells at the book price when a later trade crosses it.
+function StopsEditor({
+  marketId,
+  outcome,
+  held,
+  px,
+  current,
+  lang,
+  onDone,
+}: {
+  marketId: string;
+  outcome: "yes" | "no";
+  held: number;
+  px: number;
+  current: { tp: number | null; sl: number | null };
+  lang?: Lang;
+  onDone: () => void;
+}) {
+  const t = getT(lang ?? "en");
+  const [tpIn, setTpIn] = useState(current.tp == null ? "" : String(Math.round(current.tp * 100)));
+  const [slIn, setSlIn] = useState(current.sl == null ? "" : String(Math.round(current.sl * 100)));
+  const [pending, start] = useTransition();
+  const tpC = tpIn.trim() === "" ? null : Number(tpIn);
+  const slC = slIn.trim() === "" ? null : Number(slIn);
+  const bad =
+    (tpC != null && (!Number.isFinite(tpC) || tpC < 1 || tpC > 99)) ||
+    (slC != null && (!Number.isFinite(slC) || slC < 1 || slC > 99)) ||
+    (tpC != null && tpC <= Math.round(px * 100)) ||
+    (slC != null && slC >= Math.round(px * 100)) ||
+    (tpC != null && slC != null && tpC <= slC);
+  const dirty = tpC !== (current.tp == null ? null : Math.round(current.tp * 100)) || slC !== (current.sl == null ? null : Math.round(current.sl * 100));
+
+  return (
+    <div className="mt-3 rounded-lg border border-line bg-surface-2/40 p-3">
+      <div className="flex items-center gap-1.5 text-[12px] font-semibold text-mute">
+        <Crosshair className="size-3.5" />
+        {t.stopsTitle}
+        {(current.tp != null || current.sl != null) && (
+          <span className="num ml-auto text-[10.5px] font-bold">
+            {current.tp != null && <span className="text-yes-strong">TP ¢{Math.round(current.tp * 100)}</span>}
+            {current.tp != null && current.sl != null && " · "}
+            {current.sl != null && <span className="text-no-strong">SL ¢{Math.round(current.sl * 100)}</span>}
+          </span>
+        )}
+      </div>
+      <p className="mt-0.5 text-[10.5px] text-faint">{t.stopsHint(fmtShares(held, lang), (outcome === "yes" ? t.yes : t.no).toUpperCase())}</p>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-[10.5px] font-semibold text-yes-strong flex items-center gap-1"><Crosshair className="size-3" />{t.stopsTp}</span>
+          <div className="mt-0.5 relative">
+            <input
+              type="number"
+              min="1"
+              max="99"
+              value={tpIn}
+              onChange={(e) => setTpIn(e.target.value)}
+              placeholder={`> ${Math.ceil(px * 100)}`}
+              className="num h-8 w-full rounded-md border border-line bg-surface px-2.5 pr-7 text-[13px] font-semibold text-ink placeholder:text-faint focus:outline-2 focus:outline-yes"
+            />
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-faint">¢</span>
+          </div>
+        </label>
+        <label className="block">
+          <span className="text-[10.5px] font-semibold text-no-strong flex items-center gap-1"><TrendingDown className="size-3" />{t.stopsSl}</span>
+          <div className="mt-0.5 relative">
+            <input
+              type="number"
+              min="1"
+              max="99"
+              value={slIn}
+              onChange={(e) => setSlIn(e.target.value)}
+              placeholder={`< ${Math.floor(px * 100)}`}
+              className="num h-8 w-full rounded-md border border-line bg-surface px-2.5 pr-7 text-[13px] font-semibold text-ink placeholder:text-faint focus:outline-2 focus:outline-no"
+            />
+            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-faint">¢</span>
+          </div>
+        </label>
+      </div>
+      {bad && (tpIn !== "" || slIn !== "") && (
+        <p className="mt-1.5 text-[10.5px] font-medium text-no-strong">{t.stopsBad(Math.round(px * 100))}</p>
+      )}
+      <button
+        type="button"
+        disabled={pending || bad || !dirty}
+        onClick={() =>
+          start(async () => {
+            const r = await setStops({ marketId, outcome, tpPrice: tpC == null ? null : tpC / 100, slPrice: slC == null ? null : slC / 100 });
+            if (r.ok) {
+              playSfx("trade", 0.3);
+              toast.success(t.stopsSaved);
+              onDone();
+            } else {
+              toast.error(t.serverErr(r.error));
+            }
+          })
+        }
+        className="mt-2 h-7 w-full rounded-md bg-surface-3 text-[11.5px] font-bold text-ink hover:bg-line cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {pending ? t.placing : t.stopsSet}
+      </button>
     </div>
   );
 }
