@@ -7,12 +7,14 @@ import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { GameView, type GameSlug } from "@/components/games-panel";
 import { SessionChip } from "@/components/session-chip";
-import { listDealers } from "@/lib/queries";
+import { listDealers, getDisabledGames } from "@/lib/queries";
+import { GAME_KEYS } from "@/lib/games";
 import { ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-const SLUGS = ["coinflip", "dice", "timer", "limbo", "wheel", "slots", "blackjack", "plinko"] as const;
+// One list of slugs — lib/games.ts owns the canonical game keys.
+const SLUGS: readonly string[] = GAME_KEYS;
 
 export async function generateMetadata({ params }: { params: Promise<{ game: string }> }): Promise<Metadata> {
   const { game } = await params;
@@ -21,8 +23,8 @@ export async function generateMetadata({ params }: { params: Promise<{ game: str
 
 export default async function GamePage({ params }: { params: Promise<{ game: string }> }) {
   const { game } = await params;
-  if (!SLUGS.includes(game as GameSlug)) notFound();
-  const [user, lang, dealers] = await Promise.all([getCurrentUser(), getLang(), listDealers()]);
+  if (!SLUGS.includes(game)) notFound();
+  const [user, lang, dealers, disabled] = await Promise.all([getCurrentUser(), getLang(), listDealers(), getDisabledGames()]);
   if (!user) redirect("/login");
   const t = getT(lang);
 
@@ -41,6 +43,7 @@ export default async function GamePage({ params }: { params: Promise<{ game: str
           lang={lang}
           dealers={dealers.filter((d) => d.active).map((d) => ({ id: d.id, name: d.name, avatar: d.avatar, quipWin: d.quipWin, quipLose: d.quipLose }))}
           inDebt={accruedDebtCents(user.debtCents, user.debtRateBps, user.debtSince) > 0}
+          disabled={disabled.includes(game)}
         />
       </div>
       <p className="mt-8 text-[12px] text-faint leading-relaxed">{t.fairNote}</p>

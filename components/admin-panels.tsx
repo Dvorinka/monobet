@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, Input, Select, Badge } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminRenameUser, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer, setCasinoRig, setUserLuck } from "@/lib/actions";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminRenameUser, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer, setCasinoRig, setUserLuck, setGameEnabled, resetJackpot, adminResetEconomy } from "@/lib/actions";
+import { GAME_KEYS } from "@/lib/games";
 import { fmtMonos, fmtDate } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { getT, type Lang } from "@/lib/i18n";
@@ -235,6 +236,7 @@ type HouseStats = {
   profit24hCents: number;
   profit7dCents: number;
   rigBps: number;
+  disabledGames: string[];
   loans: { count: number; disbursedCents: number; repaidCents: number; outstandingCents: number; positionCents: number };
 };
 
@@ -253,7 +255,7 @@ export function HousePanel({
   const [luckUser, setLuckUser] = useState(users[0]?.id ?? "");
   const [luckPct, setLuckPct] = useState("");
   const houseGameName = (key: string) =>
-    (({ Coin: t.gCoinFlip, Dice: t.gDice, Timer: t.gTimer, Limbo: t.gLimbo, Wheel: t.gWheel, Slots: t.gSlots, Plinko: t.gPlinko, Blackjack: t.gBlackjack } as Record<string, string>)[key] ?? key);
+    (({ Coin: t.gCoinFlip, Dice: t.gDice, Timer: t.gTimer, Limbo: t.gLimbo, Wheel: t.gWheel, Slots: t.gSlots, Plinko: t.gPlinko, Blackjack: t.gBlackjack, "Hi-Lo": t.gHilo, "Red/Black": t.gRedBlack, coinflip: t.gCoinFlip, dice: t.gDice, timer: t.gTimer, limbo: t.gLimbo, wheel: t.gWheel, slots: t.gSlots, plinko: t.gPlinko, blackjack: t.gBlackjack, hilo: t.gHilo, redblack: t.gRedBlack } as Record<string, string>)[key] ?? key);
   const luckyUsers = users.filter((u) => u.luckBps !== 0);
   const hold = stats.wageredCents > 0 ? (stats.profitCents / stats.wageredCents) * 100 : 0;
 
@@ -376,6 +378,58 @@ export function HousePanel({
             </div>
           )}
         </form>
+
+        <div className="rounded-xl border border-line bg-surface-2 p-3 space-y-2">
+          <div className="text-[12px] font-bold text-ink">{t.houseGamesTitle}</div>
+          <div className="flex flex-wrap gap-1.5">
+            {GAME_KEYS.map((g) => {
+              const off = stats.disabledGames.includes(g);
+              return (
+                <button
+                  key={g}
+                  type="button"
+                  disabled={pending}
+                  onClick={() => run(() => setGameEnabled({ game: g, enabled: off }), t.savedToast)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                    off
+                      ? "border-no/50 bg-no/10 text-no-strong line-through"
+                      : "border-yes/50 bg-yes/10 text-yes-strong"
+                  )}
+                >
+                  {houseGameName(g)}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-faint">{t.houseGamesNote}</p>
+        </div>
+
+        <div className="rounded-xl border border-line bg-surface-2 p-3 space-y-2">
+          <div className="text-[12px] font-bold text-ink">{t.houseDangerTitle}</div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              onClick={() => run(() => resetJackpot(), t.savedToast)}
+            >
+              {t.houseJackpotReset}
+            </Button>
+            <Button
+              size="sm"
+              variant="no"
+              disabled={pending}
+              onClick={() => {
+                if (!window.confirm(t.houseEconomyConfirm)) return;
+                run(() => adminResetEconomy(), t.savedToast);
+              }}
+            >
+              {t.houseEconomyReset}
+            </Button>
+          </div>
+          <p className="text-[11px] text-faint">{t.houseDangerNote}</p>
+        </div>
       </div>
     </div>
   );

@@ -2,8 +2,16 @@
 // server actions that settle rounds. No secrets here; tokens live in actions.
 
 export const GAME_LEVERAGES = [1, 2, 3, 5, 10, 25, 50, 100] as const;
+// Stake cap — the player's own money per round. Leverage still amplifies the
+// notional up to MAX_GAME_WAGER_CENTS, so lev 100 only fits a Ɱ1k stake.
+export const MAX_GAME_STAKE_CENTS = 100_000;
 // Notional sanity cap — the stake times leverage can't exceed this.
 export const MAX_GAME_WAGER_CENTS = 100_000_00;
+
+// Canonical game keys — the admin kill-switch stores these in
+// casino_config.disabled_games.
+export const GAME_KEYS = ["coinflip", "dice", "timer", "limbo", "wheel", "slots", "blackjack", "plinko", "hilo", "redblack"] as const;
+export type GameKey = (typeof GAME_KEYS)[number];
 // Minigame session pacing: a stake opens a 30 min window; when it lapses the
 // games lock for a 30 min break, then a fresh window opens on the next stake.
 export const GAME_SESSION_MS = 30 * 60_000;
@@ -84,7 +92,10 @@ export const TIMER_REVEAL_MS = 2000;
 export const TIMER_TIERS = [
   { errMs: 100, mult: 2.5 },
   { errMs: 250, mult: 1 },
-  { errMs: 500, mult: 0.8 },
+  // Third tier stays a net loss at every target — a latency-compensated
+  // bot must not profit by merely landing "close". Jitter spreads its
+  // hits across this band, so EV stays underwater even for a sniper.
+  { errMs: 500, mult: 0.45 },
 ] as const;
 export const TIMER_TARGET_MULT: Record<number, number> = {
   2000: 0.5,
@@ -101,6 +112,14 @@ export function timerMult(errMs: number, targetMs: number) {
 // Max multiplier for a target — shown in the UI as the payout ceiling.
 export function timerTopMult(targetMs: number) {
   return timerMult(0, targetMs);
+}
+
+// Hidden uniform jitter (±ms) applied to the grading target at round start.
+// The server measures the stop request's arrival, but an attacker chooses
+// WHEN it arrives — an aimed shot lands within ~±60ms. Jitter widens the
+// effective error enough that top-tier hits become luck, not precision.
+export function timerJitterRangeMs(targetMs: number) {
+  return Math.min(800, Math.round(targetMs * 0.06));
 }
 // Digits stay visible for 30% of the target (capped at 5s) — longer targets
 // get a proportionally longer pacing window.
@@ -198,6 +217,27 @@ export function cardLabel(v: number) {
   return { rank: BJ_RANKS[v % 13], suit: BJ_SUITS[suit], red: suit === 1 || suit === 2 };
 }
 const cardSuit = (v: number) => Math.floor(v / 13) % 4;
+
+// --- Hi-Lo & Red/Black — single-card games on the same 0-51 encoding ---
+
+// Rank order with aces high: 2=1 … K=12, A=13.
+export const cardOrder = (v: number) => (v % 13 === 0 ? 13 : v % 13);
+export const cardIsRed = (v: number) => cardSuit(v) === 1 || cardSuit(v) === 2;
+
+// Red or black — the classic coin-flip card.
+export const REDBLACK_MULT = 1.9;
+
+// Hi-Lo: next card strictly higher/lower than the face card wins; an equal
+// rank pushes (stake back). Payout is inverse probability with the house edge
+// folded in — a face card on the rail pays little, a mid card pays well.
+export const HILO_EDGE = 0.92;
+export type HiloDir = "higher" | "lower";
+// How many of the 13 ranks win for `dir` against face order `o`.
+export const hiloWinRanks = (o: number, dir: HiloDir) => (dir === "higher" ? 13 - o : o - 1);
+export function hiloMult(faceV: number, dir: HiloDir) {
+  const c = hiloWinRanks(cardOrder(faceV), dir);
+  return c <= 0 ? 0 : Math.floor((HILO_EDGE * 13 * 100) / c) / 100;
+}
 
 // Side bets — stake returns `mult`× on a hit, nothing on a miss.
 export type SideWin = { label: string; mult: number } | null;

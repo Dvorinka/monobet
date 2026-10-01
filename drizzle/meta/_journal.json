@@ -134,6 +134,153 @@
       "when": 1790698379092,
       "tag": "0018_mod-and-badges",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790701198000,
+      "tag": "0019_market-context",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790714205000,
+      "tag": "0020_market-aliases",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790719056000,
+      "tag": "0021_user-debt",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790757393000,
+      "tag": "0022_notes-and-blackjack",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790759646000,
+      "tag": "0023_opens_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790769476000,
+      "tag": "0024_wall",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790772554000,
+      "tag": "0025_wall_miracle",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790774321000,
+      "tag": "0026_bj_sides",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790789360000,
+      "tag": "0027_group_shared_book",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790799117000,
+      "tag": "0028_activity_streak",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790800660000,
+      "tag": "0029_duel_games",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1790802631000,
+      "tag": "0030_casino_tuning",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790809458000,
+      "tag": "0031_jackpot",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790841154000,
+      "tag": "0032_timer_round",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790841154000,
+      "tag": "0033_game_session",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790842088000,
+      "tag": "0034_balance_bigint",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790852214000,
+      "tag": "0035_timer_jitter",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790852214001,
+      "tag": "0036_game_kill_switch",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790852214002,
+      "tag": "0037_hilo_round",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1790852214003,
+      "tag": "0038_timer_started_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1790852508417,
+      "tag": "0039_reconcile",
+      "breakpoints": true
     }
   ]
 }

@@ -254,7 +254,12 @@ export const rewardClaim = pgTable(
     amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("reward_user_idx").on(t.userId, t.createdAt)]
+  (t) => [
+    index("reward_user_idx").on(t.userId, t.createdAt),
+    // One row per bonus kind per user — but bonus:referrer:<id> keys differ,
+    // so referrals stay unlimited while plain bonuses claim once.
+    uniqueIndex("reward_once_idx").on(t.userId, t.kind).where(sql`${t.kind} like 'bonus:%'`),
+  ]
 );
 
 export type LedgerKind =
@@ -397,7 +402,7 @@ export const blackjackRound = pgTable(
     status: text("status").notNull().default("playing"), // playing | settled
     result: text("result"), // win | lose | push | blackjack | surrender
     netCents: integer("net_cents"),
-    loanCents: integer("loan_cents").notNull().default(0), // leverage funding fee paid at deal (legacy name)
+    loanCents: bigint("loan_cents", { mode: "number" }).notNull().default(0), // leverage funding fee paid at deal (legacy name)
     // Side bets settled at deal time — stake, payout, and the hand label hit.
     sides: jsonb("sides").$type<Record<string, { stake: number; winCents: number; label: string | null }>>(),
     doubled: boolean("doubled").notNull().default(false),
@@ -416,13 +421,38 @@ export const timerRound = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
     targetMs: integer("target_ms").notNull(),
+    // Hidden ±ms offset added at start; the round grades elapsed against
+    // target+jitter so a pre-timed stop request can't snipe the top tier.
+    jitterMs: integer("jitter_ms").notNull().default(0),
     betCents: integer("bet_cents").notNull(),
     leverage: integer("leverage").notNull().default(1),
     feeCents: integer("fee_cents").notNull().default(0), // leverage funding fee, burned at start
     settledAt: timestamp("settled_at", { withTimezone: true }),
+    // App-clock anchor captured at action entry — grading uses this, not
+    // created_at (Postgres now()), so DB clock skew and insert latency can't
+    // leak into the measured elapsed.
+    startedAt: timestamp("started_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("timer_round_user_idx").on(t.userId, t.createdAt)]
+);
+
+// Hi-Lo — the server deals the face card at start (stake charged), the
+// player's direction commits at play and the next card settles the round.
+export const hiloRound = pgTable(
+  "hilo_round",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    faceCard: integer("face_card").notNull(),
+    betCents: integer("bet_cents").notNull(),
+    leverage: integer("leverage").notNull().default(1),
+    feeCents: integer("fee_cents").notNull().default(0),
+    dir: text("dir"),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("hilo_round_user_idx").on(t.userId, t.createdAt)]
 );
 
 // ---------- squads ----------
@@ -517,6 +547,8 @@ export const marketLike = pgTable(
 export const casinoConfig = pgTable("casino_config", {
   id: text("id").primaryKey(),
   rigBps: integer("rig_bps").notNull().default(0),
+  // Admin kill-switch — canonical game keys that refuse new stakes.
+  disabledGames: text("disabled_games").array().notNull().default(sql`'{}'::text[]`),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

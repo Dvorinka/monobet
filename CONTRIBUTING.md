@@ -15,7 +15,7 @@ npm run dev
 
 - TypeScript strict; keep `npx tsc --noEmit` clean.
 - Lint with `npx eslint .` and build with `npx next build` before pushing.
-- Schema changes go in a new `drizzle/NNNN_*.sql` migration + `drizzle/meta/_journal.json` entry; never edit applied migrations.
+- Schema changes go in a new `drizzle/NNNN_*.sql` migration + `drizzle/meta/_journal.json` entry + chained `drizzle/meta/NNNN_snapshot.json`; never edit applied migrations.
 - UI strings must exist in both `en` and `cs` in `lib/i18n.ts` — missing keys fail typecheck.
 - No real money, payments, or gambling mechanics — Marks stay virtual.
 
