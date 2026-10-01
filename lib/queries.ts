@@ -636,7 +636,7 @@ export async function getSparklines(marketIds: string[], since?: Date | null) {
     )
     SELECT market_id, p FROM (
       SELECT market_id, yes_price AS p, 41 AS rn FROM anchors
-      UNION ALL SELECT market_id, p, rn FROM pts WHERE rn <= 40
+      UNION ALL SELECT market_id, yes_price AS p, rn FROM pts WHERE rn <= 40
     ) s
     ORDER BY market_id, rn DESC`);
   for (const r of rows.rows) {
@@ -763,6 +763,9 @@ export async function getRewardsState(userId: string) {
   );
   let referrals: { id: string; username: string | null; name: string | null; earnedCents: number; royaltyCents: number; paidCents: number }[] = [];
   if (refIds.length) {
+    // Royalties count post-epoch earnings only — whale-era churn shouldn't
+    // mint referral money.
+    const statsSince = await getStatsSince();
     const [earned, names] = await Promise.all([
       db
         .select({ userId: schema.ledger.userId, cents: sql<number>`coalesce(sum(${schema.ledger.amountCents}),0)::bigint` })
@@ -771,7 +774,8 @@ export async function getRewardsState(userId: string) {
           and(
             inArray(schema.ledger.userId, refIds),
             sql`${schema.ledger.amountCents} > 0`,
-            inArray(schema.ledger.kind, [...REFERRAL_EARN_KINDS])
+            inArray(schema.ledger.kind, [...REFERRAL_EARN_KINDS]),
+            statsSince ? gte(schema.ledger.createdAt, statsSince) : undefined
           )
         )
         .groupBy(schema.ledger.userId),
