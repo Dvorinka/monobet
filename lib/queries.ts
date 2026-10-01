@@ -586,10 +586,11 @@ async function fetchGlobalTrades(limit = 14) {
 export async function getSiteStats() {
   const [users, vol, trades] = await Promise.all([
     db.select({ n: sql<number>`count(*)::int` }).from(schema.user),
-    db.select({ n: sql<number>`coalesce(sum(${schema.market.volumeCents}),0)::int` }).from(schema.market),
+    db.select({ n: sql<number>`coalesce(sum(${schema.market.volumeCents}),0)::bigint` }).from(schema.market),
     db.select({ n: sql<number>`count(*)::int` }).from(schema.trade),
   ]);
-  return { users: users[0]?.n ?? 0, volumeCents: vol[0]?.n ?? 0, trades: trades[0]?.n ?? 0 };
+  // pg returns bigint as a string — coerce before the callers do math on it.
+  return { users: users[0]?.n ?? 0, volumeCents: Number(vol[0]?.n ?? 0), trades: trades[0]?.n ?? 0 };
 }
 
 // Same-category markets excluding the given one — "More markets" rail.
@@ -705,7 +706,7 @@ export async function getPublicProfile(username: string) {
     getLeaderboard(),
     // Play PnL = net worth minus faucet income — isolates trading/game skill.
     db
-      .select({ cents: sql<number>`coalesce(sum(${schema.ledger.amountCents}),0)::int` })
+      .select({ cents: sql<number>`coalesce(sum(${schema.ledger.amountCents}),0)::bigint` })
       .from(schema.ledger)
       .where(
         and(
@@ -732,7 +733,7 @@ export async function getPublicProfile(username: string) {
     created,
     netWorthCents,
     rank,
-    playPnlCents: netWorthCents - (faucet?.cents ?? 0),
+    playPnlCents: netWorthCents - Number(faucet?.cents ?? 0),
     games,
     squadName: sq?.name ?? null,
   };
