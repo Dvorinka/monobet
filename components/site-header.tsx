@@ -25,7 +25,7 @@ export async function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line">
-      <div className="mx-auto max-w-6xl px-4 h-14 flex items-center gap-4">
+      <div className="mx-auto max-w-6xl px-3 sm:px-4 h-14 flex items-center gap-2 sm:gap-4">
         <Link href="/" className="flex items-center gap-2 shrink-0 group/logo">
           <LogoMark className="transition-transform duration-300 group-hover/logo:rotate-[-6deg] group-hover/logo:scale-105" />
           <span className="font-bold text-[17px] tracking-tight hidden sm:block">MonoBet</span>
@@ -93,8 +93,10 @@ export async function SiteHeader() {
             </Link>
           </div>
         )}
-        <LangToggle />
-        <ThemeToggle lang={lang} />
+        <div className="hidden sm:flex items-center gap-2 shrink-0">
+          <LangToggle />
+          <ThemeToggle lang={lang} />
+        </div>
       </div>
     </header>
   );

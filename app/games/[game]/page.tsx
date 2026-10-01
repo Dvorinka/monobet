@@ -6,6 +6,7 @@ import { accruedDebtCents } from "@/lib/loans";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { GameView, type GameSlug } from "@/components/games-panel";
+import { SessionChip } from "@/components/session-chip";
 import { listDealers } from "@/lib/queries";
 import { ArrowLeft } from "lucide-react";
 
@@ -27,9 +28,12 @@ export default async function GamePage({ params }: { params: Promise<{ game: str
 
   return (
     <div className="mx-auto max-w-md px-4 pt-8 pb-10">
-      <Link href="/games" className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-mute hover:text-ink transition-colors">
-        <ArrowLeft className="size-3.5" /> {t.games}
-      </Link>
+      <div className="flex items-center justify-between gap-3">
+        <Link href="/games" className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-mute hover:text-ink transition-colors">
+          <ArrowLeft className="size-3.5" /> {t.games}
+        </Link>
+        <SessionChip sessionStart={user.gameSessionStart?.getTime() ?? null} lang={lang} />
+      </div>
       <div className="mt-4">
         <GameView
           game={game as GameSlug}

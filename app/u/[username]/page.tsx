@@ -65,8 +65,8 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
   return (
     <div className="mx-auto max-w-4xl px-4 pt-8 pb-10">
       {/* Identity card */}
-      <Card className="p-5 flex items-center gap-4 flex-wrap">
-        <Avatar name={u.username ?? u.name} image={u.image} className="size-16 text-2xl" />
+      <Card className="p-5 sm:p-6 flex items-center gap-4 sm:gap-5 flex-wrap border-t-2 border-t-brand/50">
+        <Avatar name={u.username ?? u.name} image={u.image} className="size-16 sm:size-20 text-2xl" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-[20px] font-bold tracking-tight">@{u.username ?? u.name}</h1>
@@ -79,7 +79,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
             {t.joined} {fmtDate(u.createdAt, lang)}
           </div>
         </div>
-        <div className="text-right">
+        <div className="w-full sm:w-auto text-left sm:text-right">
           <div className="num text-[24px] font-bold leading-none">{fmtMonos(netWorthCents, { lang })}</div>
           <div className="text-[11px] text-mute mt-1">{t.lbNetWorth}</div>
         </div>
@@ -118,14 +118,14 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
           {achievements.map((a) => {
             const meta = achMeta[a.key] ?? { title: a.key, desc: "" };
             return (
-              <Card key={a.key} className={`p-3.5 ${a.unlocked ? "" : "opacity-60"}`}>
+              <Card key={a.key} className={`p-3.5 ${a.unlocked ? "border-yes/40" : "opacity-60"}`}>
                 <div className="flex items-center gap-2">
                   {a.unlocked ? (
                     <CheckCircle2 className="size-4 text-yes shrink-0" />
                   ) : (
                     <Lock className="size-4 text-faint shrink-0" />
                   )}
-                  <span className="text-[13px] font-semibold truncate">{meta.title}</span>
+                  <span className={`text-[13px] font-semibold truncate ${a.unlocked ? "" : "text-mute"}`}>{meta.title}</span>
                 </div>
                 <div className="text-[11.5px] text-mute mt-1 line-clamp-2">{meta.desc}</div>
                 {!a.unlocked && a.progress > 0 && (
@@ -139,7 +139,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
         </div>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-2 mt-8">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 mt-8">
         {/* Open positions */}
         <section>
           <h2 className="text-[15px] font-semibold mb-3">{t.openPositions}</h2>
@@ -206,12 +206,12 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
             {games.length === 0 && <p className="p-4 text-sm text-mute">{t.noGames}</p>}
             {games.map((g) => (
               <div key={g.id} className="flex items-center gap-3 px-3 py-2 text-[13px]">
-                <span className="truncate text-mute flex-1">{g.memo || "game"}</span>
-                <span className={`num font-semibold ${g.amountCents > 0 ? "text-yes-strong" : "text-ink"}`}>
+                <span className="truncate text-mute flex-1 min-w-0">{g.memo || "game"}</span>
+                <span className={`num font-semibold whitespace-nowrap ${g.amountCents > 0 ? "text-yes-strong" : "text-ink"}`}>
                   {g.amountCents > 0 ? "+" : ""}
                   {fmtMonos(g.amountCents, { lang })}
                 </span>
-                <span className="text-faint text-[11px] w-14 text-right">{timeAgo(g.createdAt, lang)}</span>
+                <span className="text-faint text-[11px] w-20 shrink-0 text-right whitespace-nowrap">{timeAgo(g.createdAt, lang)}</span>
               </div>
             ))}
           </Card>
@@ -223,9 +223,14 @@ export default async function ProfilePage({ params }: { params: Promise<{ userna
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: "up" | "down" }) {
   return (
-    <Card className="p-4">
-      <div className="text-[11.5px] font-medium text-mute">{label}</div>
-      <div className={`num mt-1 text-[19px] font-bold ${tone === "up" ? "text-yes-strong" : tone === "down" ? "text-no-strong" : ""}`}>{value}</div>
+    <Card className="p-4 min-w-0 overflow-hidden">
+      <div className="text-[11.5px] font-medium text-mute truncate">{label}</div>
+      <div
+        title={value}
+        className={`num mt-1 text-[19px] font-bold truncate ${tone === "up" ? "text-yes-strong" : tone === "down" ? "text-no-strong" : ""}`}
+      >
+        {value}
+      </div>
     </Card>
   );
 }

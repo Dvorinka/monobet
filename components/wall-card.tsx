@@ -71,7 +71,7 @@ export function WallCard({
     start(async () => {
       const r = await wallPray({ note });
       if (!r.ok) {
-        toast.error(r.nextAt ? t.wallCooldownWait(fmtRemain(r.nextAt - Date.now())) : r.error === "Insufficient balance" || r.error?.startsWith("The candle costs") ? t.wallCantAfford(fmtMonos(fee, { lang })) : r.error);
+        toast.error(r.nextAt ? t.wallCooldownWait(fmtRemain(r.nextAt - Date.now())) : r.error === "Insufficient balance" || r.error?.startsWith("The candle costs") ? t.wallCantAfford(fmtMonos(fee, { lang })) : t.serverErr(r.error));
         return;
       }
       playWallSfx();
@@ -84,7 +84,7 @@ export function WallCard({
     setVow(v);
     start(async () => {
       const r = await vowAction({ bps: Number(v) });
-      if (!r.ok) toast.error(r.error);
+      if (!r.ok) toast.error(t.serverErr(r.error));
       else toast.success(Number(v) === 0 ? t.wallVowOff : t.wallVowSet(Number(v) / 100));
     });
   };

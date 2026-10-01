@@ -30,7 +30,7 @@ export function MarketGridSkeleton({ n = 6 }: { n?: number }) {
   return (
     <div className="mx-auto max-w-6xl px-4">
       <Sk className="mt-6 h-6 w-44" />
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 pb-10">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 pb-10">
         {Array.from({ length: n }).map((_, i) => (
           <MarketCardSkeleton key={i} />
         ))}
@@ -43,7 +43,7 @@ export function MarketPageSkeleton() {
   return (
     <div className="mx-auto max-w-6xl px-4 pt-5">
       <Sk className="h-4 w-40" />
-      <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_340px]">
+      <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div>
           <Sk className="h-8 w-3/4" />
           <Sk className="mt-3 h-4 w-1/2" />

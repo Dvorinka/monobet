@@ -99,7 +99,7 @@ function RecurringCard({
               toast.success(`+${amount}`);
               router.refresh();
             } else {
-              toast.error(r.error === "cooldown" ? t.availableIn(r.retryInH ?? 1) : r.error);
+              toast.error(r.error === "cooldown" ? t.availableIn(r.retryInH ?? 1) : t.serverErr(r.error));
             }
           })
         }
@@ -198,7 +198,7 @@ function AdCard({ nextAt, amount, t }: { nextAt: number | null; amount: string; 
         toast.success(`+${amount}`);
         router.refresh();
       } else {
-        toast.error(r.error === "cooldown" ? t.availableIn(r.retryInH ?? 1) : r.error);
+        toast.error(r.error === "cooldown" ? t.availableIn(r.retryInH ?? 1) : t.serverErr(r.error));
       }
     });
 
@@ -311,7 +311,7 @@ function LoanCard({ debtCents, rateBps, balanceCents, t, lang }: { debtCents: nu
   const [reveal, setReveal] = useState<{ picked: number; offers: number[] } | null>(null);
   const inDebt = debtCents > 0;
   const loanErr = (e?: string) =>
-    e === "Repay your debt first" ? t.loanBlockedDebt : e === "Insufficient balance" ? t.errInsufficient : e ?? "Error";
+    e === "Repay your debt first" ? t.loanBlockedDebt : t.serverErr(e);
 
   const deal = (cents: number) =>
     start(async () => {
@@ -525,7 +525,7 @@ export function RewardsPanels({
     <div className="mt-7 space-y-8">
       <section>
         <h2 className="text-[13px] font-bold uppercase tracking-wider text-faint mb-3">{t.recurringRewards}</h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <ActivityCard streak={activity.streak} today={activity.today} next={activity.next} t={t} />
           <RecurringCard
             icon={<CalendarCheck className="size-4.5" />}
@@ -561,7 +561,7 @@ export function RewardsPanels({
         <div className="mb-3">
           <InviteCard username={username} lang={lang} />
         </div>
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {bonuses.map((b) => {
             const txt = bonusText[b.key];
             const done = b.claimed;
@@ -608,7 +608,7 @@ export function RewardsPanels({
                             playSfx("claim", 0.5);
                             toast.success(`+${fmtMonos(b.amountCents, { lang, decimals: false })}`);
                             router.refresh();
-                          } else toast.error(r.error);
+                          } else toast.error(t.serverErr(r.error));
                         })
                       }
                       className="h-8 px-3 rounded-lg bg-brand text-brand-on text-[12.5px] font-semibold hover:bg-brand-strong transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 inline-flex items-center gap-1"

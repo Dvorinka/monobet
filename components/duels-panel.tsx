@@ -104,13 +104,13 @@ export function DuelsPanel({
         toast.success(ok);
         onOk?.();
         router.refresh();
-      } else toast.error(r.error);
+      } else toast.error(t.serverErr(r.error));
     });
 
   const play = (id: string, move?: string) =>
     start(async () => {
       const r = await duelPlay({ id, move });
-      if (!r.ok) toast.error(r.error);
+      if (!r.ok) toast.error(t.serverErr(r.error));
       else if (r.tie) toast(t.duelTieToast);
       else if (r.waiting) toast.success(t.duelMoveLockedToast);
       router.refresh();

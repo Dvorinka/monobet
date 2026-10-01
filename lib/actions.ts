@@ -3,11 +3,11 @@
 import { db, schema } from "@/lib/db";
 import { eq, ne, and, sql, desc, asc, isNull, inArray } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, type DuelKind, type RpsMove, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, GAME_SESSION_MS, GAME_BREAK_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, type DuelKind, type RpsMove, type Persona } from "@/lib/games";
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
-import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb } from "@/lib/lmsr";
+import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb, MAX_TRADE_CENTS } from "@/lib/lmsr";
 import { loanFor, liquidationValueCents, groupLiquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "@/lib/liq";
 import { accruedDebtCents, LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT, LOAN_OFFER_TTL_MS, rollRateBps, DEBT_CAP_CENTS } from "@/lib/loans";
 import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
@@ -31,7 +31,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 // Crude spam brakes for a friends group — recent-row counts on the live
 // tables, generous thresholds, no new infra.
 async function assertNotSpam(userId: string, kind: "trade" | "game" | "comment" | "loan" | "wall") {
-  const limits = { trade: 60, game: 60, comment: 5, loan: 3, wall: 2 };
+  const limits = { trade: 60, game: 240, comment: 5, loan: 3, wall: 2 };
   const max = limits[kind];
   let n = 0;
   if (kind === "comment") {
@@ -514,6 +514,7 @@ export async function placeTrade(input: {
         // if a repayment landed between page load and this trade.
         assertCreditLine(cur, leverage);
         const notional = spend * leverage;
+        if (notional > MAX_TRADE_CENTS) throw new Error("Trade too large");
         notionalCents = notional;
         // One live option left → its YES is already certain; nothing to price.
         if (book && book.length <= 1) throw new Error("Sole surviving option — group is awaiting resolution");
@@ -896,7 +897,7 @@ export async function setCasinoRig(input: { rigBps: number }): Promise<{ ok: boo
   try {
     await requireAdmin();
     const bps = Math.round(Number(input.rigBps));
-    if (!Number.isFinite(bps) || bps < 0 || bps > 5000) throw new Error("0–50% only");
+    if (!Number.isFinite(bps) || bps < 0 || bps > 10_000) throw new Error("0–100% only");
     await db
       .insert(schema.casinoConfig)
       .values({ id: "house", rigBps: bps })
@@ -2221,7 +2222,9 @@ export async function wallPray(input: { note?: string }): Promise<{
         ? 0
         : miracle
           ? debt
-          : Math.round(debt * (WALL_CLEAR_MIN_PCT + (randomInt(1000) / 1000) * (clearMax - WALL_CLEAR_MIN_PCT)));
+          // sqrt skews the draw upward — bigger forgiveness is the likelier
+          // answer; small slices still happen near the floor.
+          : Math.round(debt * (WALL_CLEAR_MIN_PCT + Math.sqrt(randomInt(1000) / 1000) * (clearMax - WALL_CLEAR_MIN_PCT)));
       const left = Math.max(0, debt - cleared);
       await tx
         .update(schema.user)
@@ -2515,6 +2518,33 @@ const RIG_PCT = 35; // rigged dealers flip ~⅓ of player wins
 // pays stake + (mult-1) × notional, a loss forfeits the stake and nothing
 // more. The levered top-up costs a one-off funding fee, charged up front —
 // no debt, ever.
+// Stake + funding fee against the locked row. Split out of settleGame so the
+// timer can charge at round start — an abandoned round forfeits the wager
+// instead of refunding by silence.
+async function stakeGame(tx: Tx, userId: string, betCents: number, leverage: number, label: string): Promise<number> {
+  const wager = Math.round(betCents * leverage);
+  if (wager > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
+  const fee = levFeeCents(betCents, leverage);
+  // Credit check + charge both run on the locked row — the pre-tx snapshot
+  // could be a debt repayment stale.
+  const u = await lockUser(tx, userId);
+  // Session pacing — every game debits through stakeGame, so this is the one
+  // gate: expired session → forced break; lapsed break → new window opens here.
+  // In-flight rounds (hit/stand/double, timer stop) never call this, so a
+  // hand or timer round always settles even as the window closes.
+  const started = u.gameSessionStart?.getTime() ?? null;
+  const now = Date.now();
+  if (started !== null && now - started >= GAME_SESSION_MS && now - started < GAME_SESSION_MS + GAME_BREAK_MS) {
+    throw new Error(`Minigames on break — back in ${Math.ceil((started + GAME_SESSION_MS + GAME_BREAK_MS - now) / 60000)}m`);
+  }
+  if (started === null || now - started >= GAME_SESSION_MS + GAME_BREAK_MS) {
+    await tx.update(schema.user).set({ gameSessionStart: new Date(now) }).where(eq(schema.user.id, u.id));
+  }
+  assertCreditLine(u, leverage);
+  await credit(tx, userId, -(betCents + fee), "game", null, `${label} — wager ×${leverage}${fee > 0 ? ` · fee ${(fee / 100).toFixed(2)}Ɱ` : ""}`);
+  return fee;
+}
+
 async function settleGame(
   tx: Tx,
   userId: string,
@@ -2523,16 +2553,12 @@ async function settleGame(
   won: boolean,
   mult: number,
   label: string,
-  dealer?: Persona
+  dealer?: Persona,
+  prepaid = false
 ): Promise<{ netCents: number; feeCents: number; skimCents: number; tavCents: number }> {
   const wager = Math.round(betCents * leverage);
   if (wager > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
-  const fee = levFeeCents(betCents, leverage);
-  // Credit check + charge both run on the locked row — the pre-tx snapshot
-  // could be a debt repayment stale.
-  const u = await lockUser(tx, userId);
-  assertCreditLine(u, leverage);
-  await credit(tx, userId, -(betCents + fee), "game", null, `${label} — wager ×${leverage}${fee > 0 ? ` · fee ${(fee / 100).toFixed(2)}Ɱ` : ""}`);
+  const fee = prepaid ? levFeeCents(betCents, leverage) : await stakeGame(tx, userId, betCents, leverage, label);
   let win = 0;
   let skim = 0;
   let tav = 0;
@@ -2741,35 +2767,31 @@ export async function playDice(input: {
   }
 }
 
-// Stop-the-timer rounds are stamped server-side with an HMAC so the measured
-// time can't be forged: the token carries (user, target, issued-at); stop
-// computes elapsed from the server clock, not the client's.
-const TIMER_SECRET = process.env.BETTER_AUTH_SECRET ?? "monobet-dev-secret";
-
-function signTimerRound(userId: string, targetMs: number): string {
-  const payload = Buffer.from(JSON.stringify({ u: userId, t: targetMs, i: Date.now() })).toString("base64url");
-  const sig = createHmac("sha256", TIMER_SECRET).update(payload).digest("base64url");
-  return `${payload}.${sig}`;
-}
-
-function openTimerRound(token: string, userId: string): { t: number; i: number } {
-  const [payload, sig] = token.split(".");
-  const good = createHmac("sha256", TIMER_SECRET).update(payload ?? "").digest("base64url");
-  if (!sig || sig.length !== good.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(good)))
-    throw new Error("Bad round token");
-  const data = JSON.parse(Buffer.from(payload, "base64url").toString()) as { u: string; t: number; i: number };
-  if (data.u !== userId) throw new Error("Not your round");
-  return { t: data.t, i: data.i };
-}
-
+// Stop-the-timer rounds are rows, not tokens: start debits the stake up front
+// (an abandoned round forfeits it — walking away is not free), and stop claims
+// the row atomically so a round can only settle once. Elapsed is measured
+// between created_at and settled_at on server clocks; the client-sent number
+// is only the instant readout — never the score.
 export async function startTimerRound(input: {
   targetMs: number;
+  betCents: number;
+  leverage: number;
 }): Promise<{ ok: boolean; error?: string; token?: string }> {
   try {
     const u = await requireUser();
+    await assertNotSpam(u.id, "game");
     const target = Math.round(input.targetMs);
     if (!TIMER_TARGETS.includes(target as (typeof TIMER_TARGETS)[number])) throw new Error("Bad target");
-    return { ok: true, token: signTimerRound(u.id, target) };
+    const { bet, lev } = checkBet(input.betCents, input.leverage);
+    const roundId = await db.transaction(async (tx) => {
+      const fee = await stakeGame(tx, u.id, bet, lev, `Timer ${target / 1000}s`);
+      const [r] = await tx
+        .insert(schema.timerRound)
+        .values({ userId: u.id, targetMs: target, betCents: bet, leverage: lev, feeCents: fee })
+        .returning({ id: schema.timerRound.id });
+      return r.id;
+    });
+    return { ok: true, token: roundId };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Start failed" };
   }
@@ -2777,38 +2799,34 @@ export async function startTimerRound(input: {
 
 export async function stopTimerRound(input: {
   token: string;
-  betCents: number;
-  leverage: number;
   elapsedMs: number;
   dealerId?: string;
 }): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
   try {
     const u = await requireUser();
-    await assertNotSpam(u.id, "game");
-    const { bet, lev } = checkBet(input.betCents, input.leverage);
-    const { t: target, i: issued } = openTimerRound(input.token, u.id);
-    // The client reports the time it measured on its own clock — network
-    // latency must not leak into the score. The server clock still bounds the
-    // round: a claimed elapsed can never exceed the round's real lifetime.
-    const serverElapsed = Date.now() - issued;
-    if (serverElapsed > target + 8000) throw new Error("Round expired — press Stop sooner");
-    const client = Math.round(Number(input.elapsedMs));
-    if (!Number.isFinite(client) || client < 400) throw new Error("Stopped suspiciously fast");
-    if (client > serverElapsed + 400) throw new Error("Clock mismatch");
-    const elapsed = Math.min(client, serverElapsed);
-    const err = Math.abs(elapsed - target);
-    let mult = timerMult(err, target);
-    let won = mult > 0;
     const dealer = await pickDealer(input.dealerId);
-    if (!won && (await maybeBless(u.id, dealer))) {
-      mult = timerMult(0, target); // blessed reads as a perfect stop
-      won = true;
-    }
-    const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, won, mult, `Timer ${target / 1000}s off by ${err}ms`, dealer)
-    );
+    const out = await db.transaction(async (tx) => {
+      // Claim first: settled_at IS NULL is the single-use gate — a replayed
+      // or expired round id finds nothing to settle.
+      const [round] = await tx
+        .update(schema.timerRound)
+        .set({ settledAt: new Date() })
+        .where(and(eq(schema.timerRound.id, input.token), eq(schema.timerRound.userId, u.id), isNull(schema.timerRound.settledAt)))
+        .returning();
+      if (!round) throw new Error("Bad round token");
+      const elapsed = Date.now() - round.createdAt.getTime();
+      const err = Math.abs(elapsed - round.targetMs);
+      let mult = timerMult(err, round.targetMs);
+      let won = mult > 0;
+      if (!won && (await maybeBless(u.id, dealer))) {
+        mult = timerMult(0, round.targetMs); // blessed reads as a perfect stop
+        won = true;
+      }
+      const s = await settleGame(tx, u.id, round.betCents, round.leverage, won, mult, `Timer ${round.targetMs / 1000}s off by ${err}ms`, dealer, true);
+      return { round, elapsed, err, won, mult, ...s };
+    });
     revalidatePath("/games");
-    return { ok: true, won, elapsedMs: elapsed, errMs: err, netCents, mult, dealer, feeCents, skimCents, tavCents };
+    return { ok: true, won: out.won, elapsedMs: out.elapsed, errMs: out.err, netCents: out.netCents, mult: out.mult, dealer, feeCents: out.feeCents, skimCents: out.skimCents, tavCents: out.tavCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Stop failed" };
   }
@@ -3572,16 +3590,21 @@ export async function blackjackDeal(input: {
   betCents: number;
   leverage: number;
   dealerId?: string;
-  sides?: { pp?: boolean; t3?: boolean };
+  sides?: { pp?: number; t3?: number }; // side-bet stakes in cents — 0/off when absent
 }): Promise<{ ok: boolean; error?: string; state?: BjState }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    if (bet * lev > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
-    const ppOn = !!input.sides?.pp;
-    const t3On = !!input.sides?.t3;
-    const sideStake = (ppOn ? bet : 0) + (t3On ? bet : 0);
+    // Side bets take their own stakes — no leverage, same minimum as any bet.
+    const ppBet = Math.round(Number(input.sides?.pp ?? 0));
+    const t3Bet = Math.round(Number(input.sides?.t3 ?? 0));
+    const ppOn = ppBet > 0;
+    const t3On = t3Bet > 0;
+    if (!Number.isFinite(ppBet) || !Number.isFinite(t3Bet) || ppBet < 0 || t3Bet < 0) throw new Error("Bad side bet");
+    if ((ppOn && ppBet < MIN_BET_CENTS) || (t3On && t3Bet < MIN_BET_CENTS)) throw new Error("Minimum bet is Ɱ 1");
+    const sideStake = ppBet + t3Bet;
+    if (bet * lev + sideStake > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
     const persona = await pickDealer(input.dealerId);
     const deck = shuffledShoe();
     const player = [deck.pop()!, deck.pop()!];
@@ -3600,25 +3623,25 @@ export async function blackjackDeal(input: {
       const sides: Record<string, BjSide> = {};
       if (ppOn) {
         const w = evalPerfectPairs(player);
-        const win = w ? Math.round(bet * w.mult) : 0;
+        const win = w ? Math.round(ppBet * w.mult) : 0;
         let paid = win;
         if (win) {
-          const g = await garnishDebt(tx, u.id, win - bet, "Perfect Pairs");
+          const g = await garnishDebt(tx, u.id, win - ppBet, "Perfect Pairs");
           paid = win - g;
           if (paid > 0) await credit(tx, u.id, paid, "game", null, `Perfect Pairs — ${w!.label} ×${w!.mult}${g ? " (debt repaid)" : ""}`);
         }
-        sides.pp = { stake: bet, winCents: paid, label: w?.label ?? null };
+        sides.pp = { stake: ppBet, winCents: paid, label: w?.label ?? null };
       }
       if (t3On) {
         const w = evalTwentyOnePlusThree(player, dealer[0]);
-        const win = w ? Math.round(bet * w.mult) : 0;
+        const win = w ? Math.round(t3Bet * w.mult) : 0;
         let paid = win;
         if (win) {
-          const g = await garnishDebt(tx, u.id, win - bet, "21+3");
+          const g = await garnishDebt(tx, u.id, win - t3Bet, "21+3");
           paid = win - g;
           if (paid > 0) await credit(tx, u.id, paid, "game", null, `21+3 — ${w!.label} ×${w!.mult}${g ? " (debt repaid)" : ""}`);
         }
-        sides.t3 = { stake: bet, winCents: paid, label: w?.label ?? null };
+        sides.t3 = { stake: t3Bet, winCents: paid, label: w?.label ?? null };
       }
       const [round] = await tx
         .insert(schema.blackjackRound)

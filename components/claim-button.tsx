@@ -58,7 +58,7 @@ export function ClaimButton({ lang, nextAt }: { lang?: Lang; nextAt: number | nu
             setNext(Date.now() + DAILY_COOLDOWN_MS);
             router.refresh();
           } else {
-            toast.error(r.error === "cooldown" ? t.availableIn(r.retryInH ?? 1) : r.error ?? "Claim unavailable");
+            toast.error(r.error === "cooldown" ? t.availableIn(r.retryInH ?? 1) : t.serverErr(r.error ?? "Claim unavailable"));
             if (r.retryInMs) setNext(Date.now() + r.retryInMs);
           }
         });

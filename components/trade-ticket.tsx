@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Segmented, Button } from "@/components/ui/primitives";
-import { sharesForSpend, tradeCost, yesPrice, multiPrices, multiTradeCost, multiSharesForSpend } from "@/lib/lmsr";
+import { sharesForSpend, tradeCost, yesPrice, multiPrices, multiTradeCost, multiSharesForSpend, MAX_TRADE_CENTS } from "@/lib/lmsr";
 import { fmtMonos, fmtCents, fmtShares, fmtDateTime } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
@@ -68,6 +68,7 @@ export function TradeTicket({
   const sellShares = parseFloat(amount || "0");
 
   const lev = Math.min(Number(leverage), maxLeverage);
+  const overCap = side === "buy" && spendCents * lev > MAX_TRADE_CENTS;
   const est = useMemo(() => {
     if (side === "buy") {
       if (spendCents < 100) return null;
@@ -177,6 +178,11 @@ export function TradeTicket({
             {t.max}
           </button>
         </div>
+        {overCap && (
+          <p className="mt-2 text-[12px] font-medium text-warn-strong">
+            {t.tradeLimit(fmtMonos(MAX_TRADE_CENTS, { lang }))}
+          </p>
+        )}
       </div>
 
       {side === "buy" && maxLeverage > 1 && (
@@ -232,7 +238,7 @@ export function TradeTicket({
         className="mt-4 w-full"
         size="lg"
         variant={side === "buy" ? (outcome === "yes" ? "yes" : "no") : "primary"}
-        disabled={pending || !est}
+        disabled={pending || !est || overCap}
         onClick={() =>
           start(async () => {
             const r = await placeTrade({
@@ -255,7 +261,7 @@ export function TradeTicket({
               setAmount("");
               router.refresh();
             } else {
-              toast.error(r.error);
+              toast.error(t.serverErr(r.error));
             }
           })
         }

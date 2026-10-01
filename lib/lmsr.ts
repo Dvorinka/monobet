@@ -2,6 +2,11 @@
 // qYes/qNo = net shares issued per outcome. Prices are probabilities in (0,1).
 // Buying pushes the price toward 1; selling back reduces outstanding shares.
 
+// One trade can't move more than this in notional (spend × leverage) — same
+// ceiling the casino games use, so neither side of the app takes a six-figure
+// hit in one click.
+export const MAX_TRADE_CENTS = 100_000_00;
+
 export function lmsrCost(qYes: number, qNo: number, b: number): number {
   const m = Math.max(qYes, qNo);
   return m + b * Math.log(Math.exp((qYes - m) / b) + Math.exp((qNo - m) / b));

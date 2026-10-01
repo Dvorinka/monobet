@@ -199,7 +199,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
         )}
       </div>
 
-      <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_340px]">
+      <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* left column */}
         <div className="min-w-0">
           <div className="flex items-start gap-4">
@@ -399,7 +399,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
                   {market.context}
                 </p>
               )}
-              <dl className="grid gap-2.5 text-[13px] sm:grid-cols-2">
+              <dl className="grid grid-cols-1 gap-2.5 text-[13px] sm:grid-cols-2">
                 <div className="flex items-center gap-2.5">
                   {creator && <Avatar name={creator.name} image={creator.image} className="size-7" />}
                   <div className="min-w-0">
@@ -815,7 +815,7 @@ async function GroupMarketView({
                     {market.context}
                   </p>
                 )}
-                <dl className="grid gap-2.5 text-[13px] sm:grid-cols-2">
+                <dl className="grid grid-cols-1 gap-2.5 text-[13px] sm:grid-cols-2">
                   <div className="flex items-center gap-2.5">
                     {creator && <Avatar name={creator.name} image={creator.image} className="size-7" />}
                     <div className="min-w-0">

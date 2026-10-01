@@ -4,6 +4,10 @@
 export const GAME_LEVERAGES = [1, 2, 3, 5, 10, 25, 50, 100] as const;
 // Notional sanity cap — the stake times leverage can't exceed this.
 export const MAX_GAME_WAGER_CENTS = 100_000_00;
+// Minigame session pacing: a stake opens a 30 min window; when it lapses the
+// games lock for a 30 min break, then a fresh window opens on the next stake.
+export const GAME_SESSION_MS = 30 * 60_000;
+export const GAME_BREAK_MS = 30 * 60_000;
 
 // A dealer persona fronts every minigame — configured in admin; avatar may be
 // an image URL/data URI (rendered as a picture) or a short monogram.
@@ -46,8 +50,8 @@ export const WALL_COOLDOWN_MS = 6 * 3600_000;
 export const WALL_FEE_MIN_CENTS = 2_500;
 export const WALL_FEE_DEBT_PCT = 0.02;
 export const WALL_CLEAR_MIN_PCT = 0.02;
-export const WALL_CLEAR_MAX_PCT = 0.08;
-export const WALL_SILENT_PCT = 18; // % of prayers the wall ignores
+export const WALL_CLEAR_MAX_PCT = 0.15;
+export const WALL_SILENT_PCT = 15; // % of prayers the wall ignores
 export const WALL_MIRACLE_PER_MILLE = 15; // ‰ of answered prayers that clear all debt
 // A wordless slip is an insult, not a prayer — the candle burns anyway and
 // the wall answers by growing the debt.
@@ -57,7 +61,7 @@ export const WALL_BACKFIRE_PCT = 0.05;
 export const WALL_BLESSED_RE = /israel|israeli|tel\s?-?aviv|netanyahu|bibi|zion|jerusalem|shalom|holy\s?land|mossad|shekel|kosher|promised\s?land/i;
 export const WALL_BLESSED_SILENT_PCT = 9;
 export const WALL_BLESSED_MIRACLE_PER_MILLE = 60;
-export const WALL_BLESSED_CLEAR_MAX_PCT = 0.2;
+export const WALL_BLESSED_CLEAR_MAX_PCT = 0.35;
 export const VOW_CHOICES_BPS = [0, 1000, 2000, 3000]; // 0/10/20/30% of wins
 
 // Coin flip: 50/50, house keeps ~2%.
@@ -78,17 +82,17 @@ export function diceWinChance(over: number) {
 export const TIMER_TARGETS = [2000, 3000, 5000, 10000, 15000, 30000] as const;
 export const TIMER_REVEAL_MS = 2000;
 export const TIMER_TIERS = [
-  { errMs: 150, mult: 6 },
-  { errMs: 350, mult: 2.5 },
-  { errMs: 700, mult: 1.4 },
+  { errMs: 100, mult: 2.5 },
+  { errMs: 250, mult: 1 },
+  { errMs: 500, mult: 0.8 },
 ] as const;
 export const TIMER_TARGET_MULT: Record<number, number> = {
-  2000: 0.6,
-  3000: 0.8,
-  5000: 1,
-  10000: 1.5,
-  15000: 2,
-  30000: 3,
+  2000: 0.5,
+  3000: 0.6,
+  5000: 0.8,
+  10000: 1,
+  15000: 1.35,
+  30000: 1.8,
 };
 export function timerMult(errMs: number, targetMs: number) {
   const tier = TIMER_TIERS.find((t) => errMs <= t.errMs)?.mult ?? 0;
@@ -98,10 +102,10 @@ export function timerMult(errMs: number, targetMs: number) {
 export function timerTopMult(targetMs: number) {
   return timerMult(0, targetMs);
 }
-// Digits stay visible for 40% of the target (capped at 8s) — longer targets
+// Digits stay visible for 30% of the target (capped at 5s) — longer targets
 // get a proportionally longer pacing window.
 export function timerRevealMs(targetMs: number) {
-  return Math.min(targetMs * 0.4, 8000);
+  return Math.min(targetMs * 0.3, 5000);
 }
 
 // Limbo: pick a target multiplier; the crash point follows 0.99/(1−u) so
