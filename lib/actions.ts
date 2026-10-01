@@ -7,7 +7,7 @@ import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_SESSIO
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
-import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb, houseSeedCents, MAX_TRADE_CENTS } from "@/lib/lmsr";
+import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb, houseSeedCents, MAX_TRADE_CENTS, TRADE_FEE_CENTS } from "@/lib/lmsr";
 import { loanFor, liquidationValueCents, groupLiquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "@/lib/liq";
 import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, type Tx } from "@/lib/tx-market";
 import { resetEconomyTx } from "@/lib/economy-reset";
@@ -246,6 +246,7 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
           qYes: multiQForProb(pi, parent.b).toFixed(6),
           qNo: "0",
           volumeCents: houseSeedCents(parent.b),
+          seedCents: houseSeedCents(parent.b),
           opensAt: nextOpen,
           closesAt: nextClose,
           maxLeverage: parent.maxLeverage,
@@ -349,7 +350,7 @@ export async function placeTrade(input: {
           ? multiSharesForSpend(coords, b, k, outcome, notional / 100)
           : sharesForSpend(qYes, qNo, b, outcome, notional / 100);
         if (shares <= 0) throw new Error("Trade too small");
-        cashDelta = -spend; // collateral only — the loan makes up the rest
+        cashDelta = -(spend + TRADE_FEE_CENTS); // collateral + order fee; the loan makes up the rest
         debtDelta = loanFor(spend, leverage);
       } else {
         shares = -Math.abs(input.shares ?? 0); // negative = removing shares from market
@@ -368,9 +369,11 @@ export async function placeTrade(input: {
           : tradeCost(qYes, qNo, b, outcome, shares));
         cashDelta = Math.round(payout * 100); // nearest cent
         if (cashDelta <= 0) throw new Error("Nothing to refund");
-        // Proceeds service the loan first; the seller keeps the remainder.
+        // Proceeds service the loan first, then the flat order fee comes off
+        // the seller's take — capped so a tiny close can't go negative.
         debtRepay = Math.min(cashDelta, pos?.debtCents ?? 0);
         cashDelta -= debtRepay;
+        cashDelta -= Math.min(TRADE_FEE_CENTS, cashDelta);
         grossSellCents = Math.round(payout * 100);
       }
 
@@ -415,6 +418,7 @@ export async function placeTrade(input: {
         side === "buy" ? "buy" : "sell",
         marketId,
         `${side === "buy" ? "Bought" : "Sold"} ${absShares.toFixed(2)} ${outcome.toUpperCase()} @ ${(outcome === "yes" ? newPrice : 1 - newPrice).toFixed(2)}` +
+          ` · Ɱ1 fee` +
           (debtDelta > 0 ? ` · ${input.leverage}x` : debtRepay > 0 ? " · loan repaid" : "")
       );
 
@@ -1044,6 +1048,7 @@ export async function proposeMarket(input: {
               qYes: multiQForProb(pi, b).toFixed(6),
               qNo: "0",
               volumeCents: houseSeedCents(b),
+              seedCents: houseSeedCents(b),
               opensAt,
               closesAt,
               maxLeverage,
@@ -1068,6 +1073,7 @@ export async function proposeMarket(input: {
           qYes: qForProb(p, b).toFixed(6),
           qNo: "0",
           volumeCents: houseSeedCents(b),
+          seedCents: houseSeedCents(b),
           opensAt,
           closesAt,
           recurDays,
@@ -1391,6 +1397,7 @@ async function settleMarketTx(
         qYes: qForProb(seedP, m.b).toFixed(6),
         qNo: "0",
         volumeCents: houseSeedCents(m.b),
+        seedCents: houseSeedCents(m.b),
         recurDays: m.recurDays,
         maxLeverage: m.maxLeverage,
         imageUrl: m.imageUrl,

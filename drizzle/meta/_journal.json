@@ -281,6 +281,20 @@
       "when": 1790852508417,
       "tag": "0039_reconcile",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790855673911,
+      "tag": "0040_stats_since",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790856438789,
+      "tag": "0041_market_seed",
+      "breakpoints": true
     }
   ]
 }

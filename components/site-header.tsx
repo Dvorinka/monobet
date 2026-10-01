@@ -63,7 +63,7 @@ export async function SiteHeader() {
               nextAt={user.lastClaimAt ? new Date(user.lastClaimAt).getTime() + DAILY_COOLDOWN_MS : null}
             />
             <Link
-              href="/portfolio"
+              href={`/u/${encodeURIComponent(user.username ?? user.name)}`}
               className="num hidden sm:inline-flex items-center h-9 px-3 rounded-lg bg-surface-2 text-sm font-semibold hover:bg-surface-3"
               title={t.yourBalance}
             >

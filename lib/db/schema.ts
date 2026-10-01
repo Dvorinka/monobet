@@ -148,6 +148,10 @@ export const market = pgTable(
     qYes: numeric("q_yes", { precision: 24, scale: 6 }).notNull().default("0"),
     qNo: numeric("q_no", { precision: 24, scale: 6 }).notNull().default("0"),
     volumeCents: bigint("volume_cents", { mode: "number" }).notNull().default(0),
+    // The house seed baked into volumeCents at creation — recounts rebuild
+    // volume as seed + surviving turnover, so the baseline survives formula
+    // changes in houseSeedCents().
+    seedCents: bigint("seed_cents", { mode: "number" }).notNull().default(0),
     traderCount: integer("trader_count").notNull().default(0),
     creatorId: text("creator_id").references(() => user.id, { onDelete: "set null" }),
     // Community resolution: an expired market can get a proposed outcome;
@@ -549,6 +553,10 @@ export const casinoConfig = pgTable("casino_config", {
   rigBps: integer("rig_bps").notNull().default(0),
   // Admin kill-switch — canonical game keys that refuse new stakes.
   disabledGames: text("disabled_games").array().notNull().default(sql`'{}'::text[]`),
+  // Economy resets move this forward: bank stats and balance-history charts
+  // only count ledger rows after the epoch — whale-era churn stays in the
+  // ledger for audit but out of the displayed numbers.
+  statsSince: timestamp("stats_since", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

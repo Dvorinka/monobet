@@ -10,7 +10,7 @@
 //     the difference is ledgered as an admin debit so the ledger still sums.
 import { schema } from "@/lib/db";
 import { eq, and, sql, asc, inArray } from "drizzle-orm";
-import { yesPrice, tradeCost, multiCoords, multiPrices, multiTradeCost, houseSeedCents } from "@/lib/lmsr";
+import { yesPrice, tradeCost, multiCoords, multiPrices, multiTradeCost } from "@/lib/lmsr";
 import { liquidationValueCents, groupLiquidationValueCents } from "@/lib/liq";
 import { toNum, credit, lockUser, checkLiquidations, checkGroupLiquidations, type Tx } from "@/lib/tx-market";
 
@@ -179,7 +179,7 @@ export async function resetEconomyTx(
     : 0;
 
   const markets = await tx
-    .select({ id: schema.market.id, b: schema.market.b, volumeCents: schema.market.volumeCents, traderCount: schema.market.traderCount })
+    .select({ id: schema.market.id, seedCents: schema.market.seedCents, volumeCents: schema.market.volumeCents, traderCount: schema.market.traderCount })
     .from(schema.market);
   const aggs = await tx
     .select({
@@ -193,13 +193,21 @@ export async function resetEconomyTx(
   let recounted = 0;
   for (const m of markets) {
     const a = byMarket.get(m.id);
-    const volumeCents = houseSeedCents(m.b) + Number(a?.vol ?? 0);
+    // Stored seed, not the formula — the baseline recorded at creation is
+    // what the displayed volume always included.
+    const volumeCents = m.seedCents + Number(a?.vol ?? 0);
     const traderCount = a?.tc ?? 0;
     if (volumeCents !== m.volumeCents || traderCount !== m.traderCount) {
       await tx.update(schema.market).set({ volumeCents, traderCount }).where(eq(schema.market.id, m.id));
       recounted++;
     }
   }
+
+  // New stats epoch — bank PnL and balance charts restart from here.
+  await tx
+    .insert(schema.casinoConfig)
+    .values({ id: "house", statsSince: new Date() })
+    .onConflictDoUpdate({ target: schema.casinoConfig.id, set: { statsSince: new Date() } });
 
   return { unwound, clamped, purgedTrades, recounted };
 }

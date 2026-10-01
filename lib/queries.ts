@@ -3,7 +3,7 @@ import { unstable_cache } from "next/cache";
 import { db, schema } from "@/lib/db";
 import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS, JACKPOT_RAKE_BPS, JACKPOT_TICKET_CENTS, JACKPOT_ROUND_MS } from "@/lib/rewards";
 import { randomInt } from "node:crypto";
-import { eq, ne, desc, asc, and, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
+import { eq, ne, desc, asc, and, gte, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { yesPrice, multiCoords, multiPrices } from "@/lib/lmsr";
 import { accruedDebtCents } from "@/lib/loans";
 import type { MarketStatus } from "@/lib/db/schema";
@@ -441,10 +441,26 @@ export async function getAllUsers() {
     .orderBy(asc(schema.user.createdAt));
 }
 
+// The bank panel and balance charts restart at this timestamp after an
+// economy reset — whale-era rows stay in the ledger for audit but out of
+// the displayed stats.
+export async function getStatsSince() {
+  const [r] = await db
+    .select({ statsSince: schema.casinoConfig.statsSince })
+    .from(schema.casinoConfig)
+    .where(eq(schema.casinoConfig.id, "house"))
+    .limit(1);
+  return r?.statsSince ?? null;
+}
+
 // Admin "inside info" — what the house banked. Game rows are signed: the
 // wager row is negative, the payout row positive, so profit = −Σamount.
 // Game label is the first word of the memo ("Slots ★ ◆ ◆", "Dice >3 → 5").
+// Counts only ledger rows after the stats epoch (casino_config.stats_since).
 export async function getHouseStats() {
+  const since = await getStatsSince();
+  const sinceCond = (kind: string) =>
+    since ? and(eq(schema.ledger.kind, kind), gte(schema.ledger.createdAt, since)) : eq(schema.ledger.kind, kind);
   const [perGame, windows, cfg, loanRows, garnishRows, debtors] = await Promise.all([
     db
       .select({
@@ -454,7 +470,7 @@ export async function getHouseStats() {
         paidCents: sql<number>`coalesce(sum(${schema.ledger.amountCents}) filter (where ${schema.ledger.amountCents} > 0), 0)::bigint`,
       })
       .from(schema.ledger)
-      .where(eq(schema.ledger.kind, "game"))
+      .where(sinceCond("game"))
       .groupBy(sql`1`),
     db
       .select({
@@ -464,7 +480,7 @@ export async function getHouseStats() {
         profit7d: sql<number>`coalesce(-sum(${schema.ledger.amountCents}) filter (where ${schema.ledger.createdAt} > now() - interval '7 days'), 0)::bigint`,
       })
       .from(schema.ledger)
-      .where(eq(schema.ledger.kind, "game")),
+      .where(sinceCond("game")),
     db.select({ rigBps: schema.casinoConfig.rigBps, disabledGames: schema.casinoConfig.disabledGames }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house")),
     // Loans pay the house on the way back: disbursement is a positive row
     // (cash out the door), a cash repayment a negative one, a garnished win a
@@ -475,14 +491,14 @@ export async function getHouseStats() {
         disbursedCents: sql<number>`coalesce(sum(${schema.ledger.amountCents}), 0)::bigint`,
       })
       .from(schema.ledger)
-      .where(and(eq(schema.ledger.kind, "loan"), sql`${schema.ledger.amountCents} > 0`)),
+      .where(and(eq(schema.ledger.kind, "loan"), sql`${schema.ledger.amountCents} > 0`, ...(since ? [gte(schema.ledger.createdAt, since)] : []))),
     db
       .select({
         repaidCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}) filter (where ${schema.ledger.amountCents} < 0), 0)::bigint`,
         garnishedCents: sql<number>`coalesce(sum((regexp_match(${schema.ledger.memo}, 'repaid ([0-9.]+)Ɱ'))[1]::numeric * 100) filter (where ${schema.ledger.amountCents} = 0), 0)::bigint`,
       })
       .from(schema.ledger)
-      .where(eq(schema.ledger.kind, "repay")),
+      .where(sinceCond("repay")),
     db
       .select({ debtCents: schema.user.debtCents, debtRateBps: schema.user.debtRateBps, debtSince: schema.user.debtSince })
       .from(schema.user)

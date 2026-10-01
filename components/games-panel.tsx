@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button, Card, Segmented } from "@/components/ui/primitives";
@@ -30,6 +30,8 @@ import {
   diceMult,
   diceWinChance,
   TIMER_TARGETS,
+  TIMER_TIERS,
+  timerMult,
   timerRevealMs,
   timerTopMult,
   LIMBO_MIN,
@@ -54,9 +56,22 @@ import { type DealerFx, type Persona } from "@/lib/games";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, Shuffle, CircleDot, X, ArrowUpDown, Contrast } from "lucide-react";
+import { Coins, Dices, Timer, Rocket, Disc3, Cherry, Spade, Shuffle, CircleDot, X, ArrowUpDown, Contrast, Sparkles } from "lucide-react";
 
 type Net = { netCents: number; won: boolean; stamp: number; feeCents?: number; stakeCents?: number; skimCents?: number } | null;
+
+// Dealer-FX opt-out — persisted per device in localStorage.
+const subscribeFx = (cb: () => void) => {
+  window.addEventListener("storage", cb);
+  return () => window.removeEventListener("storage", cb);
+};
+const readFxOff = () => {
+  try {
+    return localStorage.getItem("mb_fx_off") === "1";
+  } catch {
+    return false;
+  }
+};
 
 function useGame(lang?: Lang) {
   const t = getT(lang ?? "en");
@@ -193,6 +208,13 @@ function BetControls({
     Math.floor((balanceCents - sides) / (1 + ((levN - 1) * LEV_FEE_BPS) / 10_000)),
     MAX_GAME_STAKE_CENTS // base stake ceiling — leverage can't stretch it
   );
+  const clampBet = (v: string) => {
+    const n = parseFloat(v);
+    // Nothing above the cap enters state — the input can't hold a stake the
+    // server would reject.
+    if (Number.isFinite(n) && n * 100 > maxCents) return String(Math.max(0, Math.floor(maxCents / 100)));
+    return v;
+  };
   return (
     <div className="space-y-2">
       <div className="relative">
@@ -200,10 +222,11 @@ function BetControls({
         <input
           type="number"
           min="0"
+          max={Math.floor(maxCents / 100)}
           step="1"
           value={bet}
-          disabled={disabled}
-          onChange={(e) => setBet(e.target.value)}
+          disabled={disabled || maxCents <= 0}
+          onChange={(e) => setBet(clampBet(e.target.value))}
           placeholder="0"
           className="num h-10 w-full rounded-lg border border-line bg-surface pl-8 pr-9 text-[14px] font-semibold text-ink placeholder:text-faint focus:outline-2 focus:outline-brand disabled:opacity-50"
         />
@@ -223,7 +246,7 @@ function BetControls({
           <button
             key={v}
             disabled={disabled}
-            onClick={() => setBet(String((parseFloat(bet || "0") + v).toFixed(0)))}
+            onClick={() => setBet(clampBet(String((parseFloat(bet || "0") + v).toFixed(0))))}
             className="flex-1 h-6.5 rounded-md bg-surface-2 text-[11.5px] font-semibold text-mute hover:bg-surface-3 hover:text-ink cursor-pointer disabled:opacity-50"
           >
             +{v}
@@ -324,8 +347,8 @@ function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
         setRot((prev) => Math.ceil((prev + 1) / 360) * 360 + 4 * 360 + (r.landed === "tails" ? 180 : 0));
         setTimeout(() => {
           setSpinning(false);
-          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
-          dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
+          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+          dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
         }, 1150);
       }
     );
@@ -429,8 +452,8 @@ function DiceCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
         setRolling(false);
         if (r?.roll) {
           setFace(r.roll);
-          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
-          dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
+          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+          dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
         }
       }, 650);
     });
@@ -578,8 +601,8 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
     }).then((r) => {
       if (!r) return;
       setDealer(r.dealer ?? null);
-      setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
-      dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
+      setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+      dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
     });
   };
 
@@ -606,6 +629,14 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
             />
             <div className="mt-1 text-right text-[11px] font-medium text-faint num">
               {t.paysUpTo(timerTopMult(targetMs).toFixed(0))}
+            </div>
+            <div className="mt-0.5 text-[10px] font-medium text-faint num leading-tight">
+              {TIMER_TIERS.map((tier, i) => (
+                <span key={tier.errMs}>
+                  {i > 0 && " · "}
+                  ±{tier.errMs}ms ×{timerMult(tier.errMs, targetMs).toFixed(2)}
+                </span>
+              ))}
             </div>
           </div>
           <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || phase === "running"} lang={lang} winPreview={{ mult: timerTopMult(targetMs), max: true }} />
@@ -665,8 +696,8 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
           else {
             setBusy(false);
             setWonLast(!!r.won);
-            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
-            dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
+            setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+            dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
           }
         };
         raf.current = requestAnimationFrame(step);
@@ -1470,8 +1501,8 @@ function RedBlackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePro
           clearInterval(iv);
           setCard(r.card);
           setDrawing(false);
-          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: !!r.won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
-          dealerWinFx(r.dealer, !!r.won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
+          setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
+          dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
         }, 750)
       );
     });
@@ -1552,7 +1583,7 @@ function HiLoCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) 
       playSfx(r.push ? "trade" : r.won ? "win" : "lose", 0.5);
       setNext(r.card);
       setRoundId(undefined);
-      const won = !!r.won && !r.push;
+      const won = !!r.won && !r.push && (r.netCents ?? 0) > 0;
       setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
       dealerWinFx(r.dealer ?? dealer, won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
     });
@@ -1634,7 +1665,7 @@ export type GameSlug = keyof typeof GAME_COMPONENTS;
 function BonnieSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center overflow-hidden pointer-events-none" role="status" aria-live="polite">
+    <div className="absolute inset-0 grid place-items-center overflow-hidden pointer-events-none" role="status" aria-live="polite">
       <div className="anim-pie-out relative" style={{ width: "44vmin", height: "44vmin" }}>
         <svg aria-hidden viewBox="0 0 100 100" className="anim-pie-in absolute inset-0 w-full h-full" style={{ filter: "drop-shadow(0 16px 34px rgba(60,45,15,0.28))" }}>
           <g fill="#f7f1e3">
@@ -1704,7 +1735,7 @@ function JetSvg() {
 function PlaneSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   return (
-    <div className="anim-plane-veil fixed inset-0 z-[100] overflow-hidden bg-[#0b1d33]" role="status" aria-live="polite">
+    <div className="anim-plane-veil absolute inset-0 overflow-hidden bg-[#0b1d33]" role="status" aria-live="polite">
       <div
         aria-hidden
         className="anim-island-zoom absolute -inset-[4%] bg-cover bg-center"
@@ -1750,7 +1781,7 @@ const CONFETTI = Array.from({ length: 42 }, (_, i) => ({
 function PrideSplash({ amountCents, lang }: { amountCents: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   return (
-    <div className="anim-pride-veil fixed inset-0 z-[100] overflow-hidden pointer-events-none" role="status" aria-live="polite">
+    <div className="anim-pride-veil absolute inset-0 overflow-hidden pointer-events-none" role="status" aria-live="polite">
       <div aria-hidden className="absolute -inset-x-[12%] -inset-y-[8%] flex flex-col" style={{ transform: "rotate(-3deg)" }}>
         {PRIDE_STRIPES.map((c, i) => (
           <div key={c} className="anim-pride-stripe flex-1" style={{ background: c, animationDelay: `${i * 110}ms` }} />
@@ -1796,7 +1827,7 @@ const MONEY_RAIN = Array.from({ length: 56 }, (_, i) => ({
 function ShekelSplash({ amountCents, tavCents, lang }: { amountCents: number; tavCents?: number; lang?: Lang }) {
   const t = getT(lang ?? "en");
   return (
-    <div className="anim-shekel-veil fixed inset-0 z-[100] overflow-hidden pointer-events-none bg-[#f4f7ff]" role="status" aria-live="polite">
+    <div className="anim-shekel-veil absolute inset-0 overflow-hidden pointer-events-none bg-[#f4f7ff]" role="status" aria-live="polite">
       {/* the flag — blue bands on a white field, star faint behind it all */}
       <div aria-hidden className="absolute inset-x-0 top-[12%] h-[13%] bg-[#0038b8]" />
       <div aria-hidden className="absolute inset-x-0 bottom-[12%] h-[13%] bg-[#0038b8]" />
@@ -1851,19 +1882,26 @@ export function GameView({
   lang,
   dealers,
   inDebt,
-  disabled,
 }: {
   game: GameSlug;
   balanceCents: number;
   lang?: Lang;
   dealers?: (Persona & { id: string })[];
   inDebt?: boolean;
-  disabled?: boolean;
 }) {
   const t = getT(lang ?? "en");
   const Game = GAME_COMPONENTS[game];
   const [dealerId, setDealerId] = useState<string>();
   const [splash, setSplash] = useState<{ amt: number; fx: WinFx; tav?: number } | null>(null);
+  // Dealer celebrations are opt-out per device — some are loud on purpose.
+  const fxOff = useSyncExternalStore(subscribeFx, readFxOff, () => false);
+  const toggleFx = () => {
+    try {
+      localStorage.setItem("mb_fx_off", fxOff ? "0" : "1");
+    } catch {}
+    // `storage` doesn't fire in the writing tab — poke subscribers ourselves.
+    window.dispatchEvent(new Event("storage"));
+  };
   useEffect(() => {
     if (splash == null) return;
     const id = setTimeout(() => setSplash(null), 2600);
@@ -1879,7 +1917,21 @@ export function GameView({
     <div>
       {dealers && dealers.length > 0 && (
         <div className="mb-4">
-          <div className="text-[12px] font-semibold text-mute mb-1.5">{t.dealerPick}</div>
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="text-[12px] font-semibold text-mute">{t.dealerPick}</div>
+            <button
+              type="button"
+              onClick={toggleFx}
+              aria-pressed={!fxOff}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-semibold transition-colors cursor-pointer",
+                fxOff ? "border-line bg-surface text-faint" : "border-brand bg-brand-soft text-brand-strong"
+              )}
+            >
+              <Sparkles className="size-3" />
+              {t.dealerFxToggle}
+            </button>
+          </div>
           <div className="scrollbar-none -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
             <button type="button" onClick={() => setDealerId(undefined)} className={chipCls(dealerId == null)}>
               <span className={cn("size-10 grid place-items-center rounded-full", dealerId == null ? "bg-brand-soft" : "bg-surface-2")}>
@@ -1903,19 +1955,25 @@ export function GameView({
           )}
         </div>
       )}
-      {disabled && (
-        <div className="mb-3 rounded-xl border border-no/40 bg-no/10 px-3.5 py-2.5 text-center text-[12.5px] font-semibold text-no-strong">
-          {t.gameDisabled}
-        </div>
+      <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt}
+        onWinFx={(amt, fx, tav) => { if (!fxOff) setSplash({ amt, fx, tav }); }} />
+      {/* Dealer celebrations run inside a bounded card, not the viewport —
+          any click dismisses. */}
+      {splash && !fxOff && (
+        <button
+          type="button"
+          aria-label={t.clearInput}
+          onClick={() => setSplash(null)}
+          className="fixed inset-0 z-[100] grid place-items-center bg-ink/30 cursor-pointer"
+        >
+          <span className="relative block w-[min(92vw,540px)] h-[min(64vh,420px)] rounded-2xl overflow-hidden shadow-2xl border border-line">
+            {splash.fx === "splash" && <BonnieSplash amountCents={splash.amt} lang={lang} />}
+            {splash.fx === "plane" && <PlaneSplash amountCents={splash.amt} lang={lang} />}
+            {splash.fx === "pride" && <PrideSplash amountCents={splash.amt} lang={lang} />}
+            {splash.fx === "shekel" && <ShekelSplash amountCents={splash.amt} tavCents={splash.tav} lang={lang} />}
+          </span>
+        </button>
       )}
-      <div inert={disabled} className={cn(disabled && "opacity-50 select-none")}>
-        <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt}
-          onWinFx={(amt, fx, tav) => setSplash({ amt, fx, tav })} />
-      </div>
-      {splash?.fx === "splash" && <BonnieSplash amountCents={splash.amt} lang={lang} />}
-      {splash?.fx === "plane" && <PlaneSplash amountCents={splash.amt} lang={lang} />}
-      {splash?.fx === "pride" && <PrideSplash amountCents={splash.amt} lang={lang} />}
-      {splash?.fx === "shekel" && <ShekelSplash amountCents={splash.amt} tavCents={splash.tav} lang={lang} />}
     </div>
   );
 }
