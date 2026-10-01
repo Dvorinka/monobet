@@ -138,7 +138,7 @@ export function GroupTrade({
       userBalanceCents={balanceCents}
       heldYes={selPos?.yes ?? 0}
       heldNo={selPos?.no ?? 0}
-      stops={selPos ? { tpYes: selPos.tpYes, slYes: selPos.slYes, tpNo: selPos.tpNo, slNo: selPos.slNo } : null}
+      stops={selPos ? { tpYes: selPos.tpYes, slYes: selPos.slYes, tpNo: selPos.tpNo, slNo: selPos.slNo, yesPct: selPos.yesPct, noPct: selPos.noPct } : null}
       maxLeverage={maxLeverage}
       lang={lang}
       defaultOutcome={side}

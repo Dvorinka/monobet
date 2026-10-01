@@ -55,7 +55,7 @@ export function TradeTicket({
   sharedIndex?: number;
   // Resting TP/SL triggers on the viewer's position (share price 0..1, per
   // side). Null → none set.
-  stops?: { tpYes: number | null; slYes: number | null; tpNo: number | null; slNo: number | null } | null;
+  stops?: { tpYes: number | null; slYes: number | null; tpNo: number | null; slNo: number | null; yesPct?: number | null; noPct?: number | null } | null;
 }) {
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [outcome, setOutcome] = useState<"yes" | "no">(defaultOutcome ?? "yes");
@@ -253,7 +253,11 @@ export function TradeTicket({
           outcome={outcome}
           held={held}
           px={outcome === "yes" ? py : 1 - py}
-          current={outcome === "yes" ? { tp: stops?.tpYes ?? null, sl: stops?.slYes ?? null } : { tp: stops?.tpNo ?? null, sl: stops?.slNo ?? null }}
+          current={
+            outcome === "yes"
+              ? { tp: stops?.tpYes ?? null, sl: stops?.slYes ?? null, pct: stops?.yesPct ?? null }
+              : { tp: stops?.tpNo ?? null, sl: stops?.slNo ?? null, pct: stops?.noPct ?? null }
+          }
           lang={lang}
           onDone={() => router.refresh()}
         />
@@ -316,13 +320,14 @@ function StopsEditor({
   outcome: "yes" | "no";
   held: number;
   px: number;
-  current: { tp: number | null; sl: number | null };
+  current: { tp: number | null; sl: number | null; pct: number | null };
   lang?: Lang;
   onDone: () => void;
 }) {
   const t = getT(lang ?? "en");
   const [tpIn, setTpIn] = useState(current.tp == null ? "" : String(Math.round(current.tp * 100)));
   const [slIn, setSlIn] = useState(current.sl == null ? "" : String(Math.round(current.sl * 100)));
+  const [pct, setPct] = useState(current.pct ?? 100);
   const [pending, start] = useTransition();
   const tpC = tpIn.trim() === "" ? null : Number(tpIn);
   const slC = slIn.trim() === "" ? null : Number(slIn);
@@ -332,7 +337,10 @@ function StopsEditor({
     (tpC != null && tpC <= Math.round(px * 100)) ||
     (slC != null && slC >= Math.round(px * 100)) ||
     (tpC != null && slC != null && tpC <= slC);
-  const dirty = tpC !== (current.tp == null ? null : Math.round(current.tp * 100)) || slC !== (current.sl == null ? null : Math.round(current.sl * 100));
+  const dirty =
+    tpC !== (current.tp == null ? null : Math.round(current.tp * 100)) ||
+    slC !== (current.sl == null ? null : Math.round(current.sl * 100)) ||
+    pct !== (current.pct ?? 100);
 
   return (
     <div className="mt-3 rounded-lg border border-line bg-surface-2/40 p-3">
@@ -347,7 +355,7 @@ function StopsEditor({
           </span>
         )}
       </div>
-      <p className="mt-0.5 text-[10.5px] text-faint">{t.stopsHint(fmtShares(held, lang), (outcome === "yes" ? t.yes : t.no).toUpperCase())}</p>
+      <p className="mt-0.5 text-[10.5px] text-faint">{t.stopsHint(fmtShares(held, lang), (outcome === "yes" ? t.yes : t.no).toUpperCase(), pct)}</p>
       <div className="mt-2 grid grid-cols-2 gap-2">
         <label className="block">
           <span className="text-[10.5px] font-semibold text-yes-strong flex items-center gap-1"><Crosshair className="size-3" />{t.stopsTp}</span>
@@ -380,6 +388,22 @@ function StopsEditor({
           </div>
         </label>
       </div>
+      <div className="mt-2 flex items-center gap-1">
+        <span className="text-[10.5px] font-semibold text-mute mr-0.5">{t.stopsSize}</span>
+        {[25, 50, 75, 100].map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setPct(v)}
+            className={cn(
+              "h-6 flex-1 rounded-md text-[11px] font-bold num cursor-pointer transition-colors",
+              pct === v ? "bg-accent/15 text-accent ring-1 ring-accent/40" : "bg-surface-3 text-mute hover:bg-line"
+            )}
+          >
+            {v}%
+          </button>
+        ))}
+      </div>
       {bad && (tpIn !== "" || slIn !== "") && (
         <p className="mt-1.5 text-[10.5px] font-medium text-no-strong">{t.stopsBad(Math.round(px * 100))}</p>
       )}
@@ -388,7 +412,7 @@ function StopsEditor({
         disabled={pending || bad || !dirty}
         onClick={() =>
           start(async () => {
-            const r = await setStops({ marketId, outcome, tpPrice: tpC == null ? null : tpC / 100, slPrice: slC == null ? null : slC / 100 });
+            const r = await setStops({ marketId, outcome, tpPrice: tpC == null ? null : tpC / 100, slPrice: slC == null ? null : slC / 100, sellPct: pct });
             if (r.ok) {
               playSfx("trade", 0.3);
               toast.success(t.stopsSaved);

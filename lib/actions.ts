@@ -537,23 +537,26 @@ export async function placeTrade(input: {
 // ---------- position take-profit / stop-loss ----------
 //
 // Resting orders per side of a position: tp fills when the share price climbs
-// to it, sl when it falls to it. Both sell the WHOLE side at the book price
-// when a later trade moves the market past the trigger.
+// to it, sl when it falls to it. sellPct caps each fill to a fraction of the
+// side (default 100%); a fired trigger clears after one fill.
 
 export async function setStops(input: {
   marketId: string;
   outcome: "yes" | "no";
   tpPrice: number | null;
   slPrice: number | null;
+  sellPct?: number | null;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const u = await requireUser();
     const { marketId, outcome } = input;
     const tp = input.tpPrice == null ? null : Number(input.tpPrice);
     const sl = input.slPrice == null ? null : Number(input.slPrice);
+    const pct = input.sellPct == null ? null : Math.round(Number(input.sellPct));
     for (const v of [tp, sl]) {
       if (v != null && (!Number.isFinite(v) || v <= 0 || v >= 1)) throw new Error("Trigger price must be between 0.01 and 0.99");
     }
+    if (pct != null && (pct < 1 || pct > 100)) throw new Error("Sell percent must be between 1 and 100");
     if (tp != null && sl != null && tp <= sl) throw new Error("Take-profit must sit above stop-loss");
     await db.transaction(async (tx) => {
       const m = await lockMarket(tx, marketId);
@@ -587,8 +590,8 @@ export async function setStops(input: {
         .update(schema.position)
         .set(
           outcome === "yes"
-            ? { tpYes: tp == null ? null : tp.toFixed(6), slYes: sl == null ? null : sl.toFixed(6) }
-            : { tpNo: tp == null ? null : tp.toFixed(6), slNo: sl == null ? null : sl.toFixed(6) }
+            ? { tpYes: tp == null ? null : tp.toFixed(6), slYes: sl == null ? null : sl.toFixed(6), yesSellPct: pct }
+            : { tpNo: tp == null ? null : tp.toFixed(6), slNo: sl == null ? null : sl.toFixed(6), noSellPct: pct }
         )
         .where(and(eq(schema.position.marketId, marketId), eq(schema.position.userId, u.id)));
     });
