@@ -52,6 +52,7 @@ import { GroupTrade } from "@/components/group-trade";
 import { DeleteMarketButton } from "@/components/delete-market-button";
 import { MarketManagePanel } from "@/components/market-manage";
 import { ResolutionPanel } from "@/components/resolution-panel";
+import { NoteStanceBar } from "@/components/note-stance-bar";
 import { optionColor } from "@/lib/option-style";
 import { cn } from "@/lib/utils";
 
@@ -367,6 +368,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
                 <StickyNote className="size-4" /> {t.notesTitle}
               </h2>
+              <NoteStanceBar notes={publishedNotes} lang={lang} />
               <Card className="p-1.5">
                 {publishedNotes.map((n) => (
                   <div key={n.id} className="px-3 py-2.5">
@@ -779,6 +781,7 @@ async function GroupMarketView({
                 <h2 className="text-[15px] font-semibold mb-2 inline-flex items-center gap-2">
                   <StickyNote className="size-4" /> {t.notesTitle}
                 </h2>
+                <NoteStanceBar notes={options.flatMap((o) => notesMap.get(o.id) ?? []).filter((n) => n.published)} lang={lang} />
                 <Card className="p-1.5">
                   {options.flatMap((o) =>
                     (notesMap.get(o.id) ?? [])
