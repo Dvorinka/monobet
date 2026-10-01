@@ -1,7 +1,7 @@
 "use server";
 
 import { db, schema } from "@/lib/db";
-import { eq, ne, and, sql, desc, asc, isNull, inArray } from "drizzle-orm";
+import { eq, ne, and, sql, desc, asc, isNull, inArray, gte } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
 import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_WINDOW_MS, GAME_DAILY_LIMIT_MS, GAME_IDLE_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, DUEL_GAME_KEY, DUEL_TIMER_MS, type DuelKind, type DuelMove, type RpsMove, type Persona } from "@/lib/games";
 import { revalidatePath, updateTag } from "next/cache";
@@ -12,7 +12,7 @@ import { loanFor, liquidationValueCents, groupLiquidationValueCents, shouldLiqui
 import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, garnishDebt, runStops, runGroupStops, type Tx } from "@/lib/tx-market";
 import { resetEconomyTx } from "@/lib/economy-reset";
 import { accruedDebtCents, LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT, LOAN_OFFER_TTL_MS, rollRateBps, DEBT_CAP_CENTS } from "@/lib/loans";
-import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
+import { marketYesPrice, getMarketBetCount, getStatsSince } from "@/lib/queries";
 import {
   DAILY_AMOUNT,
   DAILY_COOLDOWN_MS,
@@ -3227,6 +3227,9 @@ export async function claimReferralRoyalties(): Promise<{ ok: boolean; error?: s
       const paid = new Map(
         rows.filter((r) => r.kind.startsWith("bonus:royalty:")).map((r) => [r.kind.slice("bonus:royalty:".length), r.amountCents])
       );
+      // Same epoch rule as the display query — earnings before stats_since
+      // don't feed royalties.
+      const statsSince = await getStatsSince();
       const [earned, names] = await Promise.all([
         tx
           .select({ userId: schema.ledger.userId, cents: sql<number>`coalesce(sum(${schema.ledger.amountCents}),0)::bigint` })
@@ -3235,7 +3238,8 @@ export async function claimReferralRoyalties(): Promise<{ ok: boolean; error?: s
             and(
               inArray(schema.ledger.userId, refIds),
               sql`${schema.ledger.amountCents} > 0`,
-              inArray(schema.ledger.kind, [...REFERRAL_EARN_KINDS])
+              inArray(schema.ledger.kind, [...REFERRAL_EARN_KINDS]),
+              statsSince ? gte(schema.ledger.createdAt, statsSince) : undefined
             )
           )
           .groupBy(schema.ledger.userId),
