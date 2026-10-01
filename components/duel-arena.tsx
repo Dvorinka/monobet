@@ -61,6 +61,7 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
   const open = d.status === "open";
   const disputed = d.status === "disputed";
   const dead = ["declined", "cancelled"].includes(d.status);
+  const skimCents = ((d.state as DuelState)?.skimCents) ?? 0;
   const iWon = settled && d.winnerId === me;
   const draw = settled && !d.winnerId;
   const game = d.kind !== "claim";
@@ -188,6 +189,12 @@ export function DuelArena({ row, me, lang }: { row: DuelRow; me: string; lang?: 
                 <Trophy className="size-6" />
                 {draw ? t.duelRefunded : iWon ? t.duelWonYou : t.duelLostYou}
               </div>
+              {iWon && skimCents > 0 && (
+                <div className="text-[12px] font-semibold text-[#ffcf7a]">
+                  {t.debtGarnish(fmtMonos(skimCents, { lang }))} ·{" "}
+                  {t.gameCredited(`+${fmtMonos(d.stakeCents * 2 - skimCents, { lang })}`)}
+                </div>
+              )}
               <Button variant="outline" onClick={() => router.push("/duels")}>{t.duelBackToDuels}</Button>
             </>
           )}

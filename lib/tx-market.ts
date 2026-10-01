@@ -4,6 +4,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, and, sql } from "drizzle-orm";
 import { yesPrice, multiCoords, multiPrices } from "@/lib/lmsr";
+import { accruedDebtCents } from "@/lib/loans";
 import { liquidationValueCents, groupLiquidationValueCents, shouldLiquidate } from "@/lib/liq";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -63,6 +64,30 @@ export async function lockUser(tx: Tx, userId: string) {
     .limit(1);
   if (!rows[0]) throw new Error("User not found");
   return rows[0];
+}
+
+// A win's profit feeds the debt at the player's vow rate — Bez slibu (0%)
+// keeps the whole win, a 30% vow skims a third of the profit. The vow is the
+// debtor's chosen repayment share, not a decoration.
+export async function garnishDebt(tx: Tx, userId: string, profitCents: number, label: string): Promise<number> {
+  const u = await lockUser(tx, userId);
+  const debt = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince);
+  const skim = Math.min(Math.max(0, Math.round((profitCents * u.vowBps) / 10_000)), debt);
+  if (skim <= 0) return 0;
+  const left = debt - skim;
+  await tx
+    .update(schema.user)
+    .set({ debtCents: left, debtRateBps: left > 0 ? u.debtRateBps : 0, debtSince: left > 0 ? new Date() : null })
+    .where(eq(schema.user.id, userId));
+  await tx.insert(schema.ledger).values({
+    userId,
+    amountCents: 0,
+    balanceAfterCents: u.balanceCents,
+    kind: "repay",
+    marketId: null,
+    memo: `${label} — win repaid ${(skim / 100).toFixed(2)}Ɱ of debt`,
+  });
+  return skim;
 }
 
 // Sweep a binary market: any leveraged position whose liquidation value can

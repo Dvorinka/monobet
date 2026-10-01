@@ -1,11 +1,12 @@
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import { db, schema } from "@/lib/db";
-import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS, JACKPOT_RAKE_BPS, JACKPOT_TICKET_CENTS, JACKPOT_ROUND_MS } from "@/lib/rewards";
+import { BONUSES, SEASON_LENGTH_MS, SEASON_REWARDS, JACKPOT_RAKE_BPS, JACKPOT_TICKET_CENTS, JACKPOT_ROUND_MS, REFERRAL_EARN_KINDS, REFERRAL_ROYALTY_BPS, REFERRAL_ROYALTY_CAP_CENTS } from "@/lib/rewards";
 import { randomInt } from "node:crypto";
 import { eq, ne, desc, asc, and, gte, ilike, or, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { yesPrice, multiCoords, multiPrices } from "@/lib/lmsr";
 import { accruedDebtCents } from "@/lib/loans";
+import { credit, garnishDebt } from "@/lib/tx-market";
 import type { MarketStatus } from "@/lib/db/schema";
 
 export type MarketRow = typeof schema.market.$inferSelect;
@@ -695,7 +696,7 @@ export async function getRelatedMarkets(marketId: string, category: string, limi
 export async function getRewardsState(userId: string) {
   const [claims, [me], [cnts]] = await Promise.all([
     db
-      .select({ kind: schema.rewardClaim.kind, createdAt: schema.rewardClaim.createdAt })
+      .select({ kind: schema.rewardClaim.kind, amountCents: schema.rewardClaim.amountCents, createdAt: schema.rewardClaim.createdAt })
       .from(schema.rewardClaim)
       .where(eq(schema.rewardClaim.userId, userId))
       .orderBy(desc(schema.rewardClaim.createdAt)),
@@ -727,7 +728,52 @@ export async function getRewardsState(userId: string) {
       .where(eq(schema.user.id, userId)),
   ]);
   const c = cnts ?? { trades: 0, markets: 0, comments: 0, games: 0, gameWins: 0, watching: 0, likes: 0, duels: 0, sells: 0, notes: 0, votes: 0, duelWins: 0, squadsOwned: 0, referrals: 0 };
+
+  // Referral royalties: each bonus:referrer:<refereeId> row earns 5% of that
+  // referee's lifetime earned income; bonus:royalty:<refereeId> rows track how
+  // much of it has already been paid out.
+  const refIds = claims.filter((r) => r.kind.startsWith("bonus:referrer:")).map((r) => r.kind.slice("bonus:referrer:".length));
+  const paidMap = new Map(
+    claims.filter((r) => r.kind.startsWith("bonus:royalty:")).map((r) => [r.kind.slice("bonus:royalty:".length), r.amountCents])
+  );
+  let referrals: { id: string; username: string | null; name: string | null; earnedCents: number; royaltyCents: number; paidCents: number }[] = [];
+  if (refIds.length) {
+    const [earned, names] = await Promise.all([
+      db
+        .select({ userId: schema.ledger.userId, cents: sql<number>`coalesce(sum(${schema.ledger.amountCents}),0)::bigint` })
+        .from(schema.ledger)
+        .where(
+          and(
+            inArray(schema.ledger.userId, refIds),
+            sql`${schema.ledger.amountCents} > 0`,
+            inArray(schema.ledger.kind, [...REFERRAL_EARN_KINDS])
+          )
+        )
+        .groupBy(schema.ledger.userId),
+      db
+        .select({ id: schema.user.id, username: schema.user.username, name: schema.user.name })
+        .from(schema.user)
+        .where(inArray(schema.user.id, refIds)),
+    ]);
+    const earnedMap = new Map(earned.map((e) => [e.userId, Number(e.cents)]));
+    const nameMap = new Map(names.map((n) => [n.id, n]));
+    referrals = refIds.map((id) => {
+      const e = earnedMap.get(id) ?? 0;
+      return {
+        id,
+        username: nameMap.get(id)?.username ?? null,
+        name: nameMap.get(id)?.name ?? null,
+        earnedCents: e,
+        royaltyCents: Math.min(Math.floor((e * REFERRAL_ROYALTY_BPS) / 10_000), REFERRAL_ROYALTY_CAP_CENTS),
+        paidCents: paidMap.get(id) ?? 0,
+      };
+    });
+  }
+  const royaltyDueCents = referrals.reduce((s, r) => s + Math.max(0, r.royaltyCents - r.paidCents), 0);
+
   return {
+    referrals,
+    royaltyDueCents,
     claimed: new Set(claims.map((c2) => c2.kind)),
     lastWeekly: claims.find((c2) => c2.kind === "weekly")?.createdAt ?? null,
     lastAd: claims.find((c2) => c2.kind === "ad")?.createdAt ?? null,
@@ -905,18 +951,8 @@ export async function ensureSeason() {
               rewardCents: reward,
             });
             if (reward > 0) {
-              const [u] = await tx
-                .update(schema.user)
-                .set({ balanceCents: sql`${schema.user.balanceCents} + ${reward}` })
-                .where(eq(schema.user.id, row.id))
-                .returning({ balanceCents: schema.user.balanceCents });
-              await tx.insert(schema.ledger).values({
-                userId: row.id,
-                amountCents: reward,
-                balanceAfterCents: u?.balanceCents ?? 0,
-                kind: "bonus",
-                memo: `Season ${live.index} · #${i + 1}`,
-              });
+              const skim = Math.min(reward, await garnishDebt(tx, row.id, reward, `Season ${live.index}`));
+              await credit(tx, row.id, reward - skim, "bonus", null, `Season ${live.index} · #${i + 1}${skim > 0 ? " (debt repaid)" : ""}`);
             }
           }
         }
@@ -1000,24 +1036,15 @@ async function drawJackpot(roundId: string): Promise<boolean> {
         }
       }
       if (winnerId && poolCents > 0) {
-        const [u] = await tx
-          .update(schema.user)
-          .set({ balanceCents: sql`${schema.user.balanceCents} + ${poolCents}` })
-          .where(eq(schema.user.id, winnerId))
-          .returning({ balanceCents: schema.user.balanceCents });
-        await tx.insert(schema.ledger).values({
-          userId: winnerId,
-          amountCents: poolCents,
-          balanceAfterCents: u?.balanceCents ?? 0,
-          kind: "jackpot",
-          memo: `Daily jackpot — ${totalTickets} tickets in the hat`,
-        });
+        // The wall vow claims its share before the pot lands.
+        const skim = Math.min(poolCents, await garnishDebt(tx, winnerId, poolCents, "Jackpot"));
+        const after = await credit(tx, winnerId, poolCents - skim, "jackpot", null, `Daily jackpot — ${totalTickets} tickets in the hat`);
         await tx.insert(schema.ledger).values({
           userId: winnerId,
           amountCents: 0,
-          balanceAfterCents: u?.balanceCents ?? 0,
+          balanceAfterCents: after,
           kind: "notify",
-          memo: `You hit the daily jackpot — the pot is yours`,
+          memo: `You hit the daily jackpot — the pot is yours${skim > 0 ? ` (Ɱ${(skim / 100).toFixed(2)} to debt)` : ""}`,
         });
       }
       await tx

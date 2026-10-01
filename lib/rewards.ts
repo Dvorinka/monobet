@@ -38,9 +38,17 @@ export const BONUSES = [
 export type BonusKey = (typeof BONUSES)[number]["key"];
 export const BONUS_MAP = new Map(BONUSES.map((b) => [b.key, b]));
 
-// Referral: the invitee gets this once, the referrer gets REFERRER_BONUS per join.
+// Referral: the invitee gets this once, the referrer gets REFERRER_BONUS per join
+// plus a royalty on everything the invitee goes on to earn.
 export const REFEREE_BONUS = 10_000;
 export const REFERRER_BONUS = 20_000;
+// 5% of the invitee's lifetime earned income (faucet + winnings), claimable
+// repeatedly and capped per invitee so a whale can't mint infinite referrer
+// money. `grant`/`sell`/`loan`/`transfer`/`refund` are excluded — admin gifts
+// and principal moves aren't earnings.
+export const REFERRAL_ROYALTY_BPS = 500;
+export const REFERRAL_ROYALTY_CAP_CENTS = 1_000_000; // Ɱ10,000 per invitee
+export const REFERRAL_EARN_KINDS = ["signup", "claim", "weekly", "ad", "activity", "bonus", "game", "payout", "duel", "tav", "jackpot"] as const;
 
 // Daily jackpot — 4% of game handle pools back into a pot drawn once a day.
 // Every Ɱ10 wagered buys a ticket; the draw weights entries by ticket count.

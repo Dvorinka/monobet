@@ -9,7 +9,7 @@ import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
 import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb, houseSeedCents, MAX_TRADE_CENTS, TRADE_FEE_CENTS } from "@/lib/lmsr";
 import { loanFor, liquidationValueCents, groupLiquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "@/lib/liq";
-import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, type Tx } from "@/lib/tx-market";
+import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, garnishDebt, type Tx } from "@/lib/tx-market";
 import { resetEconomyTx } from "@/lib/economy-reset";
 import { accruedDebtCents, LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT, LOAN_OFFER_TTL_MS, rollRateBps, DEBT_CAP_CENTS } from "@/lib/loans";
 import { marketYesPrice, getMarketBetCount } from "@/lib/queries";
@@ -23,6 +23,9 @@ import {
   BONUS_MAP,
   REFEREE_BONUS,
   REFERRER_BONUS,
+  REFERRAL_EARN_KINDS,
+  REFERRAL_ROYALTY_BPS,
+  REFERRAL_ROYALTY_CAP_CENTS,
   STREAK_WINDOW_MS,
   STREAK_PER_DAY_CENTS,
   STREAK_CAP_DAYS,
@@ -330,6 +333,7 @@ export async function placeTrade(input: {
       let debtDelta = 0; // new loan principal on leveraged buys
       let debtRepay = 0; // loan repaid out of sell proceeds
       let grossSellCents = 0; // sell proceeds before the loan takes its cut
+      let vowSkimCents = 0; // wall-vow share of proceeds routed to debt
       let notionalCents = 0; // buy: full position size incl. borrowed funds
 
       if (side === "buy") {
@@ -375,6 +379,11 @@ export async function placeTrade(input: {
         cashDelta -= debtRepay;
         cashDelta -= Math.min(TRADE_FEE_CENTS, cashDelta);
         grossSellCents = Math.round(payout * 100);
+        // Wall vow: the pledged share of sell proceeds feeds the debt
+        // before the seller ever touches the cash.
+        const vowSkim = Math.min(cashDelta, await garnishDebt(tx, u.id, cashDelta, `Sold ${outcome.toUpperCase()} @ ${m.question.slice(0, 40)}`));
+        cashDelta -= vowSkim;
+        if (vowSkim > 0) vowSkimCents = vowSkim;
       }
 
       const shareDelta = shares;
@@ -419,7 +428,8 @@ export async function placeTrade(input: {
         marketId,
         `${side === "buy" ? "Bought" : "Sold"} ${absShares.toFixed(2)} ${outcome.toUpperCase()} @ ${(outcome === "yes" ? newPrice : 1 - newPrice).toFixed(2)}` +
           ` · Ɱ1 fee` +
-          (debtDelta > 0 ? ` · ${input.leverage}x` : debtRepay > 0 ? " · loan repaid" : "")
+          (debtDelta > 0 ? ` · ${input.leverage}x` : debtRepay > 0 ? " · loan repaid" : "") +
+          (vowSkimCents > 0 ? ` · Ɱ${(vowSkimCents / 100).toFixed(2)} to debt` : "")
       );
 
       // upsert position (shares delta + loan delta)
@@ -1308,8 +1318,9 @@ async function settleMarketTx(
     const payout = Math.max(0, Math.floor(winShares * 100) - p.debtCents);
     if (payout > 0) {
       await lockUser(tx, p.userId);
-      await credit(tx, p.userId, payout, "payout", m.id, `Payout: ${m.question.slice(0, 60)}`);
-      paidOut += payout;
+      const skim = Math.min(payout, await garnishDebt(tx, p.userId, payout, `Payout: ${m.question.slice(0, 40)}`));
+      await credit(tx, p.userId, payout - skim, "payout", m.id, `Payout: ${m.question.slice(0, 60)}`);
+      paidOut += payout - skim;
     } else {
       // Held shares but took nothing — losing holders get a bell row too,
       // otherwise their position just silently vanishes.
@@ -2554,29 +2565,7 @@ async function maybeBless(userId: string, dealer: Persona): Promise<boolean> {
   return randomInt(100) < blessedChancePct(r?.n ?? 0);
 }
 
-// A win's profit feeds the debt at the player's vow rate — Bez slibu (0%)
-// keeps the whole win, a 30% vow skims a third of the profit. The vow is the
-// debtor's chosen repayment share, not a decoration.
-async function garnishDebt(tx: Tx, userId: string, profitCents: number, label: string): Promise<number> {
-  const u = await lockUser(tx, userId);
-  const debt = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince);
-  const skim = Math.min(Math.max(0, Math.round((profitCents * u.vowBps) / 10_000)), debt);
-  if (skim <= 0) return 0;
-  const left = debt - skim;
-  await tx
-    .update(schema.user)
-    .set({ debtCents: left, debtRateBps: left > 0 ? u.debtRateBps : 0, debtSince: left > 0 ? new Date() : null })
-    .where(eq(schema.user.id, userId));
-  await tx.insert(schema.ledger).values({
-    userId,
-    amountCents: 0,
-    balanceAfterCents: u.balanceCents,
-    kind: "repay",
-    marketId: null,
-    memo: `${label} — win repaid ${(skim / 100).toFixed(2)}Ɱ of debt`,
-  });
-  return skim;
-}
+
 
 function checkBet(betCents: number, leverage: number) {
   const bet = Math.round(betCents);
@@ -3131,6 +3120,73 @@ export async function claimReferral(input: { ref: string }): Promise<{ ok: boole
   }
 }
 
+// Referral royalty: 5% of each invitee's lifetime earned income, claimable
+// repeatedly. bonus:royalty:<refereeId> rows store cumulative paid cents, so
+// a claim sweeps only the delta — idempotent under retries and concurrency.
+export async function claimReferralRoyalties(): Promise<{ ok: boolean; error?: string; creditedCents?: number; count?: number }> {
+  try {
+    const u = await requireUser();
+    const res = await db.transaction(async (tx) => {
+      await lockUser(tx, u.id);
+      const rows = await tx
+        .select({ kind: schema.rewardClaim.kind, amountCents: schema.rewardClaim.amountCents })
+        .from(schema.rewardClaim)
+        .where(and(eq(schema.rewardClaim.userId, u.id), sql`${schema.rewardClaim.kind} like 'bonus:refer%'`));
+      const refIds = rows.filter((r) => r.kind.startsWith("bonus:referrer:")).map((r) => r.kind.slice("bonus:referrer:".length));
+      if (!refIds.length) throw new Error("No referrals yet");
+      const paid = new Map(
+        rows.filter((r) => r.kind.startsWith("bonus:royalty:")).map((r) => [r.kind.slice("bonus:royalty:".length), r.amountCents])
+      );
+      const [earned, names] = await Promise.all([
+        tx
+          .select({ userId: schema.ledger.userId, cents: sql<number>`coalesce(sum(${schema.ledger.amountCents}),0)::bigint` })
+          .from(schema.ledger)
+          .where(
+            and(
+              inArray(schema.ledger.userId, refIds),
+              sql`${schema.ledger.amountCents} > 0`,
+              inArray(schema.ledger.kind, [...REFERRAL_EARN_KINDS])
+            )
+          )
+          .groupBy(schema.ledger.userId),
+        tx
+          .select({ id: schema.user.id, username: schema.user.username })
+          .from(schema.user)
+          .where(inArray(schema.user.id, refIds)),
+      ]);
+      const earnedMap = new Map(earned.map((e) => [e.userId, Number(e.cents)]));
+      const nameMap = new Map(names.map((n) => [n.id, n.username ?? n.id.slice(0, 6)]));
+      let credited = 0;
+      let count = 0;
+      for (const rid of refIds) {
+        const total = Math.min(
+          Math.floor(((earnedMap.get(rid) ?? 0) * REFERRAL_ROYALTY_BPS) / 10_000),
+          REFERRAL_ROYALTY_CAP_CENTS
+        );
+        const due = total - (paid.get(rid) ?? 0);
+        if (due <= 0) continue;
+        await credit(tx, u.id, due, "bonus", null, `Referral royalty: @${nameMap.get(rid)} earned ${((earnedMap.get(rid) ?? 0) / 100).toFixed(0)}Ɱ`);
+        if (paid.has(rid)) {
+          await tx
+            .update(schema.rewardClaim)
+            .set({ amountCents: total })
+            .where(and(eq(schema.rewardClaim.userId, u.id), eq(schema.rewardClaim.kind, `bonus:royalty:${rid}`)));
+        } else {
+          await tx.insert(schema.rewardClaim).values({ userId: u.id, kind: `bonus:royalty:${rid}`, amountCents: total });
+        }
+        credited += due;
+        count++;
+      }
+      if (!count) throw new Error("Nothing new to claim");
+      return { credited, count };
+    });
+    revalidatePath("/rewards");
+    return { ok: true, creditedCents: res.credited, count: res.count };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Failed" };
+  }
+}
+
 // ---------- market likes (heart also drives the watchlist) ----------
 
 export async function toggleLike(input: { marketId: string }): Promise<{ ok: boolean; error?: string; liked?: boolean }> {
@@ -3267,12 +3323,12 @@ export async function proposeDuelWinner(input: {
           const g = await garnishDebt(tx, input.winnerId, c.stakeCents, "Duel");
           await credit(tx, input.winnerId, c.stakeCents * 2 - g, "duel", null, `Duel won: ${c.claim.slice(0, 60)}`);
           // Both participants hear the verdict — the loser gets no credit row.
-          await ping(tx, input.winnerId, `Duel won — pot is yours: ${c.claim.slice(0, 60)}`);
+          await ping(tx, input.winnerId, `Duel won — pot is yours${g > 0 ? ` (Ɱ${(g / 100).toFixed(2)} to debt)` : ""}: ${c.claim.slice(0, 50)}`);
           const loserId = input.winnerId === c.creatorId ? c.opponentId : c.creatorId;
           await ping(tx, loserId, `Duel lost: ${c.claim.slice(0, 60)}`);
           await tx
             .update(schema.challenge)
-            .set({ status: "settled", winnerId: input.winnerId, settledAt: new Date(), pendingWinnerId: null, pendingById: null })
+            .set({ status: "settled", winnerId: input.winnerId, settledAt: new Date(), pendingWinnerId: null, pendingById: null, state: { ...((c.state ?? {}) as object), skimCents: g } })
             .where(eq(schema.challenge.id, c.id));
         } else {
           await tx
@@ -3456,11 +3512,11 @@ export async function duelPlay(input: {
       const loser = winner === c.creatorId ? c.opponentId : c.creatorId;
       const g = await garnishDebt(tx, winner, c.stakeCents, "Duel");
       await credit(tx, winner, c.stakeCents * 2 - g, "duel", null, `Duel won: ${c.claim.slice(0, 60)}`);
-      await ping(tx, winner, `Duel won — pot is yours: ${c.claim.slice(0, 60)}`);
+      await ping(tx, winner, `Duel won — pot is yours${g > 0 ? ` (Ɱ${(g / 100).toFixed(2)} to debt)` : ""}: ${c.claim.slice(0, 50)}`);
       await ping(tx, loser, `Duel lost: ${c.claim.slice(0, 60)}`);
       await tx
         .update(schema.challenge)
-        .set({ status: "settled", winnerId: winner, settledAt: new Date(), state: { moves } })
+        .set({ status: "settled", winnerId: winner, settledAt: new Date(), state: { moves, skimCents: g } })
         .where(eq(schema.challenge.id, c.id));
       return { o: "settled" };
     });
@@ -3487,10 +3543,11 @@ export async function adminSettleDuel(input: {
       if (c.status !== "accepted" && c.status !== "disputed") throw new Error("Nothing to settle");
       if (input.winnerId && input.winnerId !== c.creatorId && input.winnerId !== c.opponentId)
         throw new Error("Pick a participant");
+      let g = 0;
       if (input.winnerId) {
-        const g = await garnishDebt(tx, input.winnerId, c.stakeCents, "Duel");
+        g = await garnishDebt(tx, input.winnerId, c.stakeCents, "Duel");
         await credit(tx, input.winnerId, c.stakeCents * 2 - g, "duel", null, `Duel won (admin): ${c.claim.slice(0, 55)}`);
-        await ping(tx, input.winnerId, `Duel settled by admin — you won: ${c.claim.slice(0, 55)}`);
+        await ping(tx, input.winnerId, `Duel settled by admin — you won${g > 0 ? ` (Ɱ${(g / 100).toFixed(2)} to debt)` : ""}: ${c.claim.slice(0, 50)}`);
         const loserId = input.winnerId === c.creatorId ? c.opponentId : c.creatorId;
         await ping(tx, loserId, `Duel settled by admin — you lost: ${c.claim.slice(0, 55)}`);
       } else {
@@ -3503,7 +3560,7 @@ export async function adminSettleDuel(input: {
       }
       await tx
         .update(schema.challenge)
-        .set({ status: "settled", winnerId: input.winnerId, settledAt: new Date(), pendingWinnerId: null, pendingById: null })
+        .set({ status: "settled", winnerId: input.winnerId, settledAt: new Date(), pendingWinnerId: null, pendingById: null, state: { ...((c.state ?? {}) as object), skimCents: g } })
         .where(eq(schema.challenge.id, c.id));
     });
     revalidatePath("/duels");

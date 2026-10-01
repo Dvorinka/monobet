@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { claimAdReward, claimBonus, claimDaily, claimWeekly, takeLoan, repayLoan, dealLoanOffers } from "@/lib/actions";
+import { claimAdReward, claimBonus, claimDaily, claimWeekly, takeLoan, repayLoan, dealLoanOffers, claimReferralRoyalties } from "@/lib/actions";
 import { LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT } from "@/lib/loans";
 import { getT, type Lang } from "@/lib/i18n";
 import { AD_WATCH_MS } from "@/lib/rewards";
@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 type Recurring = { nextAt: number | null; amount: string; streak?: number };
+type ReferralRow = { username: string | null; name: string | null; earnedCents: number; royaltyCents: number; paidCents: number };
 type BonusState = {
   key: string;
   amountCents: number;
@@ -301,6 +302,65 @@ function InviteCard({ username, lang }: { username: string; lang: Lang }) {
   );
 }
 
+// Referral royalties — per-invitee 5% cut of lifetime earnings with the
+// already-paid share tracked so the claim button only sweeps the delta.
+function RoyaltyCard({ referrals, dueCents, lang }: { referrals: ReferralRow[]; dueCents: number; lang: Lang }) {
+  const t = getT(lang);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  return (
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <div className="flex items-center gap-3">
+        <div className="size-9 rounded-lg bg-brand-soft text-brand-strong flex items-center justify-center shrink-0">
+          <HandCoins className="size-4.5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[14px] font-semibold">{t.royaltyTitle}</div>
+          <div className="text-[12px] text-mute">{t.royaltyDesc}</div>
+        </div>
+        {dueCents > 0 && (
+          <button
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                const r = await claimReferralRoyalties();
+                if (r.ok) {
+                  playSfx("claim", 0.5);
+                  toast.success(`+${fmtMonos(r.creditedCents ?? 0, { lang, decimals: false })}`);
+                  router.refresh();
+                } else toast.error(t.serverErr(r.error));
+              })
+            }
+            className="h-8 px-3 rounded-lg bg-brand text-brand-on text-[12.5px] font-semibold hover:bg-brand-strong transition-all active:scale-[0.97] cursor-pointer disabled:opacity-50 shrink-0"
+          >
+            {t.royaltyClaim} · +{fmtMonos(dueCents, { lang, decimals: false })}
+          </button>
+        )}
+      </div>
+      {referrals.length === 0 ? (
+        <div className="mt-3 text-[12px] text-faint">{t.royaltyNone}</div>
+      ) : (
+        <div className="mt-3 space-y-1.5">
+          {referrals.map((r) => {
+            const due = Math.max(0, r.royaltyCents - r.paidCents);
+            return (
+              <div key={r.username ?? r.name} className="flex items-center gap-3 rounded-lg bg-surface-2 px-3 py-2 text-[12.5px]">
+                <span className="font-semibold truncate">@{r.username ?? r.name}</span>
+                <span className="text-mute num">{t.royaltyEarned(fmtMonos(r.earnedCents, { lang, decimals: false }))}</span>
+                <span className="ml-auto num font-semibold">
+                  {t.royaltyCut(fmtMonos(r.royaltyCents, { lang, decimals: false }))}
+                  {r.paidCents > 0 && <span className="text-mute font-normal"> · −{fmtMonos(r.paidCents, { lang, decimals: false })}</span>}
+                </span>
+                {due > 0 && <span className="num font-bold text-yes">+{fmtMonos(due, { lang, decimals: false })}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // House loan card — borrow Monos via a pick-a-card gamble: clicking an amount
 // deals three hidden APRs (server-signed), the card you pick sets your rate.
 // Borrowing is blocked while you owe the house; this is the only debt source.
@@ -484,6 +544,8 @@ export function RewardsPanels({
   activity,
   bonuses,
   username,
+  referrals,
+  royaltyDueCents,
   debt,
   wall,
   wallNow,
@@ -495,6 +557,8 @@ export function RewardsPanels({
   activity: { streak: number; today: string; next: string };
   bonuses: BonusState[];
   username: string;
+  referrals: ReferralRow[];
+  royaltyDueCents: number;
   debt: { cents: number; rateBps: number };
   wall: { prayerAt: Date | null; vowBps: number; prayers: WallPrayerRow[]; balanceCents: number };
   wallNow: number;
@@ -566,8 +630,9 @@ export function RewardsPanels({
 
       <section>
         <h2 className="text-[13px] font-bold uppercase tracking-wider text-faint mb-3">{t.oneTimeBonuses}</h2>
-        <div className="mb-3">
+        <div className="mb-3 space-y-3">
           <InviteCard username={username} lang={lang} />
+          <RoyaltyCard referrals={referrals} dueCents={royaltyDueCents} lang={lang} />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {bonuses.map((b) => {

@@ -11,7 +11,7 @@ import { getT, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { cardLabel, SLOT_SYMBOLS, type DuelKind, type DuelMove } from "@/lib/games";
 
-export type DuelState = { moves?: Record<string, DuelMove> } | null;
+export type DuelState = { moves?: Record<string, DuelMove>; skimCents?: number } | null;
 
 export type DuelRow = {
   duel: {

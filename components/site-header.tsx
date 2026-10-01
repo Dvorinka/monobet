@@ -40,6 +40,7 @@ export async function SiteHeader() {
     for (const b of BONUSES) {
       if (!rewards.claimed.has(`bonus:${b.key}`) && (!b.check || rewards.eligible[b.check])) claimableCents += b.amountCents;
     }
+    claimableCents += rewards.royaltyDueCents;
   }
 
   return (
