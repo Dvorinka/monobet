@@ -34,7 +34,7 @@ export const user = pgTable("user", {
   displayUsername: text("display_username"),
   // MonoBet additional fields
   role: text("role").notNull().default("user"),
-  balanceCents: integer("balance_cents").notNull().default(100_000), // Ɱ1,000.00 start
+  balanceCents: bigint("balance_cents", { mode: "number" }).notNull().default(100_000), // Ɱ1,000.00 start
   lastClaimAt: timestamp("last_claim_at", { withTimezone: true }),
   // Consecutive daily claims inside the 48h streak window.
   claimStreak: integer("claim_streak").notNull().default(0),
@@ -53,7 +53,7 @@ export const user = pgTable("user", {
   squadId: uuid("squad_id"),
   // House debt — voluntary loans land here (levered games never borrow). Rate is APR in
   // basis points rolled at borrow time; interest accrues lazily off debtSince.
-  debtCents: integer("debt_cents").notNull().default(0),
+  debtCents: bigint("debt_cents", { mode: "number" }).notNull().default(0),
   debtRateBps: integer("debt_rate_bps").notNull().default(0),
   debtSince: timestamp("debt_since", { withTimezone: true }),
   // The Wall — last prayer timestamp for the cooldown, and the vow: a pledged

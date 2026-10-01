@@ -78,16 +78,20 @@ async function credit(
   marketId: string | null,
   memo: string
 ) {
+  const amt = Math.round(amountCents);
+  // bigint columns can hold anything sane; this guards JS number precision
+  // and turns nonsense deltas into a clean error instead of a DB failure.
+  if (!Number.isSafeInteger(amt)) throw new Error("Amount too large");
   const [u] = await tx
     .update(schema.user)
-    .set({ balanceCents: sql`${schema.user.balanceCents} + ${Math.round(amountCents)}` })
+    .set({ balanceCents: sql`${schema.user.balanceCents} + ${amt}` })
     .where(eq(schema.user.id, userId))
     .returning({ balanceCents: schema.user.balanceCents });
   if (!u) throw new Error("User not found");
   if (u.balanceCents < 0) throw new Error("Insufficient balance");
   await tx.insert(schema.ledger).values({
     userId,
-    amountCents: Math.round(amountCents),
+    amountCents: amt,
     balanceAfterCents: u.balanceCents,
     kind,
     marketId,
@@ -880,9 +884,13 @@ export async function grantBalance(input: {
     const admin = await requireAdmin();
     const amt = Math.round(input.amountCents);
     if (!Number.isFinite(amt) || amt === 0) throw new Error("Enter an amount");
+    if (!Number.isSafeInteger(amt)) throw new Error("Amount too large");
     await db.transaction(async (tx) => {
-      await lockUser(tx, input.userId);
-      await credit(tx, input.userId, amt, "grant", null, input.memo?.trim() || `Grant by ${admin.username ?? "admin"}`);
+      const cur = await lockUser(tx, input.userId);
+      // Removing more than they hold zeroes the account instead of erroring.
+      const delta = amt < 0 ? -Math.min(-amt, cur.balanceCents) : amt;
+      if (delta === 0) throw new Error("Nothing to remove");
+      await credit(tx, input.userId, delta, "grant", null, input.memo?.trim() || `Grant by ${admin.username ?? "admin"}`);
     });
     revalidatePath("/admin");
     return { ok: true };
@@ -926,9 +934,9 @@ export async function setUserLuck(input: { userId: string; luckBps: number }): P
 
 // Everyone can open a live market. The creator sets the starting odds and
 // liquidity; the LMSR takes it from there.
-const LIQUIDITY_OPTIONS = [100, 300, 900] as const;
+const LIQUIDITY_OPTIONS = [300, 1000, 3000] as const;
 // New books default to deep liquidity — early trades move the price 3× less.
-const DEFAULT_LIQUIDITY = 900;
+const DEFAULT_LIQUIDITY = 3000;
 // House-provided seed shown as starting volume. Priced at 10× the bare LMSR
 // subsidy (b·ln2) so fresh books don't look empty — a real deposit that damps
 // early swings, no fake trades, no fake trader count.
@@ -1063,7 +1071,7 @@ export async function proposeMarket(input: {
     if (question.length > 200) throw new Error("Question too long (max 200)");
     if (input.description.length > 5000) throw new Error("Description too long");
     const context = (input.context ?? "").trim().slice(0, 2000);
-    const b = LIQUIDITY_OPTIONS.includes(input.liquidity as 100) ? input.liquidity! : DEFAULT_LIQUIDITY;
+    const b = LIQUIDITY_OPTIONS.includes(input.liquidity as 300) ? input.liquidity! : DEFAULT_LIQUIDITY;
     const p = Math.min(0.97, Math.max(0.03, input.initialProb ?? 0.5));
     const description = input.description.trim();
     const recurDays = [1, 7, 14, 30].includes(input.recurDays ?? 0) ? input.recurDays! : null;

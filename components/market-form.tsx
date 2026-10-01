@@ -26,9 +26,9 @@ export function MarketForm({
 }) {
   const t = getT(lang ?? "en");
   const LIQUIDITY = [
-    { b: 100, label: t.liqThin, hint: t.liqThinHint },
-    { b: 300, label: t.liqStandard, hint: t.liqStandardHint },
-    { b: 900, label: t.liqDeep, hint: t.liqDeepHint },
+    { b: 300, label: t.liqThin, hint: t.liqThinHint },
+    { b: 1000, label: t.liqStandard, hint: t.liqStandardHint },
+    { b: 3000, label: t.liqDeep, hint: t.liqDeepHint },
   ] as const;
   const [marketType, setMarketType] = useState<"binary" | "multi" | "range">("binary");
   const [question, setQuestion] = useState("");
@@ -54,7 +54,7 @@ export function MarketForm({
   const [recurDays, setRecurDays] = useState("0");
   const [odds, setOdds] = useState(50);
   const [optionOdds, setOptionOdds] = useState<Record<number, number>>({});
-  const [liquidity, setLiquidity] = useState<number>(900);
+  const [liquidity, setLiquidity] = useState<number>(3000);
   const [maxLeverage, setMaxLeverage] = useState(10);
   const [pending, start] = useTransition();
   const router = useRouter();
