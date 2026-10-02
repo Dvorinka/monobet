@@ -571,6 +571,14 @@ export const casinoConfig = pgTable("casino_config", {
   rigBps: integer("rig_bps").notNull().default(0),
   // Admin kill-switch — canonical game keys that refuse new stakes.
   disabledGames: text("disabled_games").array().notNull().default(sql`'{}'::text[]`),
+  // Leverage knobs — admin-settable. gameMaxLev caps every minigame,
+  // tradeMaxLev caps market orders, levFeeBps is the funding fee on borrowed
+  // notional (both games and leveraged trades), gameLevCaps overrides per
+  // game key ({"dice":5}).
+  gameMaxLev: integer("game_max_lev").notNull().default(10),
+  tradeMaxLev: integer("trade_max_lev").notNull().default(10),
+  levFeeBps: integer("lev_fee_bps").notNull().default(500),
+  gameLevCaps: jsonb("game_lev_caps").$type<Record<string, number>>(),
   // Economy resets move this forward: bank stats and balance-history charts
   // only count ledger rows after the epoch — whale-era churn stays in the
   // ledger for audit but out of the displayed numbers.

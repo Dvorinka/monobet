@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loanFor, LIQ_CUSHION, liqCushion, liquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "./liq";
+import { loanFor, LIQ_CUSHION, liqCushion, liquidationValueCents, shouldLiquidate, levFeeCents, levWinCents, levWinRawCents, LEV_FEE_BPS } from "./liq";
 import { tradeCost, sharesForSpend } from "./lmsr";
 
 const B = 300;
@@ -76,11 +76,13 @@ describe("shouldLiquidate", () => {
   });
 });
 
-describe("game margin (levFeeCents / levWinCents)", () => {
-  it("charges 2% of the borrowed notional, nothing at 1x", () => {
+describe("game margin (levFeeCents / levWinRawCents / levWinCents)", () => {
+  it("charges the configured bps of borrowed notional, nothing at 1x", () => {
+    expect(LEV_FEE_BPS).toBe(500);
     expect(levFeeCents(10_000, 1)).toBe(0);
-    expect(levFeeCents(10_000, 5)).toBe(Math.round(10_000 * 4 * 0.02)); // Ɱ8
-    expect(levFeeCents(10_000, 100)).toBe(Math.round(10_000 * 99 * 0.02));
+    expect(levFeeCents(10_000, 5)).toBe(Math.round(10_000 * 4 * 0.05)); // Ɱ20
+    expect(levFeeCents(10_000, 5, 200)).toBe(Math.round(10_000 * 4 * 0.02)); // custom rate
+    expect(levFeeCents(10_000, 100)).toBe(Math.round(10_000 * 99 * 0.05));
   });
 
   it("amplifies profit by leverage but always returns the stake", () => {
@@ -88,5 +90,16 @@ describe("game margin (levFeeCents / levWinCents)", () => {
     expect(levWinCents(10_000, 5, 2.4)).toBe(Math.round(10_000 * (1 + 1.4 * 5)));
     // Unleveraged reduces to the plain multiplier.
     expect(levWinCents(10_000, 1, 2.4)).toBe(Math.round(10_000 * 2.4));
+  });
+
+  it("raw return goes negative on leveraged sub-1x rounds — that's the debt", () => {
+    // Ɱ100 at 10x on a 0.5x return: notional Ɱ1000 halves → Ɱ500 back, the
+    // Ɱ900 loan eats it + the Ɱ100 stake → Ɱ400 unpaid = debt.
+    expect(levWinRawCents(10_000, 10, 0.5)).toBe(-40_000);
+    expect(levWinCents(10_000, 10, 0.5)).toBe(0); // floored for crediting
+    // Total loss (mult 0) owes the whole loan.
+    expect(levWinRawCents(10_000, 10, 0)).toBe(-90_000);
+    // Unleveraged can't go negative below zero.
+    expect(levWinRawCents(10_000, 1, 0)).toBe(0);
   });
 });

@@ -30,6 +30,7 @@ import {
   listMarkets,
   getCommunityNotes,
   getNotesFor,
+  getLevConfig,
 } from "@/lib/queries";
 import { getCurrentUser, isAdmin } from "@/lib/session";
 import { multiCoords, multiPrices } from "@/lib/lmsr";
@@ -103,8 +104,11 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
     permanentRedirect(`/market/${market.slug}${qs ? `?${qs}` : ""}`);
   }
 
-  const [user, lang] = await Promise.all([getCurrentUser(), getLang()]);
+  const [user, lang, levCfg] = await Promise.all([getCurrentUser(), getLang(), getLevConfig()]);
   const t = getT(lang);
+  // Global market cap intersects the per-market cap — admin can tighten every
+  // ticket at once; a market's own ceiling still applies.
+  const tradeLevCap = (m: { maxLeverage: number }) => Math.min(m.maxLeverage, levCfg.tradeMaxLev);
   // Pending markets are only visible to admin and their proposer.
   if (market.status === "pending" || market.status === "rejected") {
     const canSee = user && (isAdmin(user) || user.id === market.creatorId);
@@ -125,7 +129,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
     const related = sameCat.length > 0
       ? sameCat
       : (await listMarkets({ status: "live", limit: 8 })).filter((m) => m.id !== market.id).slice(0, 6);
-    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} liked={liked} likes={likes.get(market.id) ?? 0} selOpt={selOpt} selSide={selSide} />;
+    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} liked={liked} likes={likes.get(market.id) ?? 0} selOpt={selOpt} selSide={selSide} tradeLevCap={levCfg.tradeMaxLev} levFeeBps={levCfg.levFeeBps} />;
   }
 
   const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
@@ -345,7 +349,8 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               heldYes={heldYes}
               heldNo={heldNo}
               stops={stops}
-              maxLeverage={market.maxLeverage}
+              maxLeverage={tradeLevCap(market)}
+              levFeeBps={levCfg.levFeeBps}
               lang={lang}
               opensAt={market.opensAt}
               sharedQ={sharedQ}
@@ -516,7 +521,8 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               heldYes={heldYes}
               heldNo={heldNo}
               stops={stops}
-              maxLeverage={market.maxLeverage}
+              maxLeverage={tradeLevCap(market)}
+              levFeeBps={levCfg.levFeeBps}
               lang={lang}
               opensAt={market.opensAt}
               sharedQ={sharedQ}
@@ -594,8 +600,12 @@ async function GroupMarketView({
   likes = 0,
   selOpt,
   selSide,
+  tradeLevCap,
+  levFeeBps,
 }: {
   market: Awaited<ReturnType<typeof getMarketBySlug>> & object;
+  tradeLevCap: number;
+  levFeeBps: number;
   options: Awaited<ReturnType<typeof getGroupOptions>>;
   trades: Awaited<ReturnType<typeof getGroupTrades>>;
   comments: Awaited<ReturnType<typeof getComments>>;
@@ -734,7 +744,8 @@ async function GroupMarketView({
         positions={myPositions}
         balanceCents={user?.balanceCents ?? null}
         signedIn={!!user}
-        maxLeverage={market.maxLeverage}
+        maxLeverage={Math.min(market.maxLeverage, tradeLevCap)}
+        levFeeBps={levFeeBps}
         lang={lang}
         initialOpt={selOpt}
         initialSide={selSide}

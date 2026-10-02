@@ -3,15 +3,15 @@
 import { db, schema } from "@/lib/db";
 import { eq, ne, and, sql, desc, asc, isNull, inArray, gte } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, GAME_FEE_CENTS, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_WINDOW_MS, GAME_DAILY_LIMIT_MS, GAME_IDLE_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, DUEL_GAME_KEY, DUEL_TIMER_MS, type DuelKind, type DuelMove, type RpsMove, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, gameLevCap, GAME_FEE_CENTS, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_WINDOW_MS, GAME_DAILY_LIMIT_MS, GAME_IDLE_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, DUEL_GAME_KEY, DUEL_TIMER_MS, type DuelKind, type DuelMove, type RpsMove, type Persona } from "@/lib/games";
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
 import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb, houseSeedCents, MAX_TRADE_CENTS, MAX_TRADE_SPEND_CENTS, MIN_TRADE_CENTS, TRADE_FEE_CENTS } from "@/lib/lmsr";
-import { loanFor, liquidationValueCents, groupLiquidationValueCents, shouldLiquidate, levFeeCents, levWinCents } from "@/lib/liq";
-import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, garnishDebt, runStops, runGroupStops, type Tx } from "@/lib/tx-market";
+import { loanFor, liquidationValueCents, groupLiquidationValueCents, shouldLiquidate, levFeeCents, levWinCents, levWinRawCents, LEV_FEE_BPS } from "@/lib/liq";
+import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, garnishDebt, runStops, runGroupStops, addDebt, releaseDebt, type Tx } from "@/lib/tx-market";
 import { resetEconomyTx } from "@/lib/economy-reset";
-import { accruedDebtCents, LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT, LOAN_OFFER_TTL_MS, rollRateBps, DEBT_CAP_CENTS } from "@/lib/loans";
+import { accruedDebtCents, LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT, LOAN_OFFER_TTL_MS, rollRateBps, DEBT_CAP_CENTS, GAME_DEBT_RATE_BPS } from "@/lib/loans";
 import { marketYesPrice, getMarketBetCount, getStatsSince } from "@/lib/queries";
 import {
   DAILY_AMOUNT,
@@ -108,28 +108,6 @@ async function ping(tx: Pick<Tx, "select" | "insert">, userId: string, memo: str
     balanceAfterCents: w?.balanceCents ?? 0,
     kind: "notify",
     marketId,
-    memo,
-  });
-}
-
-// Adds `addCents` of principal at `rateBps` — existing debt is accrued first
-// and the rate is blended by principal so one field covers everything.
-async function addDebt(tx: Tx, userId: string, addCents: number, rateBps: number, memo: string) {
-  const u = await lockUser(tx, userId);
-  const now = new Date();
-  const cur = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince, now);
-  const total = Math.min(DEBT_CAP_CENTS, cur + Math.round(addCents));
-  const blended = total <= 0 ? 0 : Math.round((cur * u.debtRateBps + Math.round(addCents) * rateBps) / total);
-  await tx
-    .update(schema.user)
-    .set({ debtCents: total, debtRateBps: blended, debtSince: total > 0 ? now : null })
-    .where(eq(schema.user.id, userId));
-  await tx.insert(schema.ledger).values({
-    userId,
-    amountCents: 0,
-    balanceAfterCents: u.balanceCents,
-    kind: "debt",
-    marketId: null,
     memo,
   });
 }
@@ -318,6 +296,10 @@ export async function placeTrade(input: {
       if (m.opensAt && new Date(m.opensAt) > new Date()) throw new Error("Trading is not open yet");
       if (m.closesAt && new Date(m.closesAt) <= new Date()) throw new Error("Market is closed");
       const cur = await lockUser(tx, u.id);
+      const [levCfg] = await tx
+        .select({ tMax: schema.casinoConfig.tradeMaxLev, feeBps: schema.casinoConfig.levFeeBps })
+        .from(schema.casinoConfig)
+        .where(eq(schema.casinoConfig.id, "house"));
 
       const qYes = toNum(m.qYes);
       const qNo = toNum(m.qNo);
@@ -343,7 +325,8 @@ export async function placeTrade(input: {
         if (!Number.isFinite(spend) || spend < MIN_TRADE_CENTS) throw new Error("Minimum trade is Ɱ 10");
         if (spend > MAX_TRADE_SPEND_CENTS) throw new Error("Max trade is Ɱ 5 000");
         if (!TRADE_LEVERAGES.includes(leverage)) throw new Error("Bad leverage");
-        if (leverage > m.maxLeverage) throw new Error(`Max leverage on this market is ${m.maxLeverage}×`);
+        const levCap = Math.min(m.maxLeverage, levCfg?.tMax ?? 100);
+        if (leverage > levCap) throw new Error(`Max leverage here is ${levCap}×`);
         // Credit gate on the locked row — the pre-tx snapshot could be stale
         // if a repayment landed between page load and this trade.
         assertCreditLine(cur, leverage);
@@ -356,8 +339,11 @@ export async function placeTrade(input: {
           ? multiSharesForSpend(coords, b, k, outcome, notional / 100)
           : sharesForSpend(qYes, qNo, b, outcome, notional / 100);
         if (shares <= 0) throw new Error("Trade too small");
-        cashDelta = -(spend + TRADE_FEE_CENTS); // collateral + order fee; the loan makes up the rest
-        feeCharge = TRADE_FEE_CENTS;
+        // Leveraged buys pay a funding fee on the borrowed notional — the
+        // broker's spread — on top of the flat order fee.
+        const levFee = levFeeCents(spend, leverage, levCfg?.feeBps ?? LEV_FEE_BPS);
+        cashDelta = -(spend + TRADE_FEE_CENTS + levFee); // collateral + fees; the loan makes up the rest
+        feeCharge = TRADE_FEE_CENTS + levFee;
         debtDelta = loanFor(spend, leverage);
       } else {
         shares = -Math.abs(input.shares ?? 0); // negative = removing shares from market
@@ -438,7 +424,10 @@ export async function placeTrade(input: {
           (vowSkimCents > 0 ? ` · Ɱ${(vowSkimCents / 100).toFixed(2)} to debt` : "")
       );
       if (feeCharge > 0)
-        await credit(tx, u.id, -feeCharge, "fee", marketId, `${side === "buy" ? "Open" : "Close"} order fee — ${m.question.slice(0, 50)}`);
+        await credit(tx, u.id, -TRADE_FEE_CENTS, "fee", marketId, `${side === "buy" ? "Open" : "Close"} order fee — ${m.question.slice(0, 50)}`);
+      const levFeeCharge = feeCharge - TRADE_FEE_CENTS;
+      if (levFeeCharge > 0)
+        await credit(tx, u.id, -levFeeCharge, "fee", marketId, `Leverage fee — ${m.question.slice(0, 50)}`);
 
       // upsert position (shares delta + loan delta)
       const shareSet =
@@ -891,6 +880,47 @@ export async function setGameEnabled(input: { game: string; enabled: boolean }):
   }
 }
 
+// Leverage knobs: global caps for minigames and market orders, per-game
+// overrides, and the funding-fee rate on borrowed notional. All read live at
+// stake/trade time — raising a cap takes effect on the next bet.
+export async function setLeverageConfig(input: {
+  gameMaxLev: number;
+  tradeMaxLev: number;
+  levFeeBps: number;
+  gameLevCaps: Record<string, number | null>;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireAdmin();
+    const gMax = Math.round(Number(input.gameMaxLev));
+    const tMax = Math.round(Number(input.tradeMaxLev));
+    const feeBps = Math.round(Number(input.levFeeBps));
+    const leverMax = GAME_LEVERAGES[GAME_LEVERAGES.length - 1];
+    const tradeLeverMax = TRADE_LEVERAGES[TRADE_LEVERAGES.length - 1];
+    if (!Number.isFinite(gMax) || gMax < 1 || gMax > leverMax) throw new Error(`Game cap 1–${leverMax}× only`);
+    if (!Number.isFinite(tMax) || tMax < 1 || tMax > tradeLeverMax) throw new Error(`Market cap 1–${tradeLeverMax}× only`);
+    if (!Number.isFinite(feeBps) || feeBps < 0 || feeBps > 5000) throw new Error("Funding fee 0–50% only");
+    const caps: Record<string, number> = {};
+    for (const [k, v] of Object.entries(input.gameLevCaps ?? {})) {
+      if (!GAME_KEYS.includes(k as GameKey) || v == null) continue;
+      const n = Math.round(Number(v));
+      if (!Number.isFinite(n) || n < 1 || n > leverMax) throw new Error(`Per-game cap 1–${leverMax}× only`);
+      if (n !== gMax) caps[k] = n; // same-as-global entries are noise
+    }
+    await db
+      .insert(schema.casinoConfig)
+      .values({ id: "house", gameMaxLev: gMax, tradeMaxLev: tMax, levFeeBps: feeBps, gameLevCaps: Object.keys(caps).length ? caps : null })
+      .onConflictDoUpdate({
+        target: schema.casinoConfig.id,
+        set: { gameMaxLev: gMax, tradeMaxLev: tMax, levFeeBps: feeBps, gameLevCaps: Object.keys(caps).length ? caps : null, updatedAt: new Date() },
+      });
+    revalidatePath("/admin");
+    revalidatePath("/games");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Save failed" };
+  }
+}
+
 // Reset the open daily-jackpot round — the live pool is computed from wagers
 // since starts_at, so a reset moves the window's start to now (pool and
 // tickets recompute to zero; the next draw time is unchanged).
@@ -1090,7 +1120,13 @@ export async function proposeMarket(input: {
     const opensAt = input.opensAt ? new Date(input.opensAt) : null;
     if (opensAt && Number.isNaN(opensAt.getTime())) throw new Error("Bad open date");
     if (opensAt && closesAt && opensAt >= closesAt) throw new Error("Open must be before close");
-    const maxLeverage = TRADE_LEVERAGES.includes(input.maxLeverage ?? 10) ? input.maxLeverage! : 10;
+    const [levCfg] = await db
+      .select({ tMax: schema.casinoConfig.tradeMaxLev })
+      .from(schema.casinoConfig)
+      .where(eq(schema.casinoConfig.id, "house"));
+    // Per-market ceiling can't exceed the global cap — the ticket intersects
+    // both anyway, but storing the effective value keeps admins honest.
+    const maxLeverage = Math.min(TRADE_LEVERAGES.includes(input.maxLeverage ?? 10) ? input.maxLeverage! : 10, levCfg?.tMax ?? 100);
     const marketImage = input.imageUrl?.trim() || null;
     if (marketImage) {
       const isData = /^data:image\/(jpeg|png|webp);base64,/.test(marketImage) || /^data:image\/svg\+xml[;,]/.test(marketImage);
@@ -1309,10 +1345,16 @@ export async function updateMarket(input: {
       : [1, 7, 14, 30].includes(input.recurDays ?? 0)
         ? input.recurDays
         : null;
-    const maxLeverage =
+    const [levCfg] = await db
+      .select({ tMax: schema.casinoConfig.tradeMaxLev })
+      .from(schema.casinoConfig)
+      .where(eq(schema.casinoConfig.id, "house"));
+    const maxLeverage = Math.min(
       input.maxLeverage !== undefined && TRADE_LEVERAGES.includes(input.maxLeverage)
         ? input.maxLeverage
-        : m[0].maxLeverage;
+        : m[0].maxLeverage,
+      levCfg?.tMax ?? 100
+    );
 
     // Option renames/image swaps are display-only — positions and the book key
     // on the option's id, not its label. Each entry must name a real child.
@@ -2529,20 +2571,27 @@ export async function voteComment(input: {
 const MIN_BET_CENTS = 100; // Ɱ1
 const RIG_PCT = 35; // rigged dealers flip ~⅓ of player wins
 
-// Leverage on games is margin, not credit: the stake is collateral, a win
-// pays stake + (mult-1) × notional, a loss forfeits the stake and nothing
-// more. The levered top-up costs a one-off funding fee, charged up front —
-// no debt, ever.
+// Leverage on games is real margin (eToro-style): the stake is collateral,
+// the rest of the notional is borrowed from the house at stake time — a win
+// pays stake + (mult-1) × notional and releases the borrowing, a loss keeps
+// it as interest-bearing debt. The levered top-up also costs a one-off
+// funding fee, charged up front. Abandoning a leveraged round keeps the
+// debt — folding a position doesn't erase the exposure.
 // Stake + funding fee against the locked row. Split out of settleGame so the
 // timer can charge at round start — an abandoned round forfeits the wager
 // instead of refunding by silence.
 async function stakeGame(tx: Tx, userId: string, betCents: number, leverage: number, label: string, game: GameKey): Promise<number> {
   const wager = Math.round(betCents * leverage);
   if (wager > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
-  // Kill-switch — the admin's disabled list blocks new stakes for that game.
-  const [cfg] = await tx.select({ d: schema.casinoConfig.disabledGames }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house"));
+  // Kill-switch + leverage knobs ride the same config row.
+  const [cfg] = await tx
+    .select({ d: schema.casinoConfig.disabledGames, gMax: schema.casinoConfig.gameMaxLev, per: schema.casinoConfig.gameLevCaps, feeBps: schema.casinoConfig.levFeeBps })
+    .from(schema.casinoConfig)
+    .where(eq(schema.casinoConfig.id, "house"));
   if (cfg?.d?.includes(game)) throw new Error("This game is temporarily disabled");
-  const fee = levFeeCents(betCents, leverage);
+  const cap = gameLevCap(cfg ? { gameMaxLev: cfg.gMax, gameLevCaps: cfg.per } : undefined, game);
+  if (leverage > cap) throw new Error(`Max leverage here is ${cap}×`);
+  const fee = levFeeCents(betCents, leverage, cfg?.feeBps ?? LEV_FEE_BPS);
   // Credit check + charge both run on the locked row — the pre-tx snapshot
   // could be a debt repayment stale.
   const u = await lockUser(tx, userId);
@@ -2570,13 +2619,22 @@ async function stakeGame(tx: Tx, userId: string, betCents: number, leverage: num
     .set({ gameSessionStart: new Date(ws), gameLastPlayAt: new Date(now), gamePlayedMs: played })
     .where(eq(schema.user.id, u.id));
   assertCreditLine(u, leverage);
-  await credit(tx, userId, -(betCents + fee), "game", null, `${label} — wager ×${leverage}${fee > 0 ? ` · lev fee ${(fee / 100).toFixed(2)}Ɱ` : ""}`);
-  // Flat Ɱ1 round fee rides its own ledger row so admin reports it apart
-  // from the game's wager/payout swing.
+  await credit(tx, userId, -betCents, "game", null, `${label} — wager ×${leverage}`);
+  // Fees ride their own "fee" ledger rows — the flat Ɱ1 round fee and the
+  // leverage funding fee separately — so admin reports them apart from
+  // wager swings and can split funding from flat charges.
   await credit(tx, userId, -GAME_FEE_CENTS, "fee", null, `${label} — round fee`);
+  if (fee > 0) await credit(tx, userId, -fee, "fee", null, `${label} — leverage fee Ɱ${(fee / 100).toFixed(2)}`);
+  // The borrowed notional is real margin debt from the moment it stakes —
+  // a win releases it at settle, a loss (or an abandoned round) keeps it.
+  const borrowed = betCents * (leverage - 1);
+  if (borrowed > 0) await addDebt(tx, userId, borrowed, GAME_DEBT_RATE_BPS, `${label} — leveraged Ɱ${(borrowed / 100).toFixed(2)} margin`);
   return fee + GAME_FEE_CENTS;
 }
 
+// prepaidFeeCents: callers that staked at round-start pass the stored fee so
+// the settle books identically to what was debited (admin can retune the
+// funding rate between start and stop without drifting the round's books).
 async function settleGame(
   tx: Tx,
   userId: string,
@@ -2586,17 +2644,27 @@ async function settleGame(
   mult: number,
   label: string,
   dealer: Persona | undefined,
-  prepaid: boolean,
+  prepaidFeeCents: number | undefined,
   game: GameKey
 ): Promise<{ netCents: number; feeCents: number; skimCents: number; tavCents: number }> {
   const wager = Math.round(betCents * leverage);
   if (wager > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
-  const fee = prepaid ? levFeeCents(betCents, leverage) + GAME_FEE_CENTS : await stakeGame(tx, userId, betCents, leverage, label, game);
+  const fee = prepaidFeeCents !== undefined ? prepaidFeeCents : await stakeGame(tx, userId, betCents, leverage, label, game);
+  const borrowed = betCents * (leverage - 1);
   let win = 0;
   let skim = 0;
   let tav = 0;
+  // Raw return can go negative on leveraged sub-1x rounds — that unpaid part
+  // of the borrowed notional stays on the books as debt.
+  const rawWin = won ? levWinRawCents(betCents, leverage, mult) : betCents - wager;
+  win = Math.max(0, rawWin);
+  const owed = Math.max(0, -rawWin); // portion of the margin the round can't repay
+  // Release the margin this settlement repays BEFORE garnishing the win —
+  // otherwise a vowing player's own round-margin would eat their profit and
+  // then get released anyway (double-counted).
+  const release = borrowed - owed;
+  if (release > 0) await releaseDebt(tx, userId, release, `${label} — leverage repaid Ɱ${(release / 100).toFixed(2)}`);
   if (won) {
-    win = levWinCents(betCents, leverage, mult);
     // A debtor's win pays the house debt first — the profit garnishes it.
     skim = Math.min(win, await garnishDebt(tx, userId, win - betCents, label));
     const take = win - skim;
@@ -2605,7 +2673,7 @@ async function settleGame(
     if (take > 0) await credit(tx, userId, take, "game", null, `${label} — ${win > betCents ? "won" : win === betCents ? "push" : "partial return"} ×${mult}${skim ? " (debt repaid)" : ""}`);
     if (dealer && dealerFx(dealer).blessed) tav = await telAvivBonus(tx, userId);
   }
-  return { netCents: win - skim - betCents - fee, feeCents: fee, skimCents: skim, tavCents: tav };
+  return { netCents: win - skim - betCents - fee - owed, feeCents: fee, skimCents: skim, tavCents: tav };
 }
 
 // Tel Aviv bonus — a win under Bibi forgives 6.7% of accrued house debt, at
@@ -2724,7 +2792,7 @@ export async function playCoinFlip(input: {
       won = false;
     }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, won, COINFLIP_MULT, `Coin flip ${input.pick}→${landed}`, dealer, false, "coinflip")
+      settleGame(tx, u.id, bet, lev, won, COINFLIP_MULT, `Coin flip ${input.pick}→${landed}`, dealer, undefined, "coinflip")
     );
     revalidatePath("/games");
     return { ok: true, won, landed, netCents, dealer, feeCents, skimCents, tavCents };
@@ -2770,7 +2838,7 @@ export async function playDice(input: {
       won = false;
     }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, won, mult, `Dice >${over} → ${roll}`, dealer, false, "dice")
+      settleGame(tx, u.id, bet, lev, won, mult, `Dice >${over} → ${roll}`, dealer, undefined, "dice")
     );
     revalidatePath("/games");
     return { ok: true, won, roll, netCents, dealer, feeCents, skimCents, tavCents };
@@ -2845,7 +2913,7 @@ export async function stopTimerRound(input: {
         mult = timerMult(0, round.targetMs); // blessed reads as a perfect stop
         won = true;
       }
-      const s = await settleGame(tx, u.id, round.betCents, round.leverage, won, mult, `Timer ${round.targetMs / 1000}s off by ${err}ms`, dealer, true, "timer");
+      const s = await settleGame(tx, u.id, round.betCents, round.leverage, won, mult, `Timer ${round.targetMs / 1000}s off by ${err}ms`, dealer, round.feeCents, "timer");
       return { round, elapsed, err, won, mult, ...s };
     });
     revalidatePath("/games");
@@ -2880,7 +2948,7 @@ export async function playRedBlack(input: {
     else if (luck === "lose") { card = draw(input.pick === "black"); won = false; }
     const landed = cardIsRed(card) ? "red" : "black";
     const s = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, won, REDBLACK_MULT, `Red/Black ${input.pick}→${landed}`, dealer, false, "redblack")
+      settleGame(tx, u.id, bet, lev, won, REDBLACK_MULT, `Red/Black ${input.pick}→${landed}`, dealer, undefined, "redblack")
     );
     revalidatePath("/games");
     return { ok: true, won, card, netCents: s.netCents, dealer, feeCents: s.feeCents, skimCents: s.skimCents, tavCents: s.tavCents };
@@ -2964,7 +3032,7 @@ export async function hiloPlay(input: {
       push = cardOrder(card) === fo;
       const mult = push ? 1 : hiloMult(round.faceCard, input.dir);
       const face = cardLabel(round.faceCard), next = cardLabel(card);
-      const s = await settleGame(tx, u.id, round.betCents, round.leverage, won, mult, `Hi-Lo ${input.dir} ${face.rank}${face.suit}→${next.rank}${next.suit}`, dealer, true, "hilo");
+      const s = await settleGame(tx, u.id, round.betCents, round.leverage, won, mult, `Hi-Lo ${input.dir} ${face.rank}${face.suit}→${next.rank}${next.suit}`, dealer, round.feeCents, "hilo");
       return { round, card, push, won, mult, ...s };
     });
     revalidatePath("/games");
@@ -3012,7 +3080,7 @@ export async function playLimbo(input: {
       won = false;
     }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, won, target * 0.98, `Limbo ≥${target}x → ${roll.toFixed(2)}x`, dealer, false, "limbo")
+      settleGame(tx, u.id, bet, lev, won, target * 0.98, `Limbo ≥${target}x → ${roll.toFixed(2)}x`, dealer, undefined, "limbo")
     );
     revalidatePath("/games");
     return { ok: true, won, roll: Math.round(roll * 100) / 100, netCents, dealer, feeCents, skimCents, tavCents };
@@ -3059,7 +3127,7 @@ export async function playWheel(input: {
       mult = 0;
     }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Wheel → ${mult}x`, dealer, false, "wheel")
+      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Wheel → ${mult}x`, dealer, undefined, "wheel")
     );
     revalidatePath("/games");
     return { ok: true, index, mult, netCents, dealer, feeCents, skimCents, tavCents };
@@ -3123,7 +3191,7 @@ export async function playSlots(input: {
     }
     const label = `Slots ${reels.map((i) => SLOT_SYMBOLS[i]).join(" ")}`;
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, mult > 0, mult, label, dealer, false, "slots")
+      settleGame(tx, u.id, bet, lev, mult > 0, mult, label, dealer, undefined, "slots")
     );
     revalidatePath("/games");
     return { ok: true, reels, mult, netCents, dealer, feeCents, skimCents, tavCents };
@@ -3172,7 +3240,7 @@ export async function playPlinko(input: {
     if (luck === "win") move(rescue(bucket));
     else if (luck === "lose") move(spoil(bucket));
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Plinko → pocket ${bucket} ×${mult}`, dealer, false, "plinko")
+      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Plinko → pocket ${bucket} ×${mult}`, dealer, undefined, "plinko")
     );
     revalidatePath("/games");
     return { ok: true, path, bucket, mult, netCents, dealer, feeCents, skimCents, tavCents };
@@ -3945,14 +4013,20 @@ function shuffledShoe(): number[] {
 // way. No debt is ever created. `loanCents` on the row stores the fee paid.
 async function settleBlackjack(
   tx: Tx,
-  round: { id: string; userId: string; betCents: number; leverage: number; persona: Persona },
+  round: { id: string; userId: string; betCents: number; leverage: number; persona: Persona; loanCents?: number | null },
   result: "win" | "lose" | "push" | "blackjack" | "surrender",
   dealerName: string
 ): Promise<{ net: number; feeCents: number; skim: number; tav: number }> {
   const label = `Blackjack vs ${dealerName}`;
-  const fee = levFeeCents(round.betCents, round.leverage);
+  const fee = round.loanCents ?? levFeeCents(round.betCents, round.leverage) + GAME_FEE_CENTS;
   // Lock the user row first — garnishDebt/telAvivBonus read it post-lock.
   await lockUser(tx, round.userId);
+  // The margin borrowed at deal/double is released by every non-loss result;
+  // on a loss it stays booked — that's the leveraged loss the house collects.
+  const borrowed = round.betCents * (round.leverage - 1);
+  const owed = result === "lose" ? borrowed : 0;
+  const release = borrowed - owed;
+  if (release > 0) await releaseDebt(tx, round.userId, release, `${label} — leverage repaid Ɱ${(release / 100).toFixed(2)}`);
   let net: number;
   let skim = 0;
   let tav = 0;
@@ -3973,7 +4047,7 @@ async function settleBlackjack(
     await credit(tx, round.userId, round.betCents, "game", null, `${label} — push, stake back`);
     net = -fee;
   } else {
-    net = -(round.betCents + fee);
+    net = -(round.betCents + fee + owed);
   }
   await tx
     .update(schema.blackjackRound)
@@ -4177,13 +4251,18 @@ export async function blackjackDouble(input: { roundId: string }): Promise<{ ok:
       if (expired) { state = bjState(r, false); return; }
       if (r.player.length !== 2 || r.doubled) throw new Error("Double is a first-move option");
       // The stake cap applies at deal time; a double is part of that hand, not a new wager.
-      // The fee scales with the bet, so doubling costs bet + one more fee unit.
-      const extraFee = levFeeCents(r.betCents, r.leverage);
-      await credit(tx, u.id, -(r.betCents + extraFee), "game", null, `Blackjack vs ${r.persona.name} — doubled`);
+      // The fee scales with the bet, so doubling costs bet + one more fee unit,
+      // and the extra stake borrows its own margin leg.
+      const [cfg] = await tx.select({ feeBps: schema.casinoConfig.levFeeBps }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house"));
+      const extraFee = levFeeCents(r.betCents, r.leverage, cfg?.feeBps ?? LEV_FEE_BPS);
+      await credit(tx, u.id, -r.betCents, "game", null, `Blackjack vs ${r.persona.name} — doubled`);
+      if (extraFee > 0) await credit(tx, u.id, -extraFee, "fee", null, `Blackjack vs ${r.persona.name} — double leverage fee`);
+      const extraBorrow = r.betCents * (r.leverage - 1);
+      if (extraBorrow > 0) await addDebt(tx, u.id, extraBorrow, GAME_DEBT_RATE_BPS, `Blackjack vs ${r.persona.name} — doubled margin Ɱ${(extraBorrow / 100).toFixed(2)}`);
       const deck = [...r.deck];
       const card = deck.pop()!;
       const player = [...r.player, card];
-      const doubledRound = { ...r, betCents: r.betCents * 2 };
+      const doubledRound = { ...r, betCents: r.betCents * 2, loanCents: (r.loanCents ?? 0) + extraFee };
       await tx.update(schema.blackjackRound).set({ deck, player, betCents: doubledRound.betCents, doubled: true }).where(eq(schema.blackjackRound.id, r.id));
       if (handTotal(player).total > 21) {
         const { net, feeCents, skim, tav } = await settleBlackjack(tx, doubledRound, "lose", r.persona.name);
