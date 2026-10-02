@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, Input, Select, Badge } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminRenameUser, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer, setCasinoRig, setUserLuck, setGameEnabled, resetJackpot, adminResetEconomy } from "@/lib/actions";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminRenameUser, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer, setCasinoRig, setUserLuck, setGameEnabled, setLeverageConfig, resetJackpot, adminResetEconomy } from "@/lib/actions";
 import { GAME_KEYS } from "@/lib/games";
 import { fmtMonos, fmtDate } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -235,9 +235,10 @@ type HouseStats = {
   profitCents: number;
   profit24hCents: number;
   profit7dCents: number;
-  feesCents: { total: number; game: number; trade: number };
+  feesCents: { total: number; game: number; trade: number; levGame: number; levTrade: number };
   rigBps: number;
   disabledGames: string[];
+  lev: { gameMaxLev: number; tradeMaxLev: number; levFeeBps: number; gameLevCaps: Record<string, number> };
   loans: { count: number; disbursedCents: number; repaidCents: number; outstandingCents: number; positionCents: number };
 };
 
@@ -255,6 +256,14 @@ export function HousePanel({
   const [rigPct, setRigPct] = useState((stats.rigBps / 100).toFixed(0));
   const [luckUser, setLuckUser] = useState(users[0]?.id ?? "");
   const [luckPct, setLuckPct] = useState("");
+  // Leverage knobs — per-game fields stay blank unless an override exists;
+  // blank means "follow the global game cap".
+  const [levGame, setLevGame] = useState(String(stats.lev.gameMaxLev));
+  const [levTrade, setLevTrade] = useState(String(stats.lev.tradeMaxLev));
+  const [levFee, setLevFee] = useState((stats.lev.levFeeBps / 100).toFixed(0));
+  const [levPer, setLevPer] = useState<Record<string, string>>(
+    Object.fromEntries(Object.entries(stats.lev.gameLevCaps).map(([k, v]) => [k, String(v)]))
+  );
   const houseGameName = (key: string) =>
     (({ Coin: t.gCoinFlip, Dice: t.gDice, Timer: t.gTimer, Limbo: t.gLimbo, Wheel: t.gWheel, Slots: t.gSlots, Plinko: t.gPlinko, Blackjack: t.gBlackjack, "Hi-Lo": t.gHilo, "Red/Black": t.gRedBlack, coinflip: t.gCoinFlip, dice: t.gDice, timer: t.gTimer, limbo: t.gLimbo, wheel: t.gWheel, slots: t.gSlots, plinko: t.gPlinko, blackjack: t.gBlackjack, hilo: t.gHilo, redblack: t.gRedBlack } as Record<string, string>)[key] ?? key);
   const luckyUsers = users.filter((u) => u.luckBps !== 0);
@@ -283,6 +292,7 @@ export function HousePanel({
           <div className="text-[11px] font-semibold text-faint">{t.houseFees}</div>
           <div className="num text-[17px] font-bold text-yes-strong">+{fmtMonos(stats.feesCents.total, { lang })}</div>
           <div className="num text-[10.5px] text-faint">{t.houseFeesNote(fmtMonos(stats.feesCents.game, { lang }), fmtMonos(stats.feesCents.trade, { lang }))}</div>
+          <div className="num text-[10.5px] text-faint">{t.houseFeesLevNote(fmtMonos(stats.feesCents.levGame, { lang }), fmtMonos(stats.feesCents.levTrade, { lang }))}</div>
         </div>
       </div>
 
@@ -410,6 +420,61 @@ export function HousePanel({
           </div>
           <p className="text-[11px] text-faint">{t.houseGamesNote}</p>
         </div>
+
+        <form
+          className="rounded-xl border border-line bg-surface-2 p-3 space-y-2 sm:col-span-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(
+              () =>
+                setLeverageConfig({
+                  gameMaxLev: Math.round(parseFloat(levGame || "1")),
+                  tradeMaxLev: Math.round(parseFloat(levTrade || "1")),
+                  levFeeBps: Math.round(parseFloat(levFee || "0") * 100),
+                  gameLevCaps: Object.fromEntries(
+                    GAME_KEYS.map((g) => [g, levPer[g] === "" || levPer[g] == null ? null : Math.round(parseFloat(levPer[g]))])
+                  ),
+                }),
+              t.savedToast
+            );
+          }}
+        >
+          <div className="text-[12px] font-bold text-ink">{t.levCfgTitle}</div>
+          <div className="grid grid-cols-3 gap-2">
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.levCfgGames}</span>
+              <Input type="number" min={1} max={100} step="1" value={levGame} onChange={(e) => setLevGame(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.levCfgMarkets}</span>
+              <Input type="number" min={1} max={100} step="1" value={levTrade} onChange={(e) => setLevTrade(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.levCfgFee}</span>
+              <Input type="number" min={0} max={50} step="0.5" value={levFee} onChange={(e) => setLevFee(e.target.value)} />
+            </label>
+          </div>
+          <div className="grid grid-cols-5 gap-1.5">
+            {GAME_KEYS.map((g) => (
+              <label key={g} className="space-y-0.5">
+                <span className="block truncate text-[10.5px] font-medium text-mute">{houseGameName(g)}</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step="1"
+                  placeholder={levGame}
+                  value={levPer[g] ?? ""}
+                  onChange={(e) => setLevPer((p) => ({ ...p, [g]: e.target.value }))}
+                />
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-faint">{t.levCfgNote}</p>
+            <Button size="sm" disabled={pending}>{t.save}</Button>
+          </div>
+        </form>
 
         <div className="rounded-xl border border-line bg-surface-2 p-3 space-y-2">
           <div className="text-[12px] font-bold text-ink">{t.houseDangerTitle}</div>

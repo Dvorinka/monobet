@@ -46,6 +46,7 @@ export function GroupTrade({
   balanceCents,
   signedIn,
   maxLeverage,
+  levFeeBps,
   lang,
   initialOpt,
   initialSide,
@@ -71,6 +72,7 @@ export function GroupTrade({
   balanceCents: number | null;
   signedIn: boolean;
   maxLeverage: number;
+  levFeeBps?: number;
   lang?: Lang;
   initialOpt?: string;
   initialSide?: string;
@@ -140,6 +142,7 @@ export function GroupTrade({
       heldNo={selPos?.no ?? 0}
       stops={selPos ? { tpYes: selPos.tpYes, slYes: selPos.slYes, tpNo: selPos.tpNo, slNo: selPos.slNo, yesPct: selPos.yesPct, noPct: selPos.noPct } : null}
       maxLeverage={maxLeverage}
+      levFeeBps={levFeeBps}
       lang={lang}
       defaultOutcome={side}
       opensAt={sel.opensAt}

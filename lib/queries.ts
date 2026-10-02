@@ -507,7 +507,17 @@ export async function getHouseStats() {
       })
       .from(schema.ledger)
       .where(sinceCond("game")),
-    db.select({ rigBps: schema.casinoConfig.rigBps, disabledGames: schema.casinoConfig.disabledGames }).from(schema.casinoConfig).where(eq(schema.casinoConfig.id, "house")),
+    db
+      .select({
+        rigBps: schema.casinoConfig.rigBps,
+        disabledGames: schema.casinoConfig.disabledGames,
+        gameMaxLev: schema.casinoConfig.gameMaxLev,
+        tradeMaxLev: schema.casinoConfig.tradeMaxLev,
+        levFeeBps: schema.casinoConfig.levFeeBps,
+        gameLevCaps: schema.casinoConfig.gameLevCaps,
+      })
+      .from(schema.casinoConfig)
+      .where(eq(schema.casinoConfig.id, "house")),
     // Loans pay the house on the way back: disbursement is a positive row
     // (cash out the door), a cash repayment a negative one, a garnished win a
     // zero row with the amount in the memo ("win repaid XⱮ").
@@ -526,12 +536,15 @@ export async function getHouseStats() {
       .from(schema.ledger)
       .where(sinceCond("repay")),
     // Flat order/round fees land under kind "fee": market_id set → trade fee,
-    // null → minigame round fee.
+    // null → minigame round fee. Funding fees ride the same kind; their memo
+    // says "leverage fee" — that's the split key, keep memos consistent.
     db
       .select({
         totalCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}), 0)::bigint`,
         gameCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}) filter (where ${schema.ledger.marketId} is null), 0)::bigint`,
         tradeCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}) filter (where ${schema.ledger.marketId} is not null), 0)::bigint`,
+        levGameCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}) filter (where ${schema.ledger.marketId} is null and ${schema.ledger.memo} ilike '%leverage fee%'), 0)::bigint`,
+        levTradeCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}) filter (where ${schema.ledger.marketId} is not null and ${schema.ledger.memo} ilike '%leverage fee%'), 0)::bigint`,
       })
       .from(schema.ledger)
       .where(sinceCond("fee")),
@@ -545,7 +558,7 @@ export async function getHouseStats() {
   const w = windows[0] ?? { wageredCents: 0, paidCents: 0, profit24h: 0, profit7d: 0 };
   const loan = loanRows[0] ?? { count: 0, disbursedCents: 0 };
   const rep = garnishRows[0] ?? { repaidCents: 0, garnishedCents: 0 };
-  const fees = feeRows[0] ?? { totalCents: 0, gameCents: 0, tradeCents: 0 };
+  const fees = feeRows[0] ?? { totalCents: 0, gameCents: 0, tradeCents: 0, levGameCents: 0, levTradeCents: 0 };
   const repaidCents = Number(rep.repaidCents) + Number(rep.garnishedCents);
   const outstandingCents = debtors.reduce((s, d) => s + accruedDebtCents(Number(d.debtCents), d.debtRateBps, d.debtSince), 0);
   return {
@@ -560,9 +573,21 @@ export async function getHouseStats() {
     profitCents: Number(w.wageredCents) - Number(w.paidCents),
     profit24hCents: Number(w.profit24h),
     profit7dCents: Number(w.profit7d),
-    feesCents: { total: Number(fees.totalCents), game: Number(fees.gameCents), trade: Number(fees.tradeCents) },
+    feesCents: {
+      total: Number(fees.totalCents),
+      game: Number(fees.gameCents),
+      trade: Number(fees.tradeCents),
+      levGame: Number(fees.levGameCents),
+      levTrade: Number(fees.levTradeCents),
+    },
     rigBps: cfg[0]?.rigBps ?? 0,
     disabledGames: cfg[0]?.disabledGames ?? [],
+    lev: {
+      gameMaxLev: cfg[0]?.gameMaxLev ?? 10,
+      tradeMaxLev: cfg[0]?.tradeMaxLev ?? 10,
+      levFeeBps: cfg[0]?.levFeeBps ?? 500,
+      gameLevCaps: cfg[0]?.gameLevCaps ?? {},
+    },
     // Bank position on loans: cash repaid + garnished wins + live debt claims
     // still on the books, minus cash lent out. Debt forgiven by the wall or
     // lost to liquidation simply isn't in outstanding — it shows as a loss.
@@ -1079,6 +1104,34 @@ async function drawJackpot(roundId: string): Promise<boolean> {
 // Whoever loads the games page after draw_at settles the round and opens the
 // next — same idempotent lazy-rollover as ensureSeason. cache() dedupes it
 // within a request.
+// Leverage configuration — global caps for games and market orders, the
+// funding-fee rate, and per-game overrides. Read by the games page, the
+// market ticket, and the admin panel so the UI shows exactly what the
+// server will accept.
+export async function getLevConfig(): Promise<{
+  gameMaxLev: number;
+  tradeMaxLev: number;
+  levFeeBps: number;
+  gameLevCaps: Record<string, number> | null;
+}> {
+  const [cfg] = await db
+    .select({
+      gameMaxLev: schema.casinoConfig.gameMaxLev,
+      tradeMaxLev: schema.casinoConfig.tradeMaxLev,
+      levFeeBps: schema.casinoConfig.levFeeBps,
+      gameLevCaps: schema.casinoConfig.gameLevCaps,
+    })
+    .from(schema.casinoConfig)
+    .where(eq(schema.casinoConfig.id, "house"))
+    .limit(1);
+  return {
+    gameMaxLev: cfg?.gameMaxLev ?? 10,
+    tradeMaxLev: cfg?.tradeMaxLev ?? 10,
+    levFeeBps: cfg?.levFeeBps ?? 500,
+    gameLevCaps: cfg?.gameLevCaps ?? null,
+  };
+}
+
 // Admin's disabled-game list — cheap, no cache: the kill-switch must show up
 // on the lobby the moment it's flipped.
 export async function getDisabledGames(): Promise<string[]> {

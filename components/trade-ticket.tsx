@@ -6,6 +6,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Segmented, Button } from "@/components/ui/primitives";
 import { sharesForSpend, tradeCost, yesPrice, multiPrices, multiTradeCost, multiSharesForSpend, MAX_TRADE_CENTS, MAX_TRADE_SPEND_CENTS, MIN_TRADE_CENTS, TRADE_FEE_CENTS } from "@/lib/lmsr";
+import { levFeeCents, LEV_FEE_BPS } from "@/lib/liq";
 import { fmtMonos, fmtCents, fmtShares, fmtDateTime } from "@/lib/money";
 import { playSfx } from "@/lib/sfx";
 import { getT, type Lang } from "@/lib/i18n";
@@ -24,6 +25,7 @@ export function TradeTicket({
   heldYes,
   heldNo,
   maxLeverage = 10,
+  levFeeBps,
   lang,
   title,
   defaultOutcome,
@@ -42,6 +44,8 @@ export function TradeTicket({
   heldYes: number;
   heldNo: number;
   maxLeverage?: number;
+  // Funding-fee rate in bps of borrowed notional — matches the server config.
+  levFeeBps?: number;
   lang?: Lang;
   // Optional header (e.g. the selected option label on group markets).
   title?: React.ReactNode;
@@ -236,6 +240,9 @@ export function TradeTicket({
             <Row k={t.loanLabel} v={fmtMonos(spendCents * (lev - 1), { lang })} />
           )}
           <Row k={t.orderFee} v={fmtMonos(TRADE_FEE_CENTS, { lang })} />
+          {side === "buy" && lev > 1 && (
+            <Row k={t.levFee} v={fmtMonos(levFeeCents(spendCents, lev, levFeeBps ?? LEV_FEE_BPS), { lang })} />
+          )}
           {side === "buy" ? (
             <Row k={t.paysIfRight} v={fmtMonos(est.toWin, { lang })} accent />
           ) : (

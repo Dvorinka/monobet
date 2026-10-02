@@ -1,7 +1,20 @@
 // Minigame payout math — shared between the /games UI (odds display) and the
 // server actions that settle rounds. No secrets here; tokens live in actions.
 
-export const GAME_LEVERAGES = [1, 2, 3, 5, 10] as const;
+// The full lever menu — the effective cap comes from casino_config
+// (game_max_lev / game_lev_caps), default 10x; admin can raise or lower it.
+export const GAME_LEVERAGES = [1, 2, 3, 5, 10, 25, 50, 100] as const;
+
+// Effective leverage cap for a game: per-game override wins, else the global
+// game cap; never above the biggest lever the UI/engine supports.
+export function gameLevCap(
+  cfg: { gameMaxLev?: number | null; gameLevCaps?: Record<string, number> | null } | undefined,
+  game: string
+): number {
+  const per = cfg?.gameLevCaps?.[game];
+  const raw = Math.max(1, Math.round(per ?? cfg?.gameMaxLev ?? 10));
+  return Math.min(raw, GAME_LEVERAGES[GAME_LEVERAGES.length - 1]);
+}
 // Flat house fee on every round — charged up front with the stake, tracked
 // under ledger kind "fee" so admin can see it apart from game P&L.
 export const GAME_FEE_CENTS = 100;

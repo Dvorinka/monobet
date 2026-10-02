@@ -46,18 +46,26 @@ export function groupLiquidationValueCents(
   return Math.round((multiCost(coords, b) - multiCost(after, b)) * 100);
 }
 
-// --- Game leverage (eToro-style, no debt) ---
-// A leveraged bet posts the stake as margin: a win pays stake + (mult-1) ×
-// notional, a loss forfeits the stake — never more. The leveraged top-up is
-// bought with a one-off funding fee (like a broker's spread), charged up front.
-export const LEV_FEE_BPS = 200; // 2% of the borrowed notional per play
-export function levFeeCents(betCents: number, leverage: number): number {
+// --- Game leverage (eToro-style margin) ---
+// A leveraged bet posts the stake as margin and borrows the rest of the
+// notional from the house: a win pays stake + (mult-1) × notional and the
+// borrowing is released, a loss forfeits the whole notional — the borrowed
+// leg stays on the books as house debt (it accrues, garnishes wins, blocks
+// new leverage). The leveraged top-up is also bought with a one-off funding
+// fee (like a broker's spread), charged up front.
+export const LEV_FEE_BPS = 500; // default 5% of the borrowed notional — admin-tunable
+export function levFeeCents(betCents: number, leverage: number, bps = LEV_FEE_BPS): number {
   if (leverage <= 1) return 0;
-  return Math.round(betCents * (leverage - 1) * (LEV_FEE_BPS / 10_000));
+  return Math.round(betCents * (leverage - 1) * (bps / 10_000));
 }
-// Win payout under margin rules: stake back plus amplified profit. A
-// sub-1x multiplier counts as a losing move on the position — deep enough
-// leverage wipes it out entirely, so the payout floors at zero.
+// Raw (unfloored) return: stake back plus amplified profit — can go negative
+// at sub-1x multipliers under leverage; the negative part is the unpaid
+// borrowed loss, booked as debt.
+export function levWinRawCents(betCents: number, leverage: number, mult: number): number {
+  return Math.round(betCents * (1 + (mult - 1) * leverage));
+}
+// Win payout under margin rules: floored at zero for crediting — the
+// remainder below zero is debt, not a bigger payout.
 export function levWinCents(betCents: number, leverage: number, mult: number): number {
-  return Math.max(0, Math.round(betCents * (1 + (mult - 1) * leverage)));
+  return Math.max(0, levWinRawCents(betCents, leverage, mult));
 }

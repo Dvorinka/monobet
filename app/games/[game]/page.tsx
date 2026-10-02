@@ -8,8 +8,8 @@ import { getT } from "@/lib/i18n";
 import { GameView, type GameSlug } from "@/components/games-panel";
 import { SessionChip } from "@/components/session-chip";
 import { LiveRefresher } from "@/components/live-refresher";
-import { listDealers, getDisabledGames } from "@/lib/queries";
-import { GAME_KEYS } from "@/lib/games";
+import { listDealers, getDisabledGames, getLevConfig } from "@/lib/queries";
+import { GAME_KEYS, gameLevCap } from "@/lib/games";
 import { ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: { params: Promise<{ game: str
 export default async function GamePage({ params }: { params: Promise<{ game: string }> }) {
   const { game } = await params;
   if (!SLUGS.includes(game)) notFound();
-  const [user, lang, dealers, disabled] = await Promise.all([getCurrentUser(), getLang(), listDealers(), getDisabledGames()]);
+  const [user, lang, dealers, disabled, levCfg] = await Promise.all([getCurrentUser(), getLang(), listDealers(), getDisabledGames(), getLevConfig()]);
   if (!user) redirect("/login");
   // Kill-switch: eject anyone sitting on a disabled game — the page is
   // force-dynamic and LiveRefresher polls it, so an admin flip lands here
@@ -53,6 +53,8 @@ export default async function GamePage({ params }: { params: Promise<{ game: str
           lang={lang}
           dealers={dealers.filter((d) => d.active).map((d) => ({ id: d.id, name: d.name, avatar: d.avatar, quipWin: d.quipWin, quipLose: d.quipLose }))}
           inDebt={accruedDebtCents(user.debtCents, user.debtRateBps, user.debtSince) > 0}
+          levCap={gameLevCap(levCfg, game)}
+          levFeeBps={levCfg.levFeeBps}
         />
       </div>
       <p className="mt-8 text-[12px] text-faint leading-relaxed">{t.fairNote}</p>

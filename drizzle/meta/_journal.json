@@ -323,6 +323,13 @@
       "when": 1790878608970,
       "tag": "0045_sellpct",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1790926986378,
+      "tag": "0046_levcfg",
+      "breakpoints": true
     }
   ]
 }

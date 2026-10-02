@@ -206,6 +206,8 @@ function BetControls({
   lang,
   sideCents,
   winPreview,
+  levCap,
+  feeBps,
 }: {
   bet: string;
   setBet: (v: string) => void;
@@ -219,17 +221,33 @@ function BetControls({
   // Multiplier a win pays — `max` marks a ceiling (variable-outcome games).
   // Shown lever-adjusted so the leverage's real effect is visible.
   winPreview?: { mult: number; max?: boolean };
+  // Effective leverage cap for this game (global or per-game override).
+  levCap?: number;
+  // Funding-fee rate in bps of borrowed notional — matches the server config.
+  feeBps?: number;
 }) {
   const t = getT(lang ?? "en");
   const betCents = Math.round(parseFloat(bet || "0") * 100);
+  const cap = levCap ?? GAME_LEVERAGES[GAME_LEVERAGES.length - 1];
+  const bps = feeBps ?? LEV_FEE_BPS;
+  const levers = GAME_LEVERAGES.filter((v) => v <= cap);
+  // A lowered cap leaves a stale chip selected — pin down to the biggest
+  // still-allowed lever so the submit can't fire a rejected value.
+  useEffect(() => {
+    if (Number(lev) > cap) setLev(String(levers[levers.length - 1] ?? 1));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- levers derives from cap
+  }, [cap, lev]);
   const levN = Number(lev);
   const sides = sideCents ?? 0;
-  const fee = levFeeCents(betCents, levN);
-  const atRisk = betCents + sides + fee;
+  const fee = levFeeCents(betCents, levN, bps);
+  // Worst case is bigger than the stake: a total loss forfeits the collateral
+  // AND leaves the borrowed notional as debt — show the true exposure.
+  const borrowed = betCents * (levN - 1);
+  const atRisk = betCents + sides + fee + borrowed;
   // Max stake: balance must cover stake + side bets + the funding fee, and
   // the borrowed notional stays under the house cap.
   const maxCents = Math.min(
-    Math.floor((balanceCents - sides) / (1 + ((levN - 1) * LEV_FEE_BPS) / 10_000)),
+    Math.floor((balanceCents - sides) / (1 + ((levN - 1) * bps) / 10_000)),
     MAX_GAME_STAKE_CENTS // base stake ceiling — leverage can't stretch it
   );
   const clampBet = (v: string) => {
@@ -290,13 +308,15 @@ function BetControls({
           <span className="num">{t.atRisk} {fmtMonos(atRisk, { lang })}</span>
         </div>
         <Segmented
-          options={GAME_LEVERAGES.map((v) => ({ value: String(v), label: `${v}×` }))}
+          options={levers.map((v) => ({ value: String(v), label: `${v}×` }))}
           value={lev}
           onChange={setLev}
           disabled={locked}
         />
         {levN > 1 && !locked && (
-          <p className="mt-1.5 text-[11.5px] text-faint">{t.levFeeNote(fmtMonos(fee, { lang }))}</p>
+          <p className="mt-1.5 text-[11.5px] text-faint">
+            {t.levFeeNote(fmtMonos(fee, { lang }))} · {t.levDebtNote(fmtMonos(borrowed, { lang }))}
+          </p>
         )}
         {winPreview && betCents > 0 && (
           <p className="mt-1.5 text-[11.5px] font-medium text-yes-strong">
@@ -345,9 +365,9 @@ function GameCard({
 
 // ---------- coin flip ----------
 
-type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; inDebt?: boolean; demo?: boolean; onWinFx?: (amt: number, fx: WinFx, tavCents?: number) => void };
+type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; inDebt?: boolean; demo?: boolean; onWinFx?: (amt: number, fx: WinFx, tavCents?: number) => void; levCap?: number; feeBps?: number };
 
-function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
+function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [pick, setPick] = useState<"heads" | "tails">("heads");
@@ -427,7 +447,7 @@ function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: G
             value={pick}
             onChange={(v) => setPick(v)}
           />
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} winPreview={{ mult: COINFLIP_MULT }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || spinning} lang={lang} winPreview={{ mult: COINFLIP_MULT }} />
           <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={flip}>
             {spinning ? t.flipping : t.flip}
           </Button>
@@ -458,7 +478,7 @@ function DiceFace({ value, rolling }: { value: number; rolling: boolean }) {
   );
 }
 
-function DiceCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
+function DiceCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [over, setOver] = useState(3);
@@ -529,7 +549,7 @@ function DiceCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameP
               className="w-full accent-brand cursor-pointer"
             />
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || rolling} lang={lang} winPreview={{ mult: diceMult(over) }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || rolling} lang={lang} winPreview={{ mult: diceMult(over) }} />
           <Button className="w-full" size="lg" disabled={pending || rolling || !parseFloat(bet)} onClick={roll}>
             {rolling ? t.rolling : t.roll}
           </Button>
@@ -592,7 +612,7 @@ function TimerDigits({ phase, clockRef, frozen, targetMs, lang }: {
   );
 }
 
-function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx, levCap, feeBps }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [target, setTarget] = useState(String(TIMER_TARGETS[0] / 1000));
@@ -710,7 +730,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
               </table>
             </div>
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || phase === "running"} lang={lang} winPreview={{ mult: timerTopMult(targetMs), max: true }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || phase === "running"} lang={lang} winPreview={{ mult: timerTopMult(targetMs), max: true }} />
           {phase === "running" ? (
             // Stop is never gated on `pending` — while the start request is
             // still in flight the stop queues on the token promise instead
@@ -732,7 +752,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
 
 // ---------- limbo ----------
 
-function LimboCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
+function LimboCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [target, setTarget] = useState(2);
@@ -840,7 +860,7 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: Game
               className="w-full accent-brand cursor-pointer"
             />
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || busy} lang={lang} winPreview={{ mult: target * 0.98 }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || busy} lang={lang} winPreview={{ mult: target * 0.98 }} />
           <Button className="w-full" size="lg" disabled={pending || busy || !parseFloat(bet)} onClick={play}>
             {busy ? t.launching : t.launch}
           </Button>
@@ -860,7 +880,7 @@ function wheelColor(m: number, i: number) {
   return i % 2 ? "var(--color-brand-strong)" : "var(--color-brand)";
 }
 
-function WheelCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
+function WheelCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -960,7 +980,7 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: Game
       }
       controls={
         <>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} winPreview={{ mult: Math.max(...WHEEL_SEGMENTS), max: true }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || spinning} lang={lang} winPreview={{ mult: Math.max(...WHEEL_SEGMENTS), max: true }} />
           <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={spin}>
             {spinning ? t.spinning : t.spin}
           </Button>
@@ -988,7 +1008,7 @@ function buildStrip(prevSym: number, final: number): number[] {
   return cells;
 }
 
-function SlotsCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
+function SlotsCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -1129,7 +1149,7 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: Game
       }
       controls={
         <>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || spinning} lang={lang} winPreview={{ mult: SLOT_TRIPLE[0], max: true }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || spinning} lang={lang} winPreview={{ mult: SLOT_TRIPLE[0], max: true }} />
           <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet)} onClick={spin}>
             {spinning ? t.spinning : t.spin}
           </Button>
@@ -1191,7 +1211,7 @@ function PlayingCard({ v, hidden }: { v?: number; hidden?: boolean }) {
 type BjStep = "p" | "d" | "hole";
 const BJ_REVEAL_MS = 460;
 
-function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
+function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx, levCap, feeBps }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -1389,7 +1409,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
         <>
           {!playing && (
             <>
-              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} sideCents={(pp ? Math.round(parseFloat(ppAmt || "0") * 100) : 0) + (t3 ? Math.round(parseFloat(t3Amt || "0") * 100) : 0)} winPreview={{ mult: BJ_NATURAL_MULT, max: true }} />
+              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending} lang={lang} sideCents={(pp ? Math.round(parseFloat(ppAmt || "0") * 100) : 0) + (t3 ? Math.round(parseFloat(t3Amt || "0") * 100) : 0)} winPreview={{ mult: BJ_NATURAL_MULT, max: true }} />
               <div className="flex gap-1.5">
                 {([
                   { on: pp, set: setPp, amt: ppAmt, setAmt: setPpAmt, name: "PP", desc: t.bjSidePP },
@@ -1493,7 +1513,7 @@ function pkPos(path: number[], t: number) {
 const PK_MAX_BALLS = 16;
 const PK_MAX_AIRBORNE = 8;
 
-function PlinkoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
+function PlinkoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -1622,7 +1642,7 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: Gam
             lev={lockedLev(lev, inDebt)}
             setLev={setLev}
             balanceCents={balanceCents}
-            locked={inDebt}
+            locked={inDebt} levCap={levCap} feeBps={feeBps}
             disabled={pending}
             lang={lang}
             winPreview={{ mult: PLINKO_MULT[0], max: true }}
@@ -1655,7 +1675,7 @@ function BigCard({ v, hidden }: { v?: number; hidden?: boolean }) {
   );
 }
 
-function RedBlackCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
+function RedBlackCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [pick, setPick] = useState<"red" | "black">("red");
@@ -1731,7 +1751,7 @@ function RedBlackCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: G
               <span className="text-[17px]">♠♣</span> {t.rbBlack}
             </button>
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending || drawing} lang={lang} winPreview={{ mult: REDBLACK_MULT }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || drawing} lang={lang} winPreview={{ mult: REDBLACK_MULT }} />
           <Button className="w-full" size="lg" disabled={pending || drawing || !parseFloat(bet)} onClick={play}>
             {drawing ? t.drawing : t.draw}
           </Button>
@@ -1741,7 +1761,7 @@ function RedBlackCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: G
   );
 }
 
-function HiLoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameProps) {
+function HiLoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -1843,7 +1863,7 @@ function HiLoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx }: GameP
             </>
           ) : (
             <>
-              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} disabled={pending} lang={lang} />
+              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending} lang={lang} />
               <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet)} onClick={deal}>
                 {t.bjDeal}
               </Button>
@@ -2112,12 +2132,16 @@ export function GameView({
   lang,
   dealers,
   inDebt,
+  levCap,
+  levFeeBps,
 }: {
   game: GameSlug;
   balanceCents: number;
   lang?: Lang;
   dealers?: (Persona & { id: string })[];
   inDebt?: boolean;
+  levCap?: number;
+  levFeeBps?: number;
 }) {
   const t = getT(lang ?? "en");
   const Game = GAME_COMPONENTS[game];
@@ -2215,7 +2239,7 @@ export function GameView({
           {t.demoNotice}
         </div>
       )}
-      <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt} demo={demo && demoOk}
+      <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt} demo={demo && demoOk} levCap={levCap} feeBps={levFeeBps}
         onWinFx={(amt, fx, tav) => { if (!fxOff) setSplash({ amt, fx, tav }); }} />
       {/* Dealer celebrations run inside a bounded card, not the viewport —
           any click dismisses. */}

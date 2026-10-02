@@ -4,7 +4,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, and, sql } from "drizzle-orm";
 import { yesPrice, tradeCost, multiCoords, multiPrices, multiTradeCost, TRADE_FEE_CENTS } from "@/lib/lmsr";
-import { accruedDebtCents } from "@/lib/loans";
+import { accruedDebtCents, DEBT_CAP_CENTS, GAME_DEBT_RATE_BPS } from "@/lib/loans";
 import { liquidationValueCents, groupLiquidationValueCents, shouldLiquidate } from "@/lib/liq";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -90,6 +90,49 @@ export async function garnishDebt(tx: Tx, userId: string, profitCents: number, l
   return skim;
 }
 
+// Adds `addCents` of principal at `rateBps` — existing debt is accrued first
+// and the rate is blended by principal so one field covers everything.
+export async function addDebt(tx: Tx, userId: string, addCents: number, rateBps: number, memo: string) {
+  const u = await lockUser(tx, userId);
+  const now = new Date();
+  const cur = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince, now);
+  const total = Math.min(DEBT_CAP_CENTS, cur + Math.round(addCents));
+  const blended = total <= 0 ? 0 : Math.round((cur * u.debtRateBps + Math.round(addCents) * rateBps) / total);
+  await tx
+    .update(schema.user)
+    .set({ debtCents: total, debtRateBps: blended, debtSince: total > 0 ? now : null })
+    .where(eq(schema.user.id, userId));
+  await tx.insert(schema.ledger).values({
+    userId,
+    amountCents: 0,
+    balanceAfterCents: u.balanceCents,
+    kind: "debt",
+    marketId: null,
+    memo,
+  });
+}
+
+// Retires `cents` of accrued debt without cash — the settlement mirror of
+// addDebt, used when a leveraged position's proceeds repay its own margin.
+export async function releaseDebt(tx: Tx, userId: string, cents: number, memo: string) {
+  const u = await lockUser(tx, userId);
+  const now = new Date();
+  const cur = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince, now);
+  const left = Math.max(0, cur - Math.round(cents));
+  await tx
+    .update(schema.user)
+    .set({ debtCents: left, debtRateBps: left > 0 ? u.debtRateBps : 0, debtSince: left > 0 ? now : null })
+    .where(eq(schema.user.id, userId));
+  await tx.insert(schema.ledger).values({
+    userId,
+    amountCents: 0,
+    balanceAfterCents: u.balanceCents,
+    kind: "debt",
+    marketId: null,
+    memo,
+  });
+}
+
 // Sweep a binary market: any leveraged position whose liquidation value can
 // no longer cover its loan is force-sold at the current book; the proceeds
 // service the debt first, the remainder (if any) credits the user. Iterates
@@ -114,7 +157,7 @@ export async function checkLiquidations(tx: Tx, marketId: string) {
       if (!shouldLiquidate(valueCents, p.debtCents, m.maxLeverage)) continue;
       qy -= y;
       qn -= n;
-      const equity = Math.max(0, valueCents - p.debtCents);
+      const equity = valueCents - p.debtCents;
       await lockUser(tx, p.userId);
       if (equity > 0) {
         await credit(tx, p.userId, equity, "liq", marketId, `Liquidated: ${m.question.slice(0, 60)}`);
@@ -129,6 +172,10 @@ export async function checkLiquidations(tx: Tx, marketId: string) {
           marketId,
           memo: `Liquidated (total loss): ${m.question.slice(0, 60)}`,
         });
+        // A violent gap can liquidate below the loan — the uncovered part of
+        // the margin becomes account debt, same as a busted game round.
+        if (equity < 0)
+          await addDebt(tx, p.userId, -equity, GAME_DEBT_RATE_BPS, `Liquidation shortfall: ${m.question.slice(0, 60)}`);
       }
       await tx
         .delete(schema.position)
@@ -173,7 +220,7 @@ export async function checkGroupLiquidations(
         book[i].qYes -= y;
         book[i].qNo -= n;
         book[i].dirty = true;
-        const equity = Math.max(0, valueCents - p.debtCents);
+        const equity = valueCents - p.debtCents;
         await lockUser(tx, p.userId);
         if (equity > 0) {
           await credit(tx, p.userId, equity, "liq", m.id, `Liquidated: ${m.question.slice(0, 60)}`);
@@ -188,6 +235,10 @@ export async function checkGroupLiquidations(
             marketId: m.id,
             memo: `Liquidated (total loss): ${m.question.slice(0, 60)}`,
           });
+          // A violent gap can liquidate below the loan — the uncovered part of
+          // the margin becomes account debt, same as a busted game round.
+          if (equity < 0)
+            await addDebt(tx, p.userId, -equity, GAME_DEBT_RATE_BPS, `Liquidation shortfall: ${m.question.slice(0, 60)}`);
         }
         await tx
           .delete(schema.position)
