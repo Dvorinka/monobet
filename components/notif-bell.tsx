@@ -179,7 +179,7 @@ export function NotifBell({ items: ssrItems, userId, lang }: { items: NotifItem[
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="relative size-9 grid place-items-center rounded-lg text-mute hover:text-ink hover:bg-surface-2 transition cursor-pointer"
+        className="relative size-8 sm:size-9 grid place-items-center rounded-lg text-mute hover:text-ink hover:bg-surface-2 transition cursor-pointer"
         aria-label={t.notifications}
       >
         <Bell className="size-[18px]" />

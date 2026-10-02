@@ -7,8 +7,8 @@ import { NotifBell } from "@/components/notif-bell";
 import { getLang } from "@/lib/lang-server";
 import { getT } from "@/lib/i18n";
 import { SearchBox } from "@/components/search-box";
-import { AnimatedMoney } from "@/components/animated-number";
 import { UserMenu } from "@/components/user-menu";
+import { WalletChip } from "@/components/wallet-chip";
 import { MobileNav } from "@/components/mobile-nav";
 import { ClaimButton } from "@/components/claim-button";
 import { Button } from "@/components/ui/primitives";
@@ -46,8 +46,8 @@ export async function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line">
-      <div className="mx-auto max-w-6xl px-3 sm:px-4 h-14 flex items-center gap-2 sm:gap-4">
-        <MobileNav lang={lang} signedIn={!!user} username={user?.username ?? user?.name} isAdminUser={!!user && isAdmin(user)} />
+      <div className="mx-auto max-w-6xl px-2.5 sm:px-4 h-14 flex items-center gap-1.5 sm:gap-4">
+        <MobileNav lang={lang} signedIn={!!user} username={user?.username ?? user?.name} isAdminUser={!!user && isAdmin(user)} claimableCents={claimableCents} />
         <Link href="/" className="flex items-center gap-2 shrink-0 group/logo">
           <LogoMark className="transition-transform duration-300 group-hover/logo:rotate-[-6deg] group-hover/logo:scale-105" />
           <span className="font-bold text-[17px] tracking-tight hidden sm:block">MonoBet</span>
@@ -71,7 +71,7 @@ export async function SiteHeader() {
 
         <Link
           href="/propose"
-          className="grid size-9 place-items-center rounded-lg bg-brand text-brand-on hover:bg-brand-strong transition-all duration-150 active:scale-[0.97] shrink-0"
+          className="grid size-8 sm:size-9 place-items-center rounded-lg bg-brand text-brand-on hover:bg-brand-strong transition-all duration-150 active:scale-[0.97] shrink-0"
           title={t.newMarket}
           aria-label={t.newMarket}
         >
@@ -79,11 +79,11 @@ export async function SiteHeader() {
         </Link>
 
         {user ? (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {claimableCents > 0 && (
               <Link
                 href="/rewards"
-                className="num inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg bg-yes-soft text-yes-strong text-[13px] font-bold border border-yes/30 hover:bg-yes/20"
+                className="num hidden sm:inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg bg-yes-soft text-yes-strong text-[13px] font-bold border border-yes/30 hover:bg-yes/20"
                 title={t.rewards}
               >
                 <Gift className="size-3.5" />
@@ -94,22 +94,7 @@ export async function SiteHeader() {
               lang={lang}
               nextAt={user.lastClaimAt ? new Date(user.lastClaimAt).getTime() + DAILY_COOLDOWN_MS : null}
             />
-            <Link
-              href="/rewards"
-              className="num inline-flex items-center h-9 px-3 rounded-lg bg-surface-2 text-sm font-semibold hover:bg-surface-3"
-              title={t.yourBalance}
-            >
-              <AnimatedMoney cents={user.balanceCents} lang={lang} short />
-            </Link>
-            {debtCents > 0 && (
-              <Link
-                href="/rewards"
-                className="num inline-flex items-center h-9 px-2.5 rounded-lg bg-no-soft text-no-strong text-[13px] font-bold border border-no/30"
-                title={`${t.owedChip} — repay on Rewards`}
-              >
-                −{fmtMonosShort(debtCents)}
-              </Link>
-            )}
+            <WalletChip balanceCents={user.balanceCents} debtCents={debtCents} lang={lang} />
             <NotifBell items={notifs} userId={user.id} lang={lang} />
             <UserMenu name={user.name} username={user.username} role={isAdmin(user) ? "admin" : user.role} image={user.image} lang={lang} />
           </div>

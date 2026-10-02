@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { getT, type Lang } from "@/lib/i18n";
+import { fmtMonosShort } from "@/lib/money";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LangToggle } from "@/components/lang-toggle";
 
@@ -16,11 +17,13 @@ export function MobileNav({
   signedIn,
   username,
   isAdminUser,
+  claimableCents = 0,
 }: {
   lang?: Lang;
   signedIn: boolean;
   username?: string | null;
   isAdminUser?: boolean;
+  claimableCents?: number;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -53,7 +56,7 @@ export function MobileNav({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="size-9 inline-flex items-center justify-center rounded-lg text-mute hover:text-ink hover:bg-surface-2 active:scale-95 transition-all cursor-pointer"
+        className="size-8 inline-flex items-center justify-center rounded-lg text-mute hover:text-ink hover:bg-surface-2 active:scale-95 transition-all cursor-pointer"
         aria-label="Menu"
         aria-expanded={open}
       >
@@ -79,8 +82,11 @@ export function MobileNav({
           <Link href="/squads" className={item} onClick={() => setOpen(false)}>
             {t.squadsTitle}
           </Link>
-          <Link href="/rewards" className={item} onClick={() => setOpen(false)}>
+          <Link href="/rewards" className={`${item} flex items-center justify-between`} onClick={() => setOpen(false)}>
             {t.rewards}
+            {claimableCents > 0 && (
+              <span className="num text-[12px] font-bold text-yes-strong">+{fmtMonosShort(claimableCents)}</span>
+            )}
           </Link>
           <Link href="/propose" className={item} onClick={() => setOpen(false)}>
             {t.newMarket}

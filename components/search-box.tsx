@@ -41,7 +41,7 @@ export function SearchBox({ lang }: { lang?: Lang }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="sm:hidden grid size-9 place-items-center rounded-full bg-surface-2 text-faint hover:text-ink"
+        className="sm:hidden grid size-8 place-items-center rounded-full bg-surface-2 text-faint hover:text-ink"
         aria-label={t.search}
       >
         <Search className="size-4" />
