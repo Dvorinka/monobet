@@ -3224,7 +3224,13 @@ export async function claimReferralRoyalties(): Promise<{ ok: boolean; error?: s
       const rows = await tx
         .select({ kind: schema.rewardClaim.kind, amountCents: schema.rewardClaim.amountCents })
         .from(schema.rewardClaim)
-        .where(and(eq(schema.rewardClaim.userId, u.id), sql`${schema.rewardClaim.kind} like 'bonus:refer%'`));
+        .where(
+          and(
+            eq(schema.rewardClaim.userId, u.id),
+            // refer% alone misses royalty rows — both prefixes are needed.
+            sql`(${schema.rewardClaim.kind} like 'bonus:refer%' or ${schema.rewardClaim.kind} like 'bonus:royalty:%')`
+          )
+        );
       const refIds = rows.filter((r) => r.kind.startsWith("bonus:referrer:")).map((r) => r.kind.slice("bonus:referrer:".length));
       if (!refIds.length) throw new Error("No referrals yet");
       const paid = new Map(
