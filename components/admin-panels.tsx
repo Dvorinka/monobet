@@ -391,6 +391,7 @@ export function HousePanel({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <form
+          noValidate
           className="rounded-xl border border-line bg-surface-2 p-3 space-y-2"
           onSubmit={(e) => {
             e.preventDefault();
@@ -406,6 +407,7 @@ export function HousePanel({
         </form>
 
         <form
+          noValidate
           className="rounded-xl border border-line bg-surface-2 p-3 space-y-2"
           onSubmit={(e) => {
             e.preventDefault();
@@ -463,6 +465,7 @@ export function HousePanel({
         </div>
 
         <form
+          noValidate
           className="rounded-xl border border-line bg-surface-2 p-3 space-y-2 sm:col-span-2"
           onSubmit={(e) => {
             e.preventDefault();
@@ -520,11 +523,11 @@ export function HousePanel({
           <div className="grid grid-cols-2 gap-2 pt-1">
             <label className="space-y-1">
               <span className="text-[11px] font-medium text-mute">{t.betCfgGames}</span>
-              <Input type="number" min={1} step="1" value={betGame} onChange={(e) => setBetGame(e.target.value)} />
+              <Input type="number" min={1} step="any" value={betGame} onChange={(e) => setBetGame(e.target.value)} />
             </label>
             <label className="space-y-1">
               <span className="text-[11px] font-medium text-mute">{t.betCfgMarkets}</span>
-              <Input type="number" min={10} step="10" value={betTrade} onChange={(e) => setBetTrade(e.target.value)} />
+              <Input type="number" min={10} step="any" value={betTrade} onChange={(e) => setBetTrade(e.target.value)} />
             </label>
           </div>
           <div className="grid grid-cols-5 gap-1.5">
@@ -534,7 +537,7 @@ export function HousePanel({
                 <Input
                   type="number"
                   min={1}
-                  step="1"
+                  step="any"
                   placeholder={betGame}
                   title={t.betCfgPerGameTitle}
                   value={betPer[g] ?? ""}
@@ -550,6 +553,7 @@ export function HousePanel({
         </form>
 
         <form
+          noValidate
           className="rounded-xl border border-line bg-surface-2 p-3 space-y-2 sm:col-span-2"
           onSubmit={(e) => {
             e.preventDefault();
