@@ -1174,6 +1174,12 @@ function PlayingCard({ v, hidden }: { v?: number; hidden?: boolean }) {
   );
 }
 
+// Reveal queue — the server returns the whole hand state at once, but the
+// table should feel like a table: cards land one at a time. `shown` tracks
+// how much of `round` is on the felt; `steps` is the pending deal order.
+type BjStep = "p" | "d" | "hole";
+const BJ_REVEAL_MS = 460;
+
 function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
@@ -1185,6 +1191,37 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
   const [t3Amt, setT3Amt] = useState("1");
   const [round, setRound] = useState<BjRound | null>(null);
   const [net, setNet] = useState<Net>(null);
+  const [shown, setShown] = useState({ p: 0, d: 0, hole: false });
+  const [steps, setSteps] = useState<BjStep[]>([]);
+  const settledFor = useRef<string | null>(null);
+
+  // Deal order for a fresh hand: player, dealer up-card, player, then the
+  // hole (face-down) — or the dealer's second card face-up if the hand is
+  // already settled (e.g. a natural).
+  const dealSteps = (s: { player: number[]; dealer: number[]; dealerHidden: boolean }): BjStep[] => {
+    const st: BjStep[] = ["p", "d"];
+    for (let i = 1; i < s.player.length; i++) st.push("p");
+    if (s.dealerHidden) st.push("hole");
+    else for (let i = 1; i < s.dealer.length; i++) st.push("d");
+    return st;
+  };
+  // Everything the new state has that isn't on the felt yet — player first
+  // (a hit/double), then the dealer's hole flip and draws in order.
+  const catchupSteps = (s: { player: number[]; dealer: number[] }, cur: { p: number; d: number }): BjStep[] => [
+    ...Array<BjStep>(Math.max(0, s.player.length - cur.p)).fill("p"),
+    ...Array<BjStep>(Math.max(0, s.dealer.length - cur.d)).fill("d"),
+  ];
+
+  useEffect(() => {
+    if (!steps.length) return;
+    const id = setTimeout(() => {
+      const [s, ...rest] = steps;
+      playSfx("flip", 0.22);
+      setShown((sh) => (s === "p" ? { ...sh, p: sh.p + 1 } : s === "d" ? { ...sh, d: sh.d + 1 } : { ...sh, hole: true }));
+      setSteps(rest);
+    }, BJ_REVEAL_MS);
+    return () => clearTimeout(id);
+  }, [steps]);
 
   const settle = (s?: BjRound) => {
     if (!s || s.status !== "settled") return;
@@ -1194,48 +1231,64 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
     dealerWinFx(s.persona, won, (s.netCents ?? 0) + (s.betCents ?? 0) + (s.feeCents ?? 0) + (s.skimCents ?? 0), onWinFx, s.tavCents);
   };
 
+  // The result lands only after the last card is on the felt.
+  useEffect(() => {
+    if (steps.length === 0 && round?.status === "settled" && settledFor.current !== round.roundId) {
+      settledFor.current = round.roundId;
+      settle(round);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- settle is stable enough for this purpose
+  }, [steps, round]);
+
   const deal = () =>
     run(() => blackjackDeal({ dealerId, betCents: Math.round(parseFloat(bet || "0") * 100), leverage: Number(lockedLev(lev, inDebt)), sides: { pp: pp ? Math.round(parseFloat(ppAmt || "0") * 100) : 0, t3: t3 ? Math.round(parseFloat(t3Amt || "0") * 100) : 0 } })).then((r) => {
       if (!r?.state) return;
-      playSfx("flip", 0.4);
       setNet(null);
       setRound(r.state);
-      settle(r.state);
+      setShown({ p: 0, d: 0, hole: false });
+      setSteps(dealSteps(r.state));
     });
 
   const hit = () =>
     run(() => blackjackHit({ roundId: round!.roundId })).then((r) => {
-      if (!r?.state) return;
-      playSfx("trade", 0.3);
-      setRound(r.state);
-      settle(r.state);
+      const s = r?.state;
+      if (!s) return;
+      setRound(s);
+      setSteps((q) => [...q, ...catchupSteps(s, shown)]);
     });
 
   const stand = () =>
     run(() => blackjackStand({ roundId: round!.roundId })).then((r) => {
-      if (!r?.state) return;
-      setRound(r.state);
-      settle(r.state);
+      const s = r?.state;
+      if (!s) return;
+      setRound(s);
+      setSteps((q) => [...q, ...catchupSteps(s, shown)]);
     });
 
   const double = () =>
     run(() => blackjackDouble({ roundId: round!.roundId })).then((r) => {
-      if (!r?.state) return;
-      playSfx("trade", 0.3);
-      setRound(r.state);
-      settle(r.state);
+      const s = r?.state;
+      if (!s) return;
+      setRound(s);
+      setSteps((q) => [...q, ...catchupSteps(s, shown)]);
     });
 
   const surrender = () =>
     run(() => blackjackSurrender({ roundId: round!.roundId })).then((r) => {
-      if (!r?.state) return;
-      setRound(r.state);
-      settle(r.state);
+      const s = r?.state;
+      if (!s) return;
+      setRound(s);
+      setSteps((q) => [...q, ...catchupSteps(s, shown)]);
     });
 
   const playing = round?.status === "playing";
+  const busy = pending || steps.length > 0;
   const firstMove = playing && round!.player.length === 2 && !round!.doubled;
   const settledRound = round?.status === "settled" ? round : null;
+  // Totals read once every card on that side has landed — keeps the count
+  // from spoiling a card mid-flight.
+  const playerDone = !round || shown.p >= round.player.length;
+  const dealerDone = !round || (shown.d >= round.dealer.length && !round.dealerHidden);
   const resultLabel =
     settledRound?.result === "blackjack"
       ? t.bjNatural
@@ -1268,11 +1321,14 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
             <div className="flex items-center gap-2 mb-1.5">
               <DealerAvatar avatar={round?.persona.avatar ?? ""} className="size-6" />
               <span className="text-[12px] font-semibold text-mute">{round?.persona.name ?? t.gBlackjack}</span>
-              {round?.dealerTotal != null && <span className="num ml-auto text-[12px] font-bold">{round.dealerTotal}</span>}
+              {round?.dealerTotal != null && dealerDone && <span className="num ml-auto text-[12px] font-bold">{round.dealerTotal}</span>}
             </div>
             <div className="flex gap-1.5 flex-wrap min-h-14">
               {round
-                ? round.dealer.map((c, i) => <PlayingCard key={i} v={c} />).concat(round.dealerHidden ? [<PlayingCard key="h" hidden />] : [])
+                ? round.dealer
+                    .slice(0, shown.d)
+                    .map((c, i) => <PlayingCard key={i} v={c} />)
+                    .concat(shown.d < round.dealer.length || (round.dealerHidden && shown.hole) ? [<PlayingCard key="h" hidden />] : [])
                 : <PlayingCard hidden />}
             </div>
           </div>
@@ -1284,10 +1340,10 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
               {playing && (round.feeCents ?? 0) > 0 && (
                 <span className="num text-[10.5px] font-medium text-faint">{t.gameFeeChip(fmtMonos(round.feeCents!, { lang }))}</span>
               )}
-              {round && <span className="num ml-auto text-[12px] font-bold">{round.playerTotal}</span>}
+              {round && playerDone && <span className="num ml-auto text-[12px] font-bold">{round.playerTotal}</span>}
             </div>
             <div className="flex gap-1.5 flex-wrap min-h-14">
-              {round ? round.player.map((c, i) => <PlayingCard key={i} v={c} />) : <PlayingCard hidden />}
+              {round ? round.player.slice(0, shown.p).map((c, i) => <PlayingCard key={i} v={c} />) : <PlayingCard hidden />}
             </div>
           </div>
           {/* side-bet results — resolved the moment the cards land */}
@@ -1364,26 +1420,26 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GamePr
           {playing ? (
             <div className="flex flex-col gap-1.5">
               <div className="flex gap-2">
-                <Button className="flex-1" size="lg" disabled={pending} onClick={hit}>
+                <Button className="flex-1" size="lg" disabled={busy} onClick={hit}>
                   {t.bjHit}
                 </Button>
-                <Button className="flex-1" size="lg" variant="outline" disabled={pending} onClick={stand}>
+                <Button className="flex-1" size="lg" variant="outline" disabled={busy} onClick={stand}>
                   {t.bjStand}
                 </Button>
               </div>
               {firstMove && (
                 <div className="flex gap-2">
-                  <Button className="flex-1" size="sm" variant="outline" disabled={pending} onClick={double}>
+                  <Button className="flex-1" size="sm" variant="outline" disabled={busy} onClick={double}>
                     {t.bjDouble}
                   </Button>
-                  <Button className="flex-1" size="sm" variant="ghost" disabled={pending} onClick={surrender}>
+                  <Button className="flex-1" size="sm" variant="ghost" disabled={busy} onClick={surrender}>
                     {t.bjSurrender}
                   </Button>
                 </div>
               )}
             </div>
           ) : (
-            <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet) || (pp && !(parseFloat(ppAmt) >= 1 && parseFloat(ppAmt) <= MAX_GAME_STAKE_CENTS / 100)) || (t3 && !(parseFloat(t3Amt) >= 1 && parseFloat(t3Amt) <= MAX_GAME_STAKE_CENTS / 100))} onClick={deal}>
+            <Button className="w-full" size="lg" disabled={busy || !parseFloat(bet) || (pp && !(parseFloat(ppAmt) >= 1 && parseFloat(ppAmt) <= MAX_GAME_STAKE_CENTS / 100)) || (t3 && !(parseFloat(t3Amt) >= 1 && parseFloat(t3Amt) <= MAX_GAME_STAKE_CENTS / 100))} onClick={deal}>
               {round ? t.bjNewHand : t.bjDeal}
             </Button>
           )}
