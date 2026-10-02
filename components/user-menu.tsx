@@ -50,21 +50,6 @@ export function UserMenu({
             <div className="text-sm font-semibold truncate">@{username ?? name}</div>
             <div className="text-xs text-mute">{role === "admin" ? t.admin : t.trader}</div>
           </div>
-          {/* Main nav lives in the header on desktop — mirror it here on phones. */}
-          <div className="md:hidden border-b border-line-2 mb-1 pb-1">
-            <Link href="/" className={item} onClick={() => setOpen(false)}>
-              {t.markets}
-            </Link>
-            <Link href="/leaderboard" className={item} onClick={() => setOpen(false)}>
-              {t.leaderboard}
-            </Link>
-            <Link href="/games" className={item} onClick={() => setOpen(false)}>
-              {t.games}
-            </Link>
-            <Link href="/rewards" className={item} onClick={() => setOpen(false)}>
-              {t.rewards}
-            </Link>
-          </div>
           <Link href={`/u/${username ?? name}`} className={item} onClick={() => setOpen(false)}>
             {t.myProfile}
           </Link>
