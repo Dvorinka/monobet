@@ -591,7 +591,7 @@ export function HousePanel({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <label className="space-y-1">
               <span className="text-[11px] font-medium text-mute">{t.rulesDaily}</span>
-              <Input type="number" min={0.05} max={24} step="0.5" value={ruleDaily} onChange={(e) => setRuleDaily(e.target.value)} />
+              <Input type="number" min={0.5} max={24} step={0.5} value={ruleDaily} onChange={(e) => setRuleDaily(e.target.value)} />
             </label>
             <label className="space-y-1">
               <span className="text-[11px] font-medium text-mute">{t.rulesIdle}</span>
