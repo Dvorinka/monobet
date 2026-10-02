@@ -487,7 +487,7 @@ export async function getHouseStats() {
   const since = await getStatsSince();
   const sinceCond = (kind: string) =>
     since ? and(eq(schema.ledger.kind, kind), gte(schema.ledger.createdAt, since)) : eq(schema.ledger.kind, kind);
-  const [perGame, windows, cfg, loanRows, garnishRows, debtors] = await Promise.all([
+  const [perGame, windows, cfg, loanRows, garnishRows, feeRows, debtors] = await Promise.all([
     db
       .select({
         game: sql<string>`split_part(${schema.ledger.memo}, ' ', 1)`,
@@ -525,6 +525,16 @@ export async function getHouseStats() {
       })
       .from(schema.ledger)
       .where(sinceCond("repay")),
+    // Flat order/round fees land under kind "fee": market_id set → trade fee,
+    // null → minigame round fee.
+    db
+      .select({
+        totalCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}), 0)::bigint`,
+        gameCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}) filter (where ${schema.ledger.marketId} is null), 0)::bigint`,
+        tradeCents: sql<number>`coalesce(sum(-${schema.ledger.amountCents}) filter (where ${schema.ledger.marketId} is not null), 0)::bigint`,
+      })
+      .from(schema.ledger)
+      .where(sinceCond("fee")),
     db
       .select({ debtCents: schema.user.debtCents, debtRateBps: schema.user.debtRateBps, debtSince: schema.user.debtSince })
       .from(schema.user)
@@ -535,6 +545,7 @@ export async function getHouseStats() {
   const w = windows[0] ?? { wageredCents: 0, paidCents: 0, profit24h: 0, profit7d: 0 };
   const loan = loanRows[0] ?? { count: 0, disbursedCents: 0 };
   const rep = garnishRows[0] ?? { repaidCents: 0, garnishedCents: 0 };
+  const fees = feeRows[0] ?? { totalCents: 0, gameCents: 0, tradeCents: 0 };
   const repaidCents = Number(rep.repaidCents) + Number(rep.garnishedCents);
   const outstandingCents = debtors.reduce((s, d) => s + accruedDebtCents(Number(d.debtCents), d.debtRateBps, d.debtSince), 0);
   return {
@@ -549,6 +560,7 @@ export async function getHouseStats() {
     profitCents: Number(w.wageredCents) - Number(w.paidCents),
     profit24hCents: Number(w.profit24h),
     profit7dCents: Number(w.profit7d),
+    feesCents: { total: Number(fees.totalCents), game: Number(fees.gameCents), trade: Number(fees.tradeCents) },
     rigBps: cfg[0]?.rigBps ?? 0,
     disabledGames: cfg[0]?.disabledGames ?? [],
     // Bank position on loans: cash repaid + garnished wins + live debt claims

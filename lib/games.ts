@@ -1,9 +1,12 @@
 // Minigame payout math — shared between the /games UI (odds display) and the
 // server actions that settle rounds. No secrets here; tokens live in actions.
 
-export const GAME_LEVERAGES = [1, 2, 3, 5, 10, 25, 50, 100] as const;
+export const GAME_LEVERAGES = [1, 2, 3, 5, 10] as const;
+// Flat house fee on every round — charged up front with the stake, tracked
+// under ledger kind "fee" so admin can see it apart from game P&L.
+export const GAME_FEE_CENTS = 100;
 // Stake cap — the player's own money per round. Leverage still amplifies the
-// notional up to MAX_GAME_WAGER_CENTS, so lev 100 only fits a Ɱ1k stake.
+// notional up to MAX_GAME_WAGER_CENTS, so lev 10 only fits a Ɱ1k stake.
 export const MAX_GAME_STAKE_CENTS = 100_000;
 // Notional sanity cap — the stake times leverage can't exceed this.
 export const MAX_GAME_WAGER_CENTS = 100_000_00;

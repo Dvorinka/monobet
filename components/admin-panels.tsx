@@ -235,6 +235,7 @@ type HouseStats = {
   profitCents: number;
   profit24hCents: number;
   profit7dCents: number;
+  feesCents: { total: number; game: number; trade: number };
   rigBps: number;
   disabledGames: string[];
   loans: { count: number; disbursedCents: number; repaidCents: number; outstandingCents: number; positionCents: number };
@@ -277,6 +278,11 @@ export function HousePanel({
         <div className="rounded-xl border border-line bg-surface-2 px-3 py-2.5">
           <div className="text-[11px] font-semibold text-faint">{t.houseHold}</div>
           <div className="num text-[17px] font-bold text-ink">{hold.toFixed(1)}%</div>
+        </div>
+        <div className="rounded-xl border border-line bg-surface-2 px-3 py-2.5">
+          <div className="text-[11px] font-semibold text-faint">{t.houseFees}</div>
+          <div className="num text-[17px] font-bold text-yes-strong">+{fmtMonos(stats.feesCents.total, { lang })}</div>
+          <div className="num text-[10.5px] text-faint">{t.houseFeesNote(fmtMonos(stats.feesCents.game, { lang }), fmtMonos(stats.feesCents.trade, { lang }))}</div>
         </div>
       </div>
 
