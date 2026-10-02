@@ -38,14 +38,13 @@ export function dealerFx(p?: Persona | null): DealerFx {
   return {};
 }
 
-// Bibi's blessing — a losing round under his table flips to a win with a
-// chance that grows with prayers left at the Wall of Debts. Capped so the
-// house never deals a sure thing.
-export const BLESS_BASE_PCT = 6;
-export const BLESS_PER_PRAYER_PCT = 6;
-export const BLESS_MAX_PCT = 48;
+// Bibi's blessing — a losing round under his table flips to a win, but only
+// for players who left a node at the Wall of Debts. Each prayer adds a step;
+// the cap keeps the house from dealing a sure thing.
+export const BLESS_PER_PRAYER_PCT = 2;
+export const BLESS_MAX_PCT = 10;
 export function blessedChancePct(prayers: number): number {
-  return Math.min(BLESS_MAX_PCT, BLESS_BASE_PCT + Math.max(0, prayers) * BLESS_PER_PRAYER_PCT);
+  return Math.min(BLESS_MAX_PCT, Math.max(0, prayers) * BLESS_PER_PRAYER_PCT);
 }
 
 // Tel Aviv bonus — a won round under Bibi forgives a slice of house debt,
