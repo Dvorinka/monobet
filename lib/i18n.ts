@@ -246,6 +246,7 @@ const en = {
   kindPayout: "Payout",
   kindRefund: "Refund",
   kindGame: "Game",
+  kindFee: "Order fee",
   kindLiq: "Liquidated",
   kindDuel: "Duel",
   kindLoan: "Loan",
@@ -296,6 +297,8 @@ const en = {
   houseEconomyConfirm: "Unwind every market position over Ɱ5 000 and clamp whale balances to Ɱ4 999? Cannot be undone.",
   houseLoans: "Loans",
   houseLoansNote: (outstanding: string) => `Loan profit counts outstanding debt still on the books — ${outstanding} owed right now.`,
+  houseFees: "Fees collected",
+  houseFeesNote: (game: string, trade: string) => `games ${game} · trades ${trade}`,
   userLuckTitle: "Player luck",
   userLuckNote: "-50% to +50%. Positive rescues losses, negative spoils wins. Random games only — timer and blackjack stay honest.",
   user: "User",
@@ -370,7 +373,7 @@ const en = {
 
   // games & leverage
   games: "Games",
-  gamesSub: "Play-money arcade — variable bets, leverage up to 100×.",
+  gamesSub: "Play-money arcade — variable bets, leverage up to 10×.",
   recentGames: "Recent games",
   noGames: "No rounds yet — the house is patient, not generous.",
   leverage: "Leverage",
@@ -415,6 +418,7 @@ const en = {
   guessNow: "now guess — stop on target",
   targetIs: (s: string) => `Target ${s}`,
   offBy: (ms: number) => `off by ${ms} ms`,
+  timerGradedVs: (s: string) => `graded vs ${s} s`,
   paysUpTo: (x: string) => `pays up to ${x}×`,
   timerColErr: "off by ≤",
   timerMiss: "worse",
@@ -472,7 +476,7 @@ const en = {
   // the ERR_CS tables at the bottom of this file.
   serverErr: (msg?: string | null) => serverErr("en", msg),
   gHouseTitle: "Same rules, every game",
-  gHouseSub: "Leverage scales your wager — and what you can lose — up to 100×. Payouts carry a small house edge; it's all play money anyway.",
+  gHouseSub: "Leverage scales your wager — and what you can lose — up to 10×. Payouts carry a small house edge; it's all play money anyway.",
 
   // auth
   welcomeBack: "Welcome back",
@@ -1206,6 +1210,7 @@ const cs: Dict = {
   kindPayout: "Výplata",
   kindRefund: "Vrácení",
   kindGame: "Hra",
+  kindFee: "Poplatek příkazu",
   kindLiq: "Likvidace",
   kindDuel: "Duel",
   kindLoan: "Půjčka",
@@ -1254,6 +1259,8 @@ const cs: Dict = {
   houseEconomyConfirm: "Prodat všechny pozice nad Ɱ5 000 a stáhnout zůstatky velkých hráčů na Ɱ4 999? Nejde vrátit.",
   houseLoans: "Půjčky",
   houseLoansNote: (outstanding: string) => `Zisk z půjček počítá i nesplacené dluhy v knihách — právě teď dlužno ${outstanding}.`,
+  houseFees: "Vybrané poplatky",
+  houseFeesNote: (game: string, trade: string) => `hry ${game} · obchody ${trade}`,
   userLuckTitle: "Štěstí hráče",
   userLuckNote: "-50 % až +50 %. Kladné zachraňuje prohry, záporné kazí výhry. Jen náhodné hry — timer a blackjack zůstávají poctivé.",
   user: "Uživatel",
@@ -1328,7 +1335,7 @@ const cs: Dict = {
 
   // games & leverage
   games: "Hry",
-  gamesSub: "Arkáda za virtuální Mony — variabilní sázky, páka až 100×.",
+  gamesSub: "Arkáda za virtuální Mony — variabilní sázky, páka až 10×.",
   recentGames: "Poslední hry",
   noGames: "Zatím žádná kola — dům je trpělivý, ne štědrý.",
   leverage: "Páka",
@@ -1373,6 +1380,7 @@ const cs: Dict = {
   guessNow: "teď odhaduj — zastav na cíl",
   targetIs: (s: string) => `Cíl ${s}`,
   offBy: (ms: number) => `vedle o ${ms} ms`,
+  timerGradedVs: (s: string) => `proti cíli ${s} s`,
   paysUpTo: (x: string) => `platí až ${x}×`,
   timerColErr: "odchylka ≤",
   timerMiss: "jinak",
@@ -1428,7 +1436,7 @@ const cs: Dict = {
   errTooFast: "Příliš rychlé — počkej pár minut",
   serverErr: (msg?: string | null) => serverErr("cs", msg),
   gHouseTitle: "Stejná pravidla ve všech hrách",
-  gHouseSub: "Páka násobí sázku — i to, co můžeš prohrát — až 100×. Výplaty mají malou výhodu banku; je to jen hra.",
+  gHouseSub: "Páka násobí sázku — i to, co můžeš prohrát — až 10×. Výplaty mají malou výhodu banku; je to jen hra.",
 
   welcomeBack: "Vítejte zpět",
   createAccount: "Vytvořte si účet",

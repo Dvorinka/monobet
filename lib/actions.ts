@@ -3,7 +3,7 @@
 import { db, schema } from "@/lib/db";
 import { eq, ne, and, sql, desc, asc, isNull, inArray, gte } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_WINDOW_MS, GAME_DAILY_LIMIT_MS, GAME_IDLE_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, DUEL_GAME_KEY, DUEL_TIMER_MS, type DuelKind, type DuelMove, type RpsMove, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, GAME_FEE_CENTS, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_WINDOW_MS, GAME_DAILY_LIMIT_MS, GAME_IDLE_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, DUEL_GAME_KEY, DUEL_TIMER_MS, type DuelKind, type DuelMove, type RpsMove, type Persona } from "@/lib/games";
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
@@ -335,6 +335,7 @@ export async function placeTrade(input: {
       let grossSellCents = 0; // sell proceeds before the loan takes its cut
       let vowSkimCents = 0; // wall-vow share of proceeds routed to debt
       let notionalCents = 0; // buy: full position size incl. borrowed funds
+      let feeCharge = 0; // flat order fee — lands as its own "fee" ledger row
 
       if (side === "buy") {
         const spend = Math.round(input.spendCents ?? 0);
@@ -356,6 +357,7 @@ export async function placeTrade(input: {
           : sharesForSpend(qYes, qNo, b, outcome, notional / 100);
         if (shares <= 0) throw new Error("Trade too small");
         cashDelta = -(spend + TRADE_FEE_CENTS); // collateral + order fee; the loan makes up the rest
+        feeCharge = TRADE_FEE_CENTS;
         debtDelta = loanFor(spend, leverage);
       } else {
         shares = -Math.abs(input.shares ?? 0); // negative = removing shares from market
@@ -378,7 +380,8 @@ export async function placeTrade(input: {
         // the seller's take — capped so a tiny close can't go negative.
         debtRepay = Math.min(cashDelta, pos?.debtCents ?? 0);
         cashDelta -= debtRepay;
-        cashDelta -= Math.min(TRADE_FEE_CENTS, cashDelta);
+        feeCharge = Math.min(TRADE_FEE_CENTS, cashDelta);
+        cashDelta -= feeCharge;
         grossSellCents = Math.round(payout * 100);
         // Wall vow: the pledged share of sell proceeds feeds the debt
         // before the seller ever touches the cash.
@@ -421,17 +424,21 @@ export async function placeTrade(input: {
           throw new Error("Too much leverage for this book — price impact would liquidate it instantly");
       }
 
+      // The trade row carries the shares side of the money only; the flat
+      // order fee rides its own "fee" ledger row so admin can sum fees apart
+      // from wager/payout swings. Total balance delta is identical.
       await credit(
         tx,
         u.id,
-        cashDelta,
+        cashDelta + feeCharge,
         side === "buy" ? "buy" : "sell",
         marketId,
         `${side === "buy" ? "Bought" : "Sold"} ${absShares.toFixed(2)} ${outcome.toUpperCase()} @ ${(outcome === "yes" ? newPrice : 1 - newPrice).toFixed(2)}` +
-          ` · Ɱ1 fee` +
           (debtDelta > 0 ? ` · ${input.leverage}x` : debtRepay > 0 ? " · loan repaid" : "") +
           (vowSkimCents > 0 ? ` · Ɱ${(vowSkimCents / 100).toFixed(2)} to debt` : "")
       );
+      if (feeCharge > 0)
+        await credit(tx, u.id, -feeCharge, "fee", marketId, `${side === "buy" ? "Open" : "Close"} order fee — ${m.question.slice(0, 50)}`);
 
       // upsert position (shares delta + loan delta)
       const shareSet =
@@ -2563,8 +2570,11 @@ async function stakeGame(tx: Tx, userId: string, betCents: number, leverage: num
     .set({ gameSessionStart: new Date(ws), gameLastPlayAt: new Date(now), gamePlayedMs: played })
     .where(eq(schema.user.id, u.id));
   assertCreditLine(u, leverage);
-  await credit(tx, userId, -(betCents + fee), "game", null, `${label} — wager ×${leverage}${fee > 0 ? ` · fee ${(fee / 100).toFixed(2)}Ɱ` : ""}`);
-  return fee;
+  await credit(tx, userId, -(betCents + fee), "game", null, `${label} — wager ×${leverage}${fee > 0 ? ` · lev fee ${(fee / 100).toFixed(2)}Ɱ` : ""}`);
+  // Flat Ɱ1 round fee rides its own ledger row so admin reports it apart
+  // from the game's wager/payout swing.
+  await credit(tx, userId, -GAME_FEE_CENTS, "fee", null, `${label} — round fee`);
+  return fee + GAME_FEE_CENTS;
 }
 
 async function settleGame(
@@ -2581,7 +2591,7 @@ async function settleGame(
 ): Promise<{ netCents: number; feeCents: number; skimCents: number; tavCents: number }> {
   const wager = Math.round(betCents * leverage);
   if (wager > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
-  const fee = prepaid ? levFeeCents(betCents, leverage) : await stakeGame(tx, userId, betCents, leverage, label, game);
+  const fee = prepaid ? levFeeCents(betCents, leverage) + GAME_FEE_CENTS : await stakeGame(tx, userId, betCents, leverage, label, game);
   let win = 0;
   let skim = 0;
   let tav = 0;
@@ -2808,7 +2818,7 @@ export async function stopTimerRound(input: {
   token: string;
   elapsedMs: number;
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; netCents?: number; mult?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; won?: boolean; elapsedMs?: number; errMs?: number; gradedMs?: number; netCents?: number; mult?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
   // Capture the stop at arrival — requireUser/pickDealer and the claim
   // update below would otherwise append their own latency to the measured
   // elapsed, which the player perceives as "time gets added".
@@ -2839,7 +2849,7 @@ export async function stopTimerRound(input: {
       return { round, elapsed, err, won, mult, ...s };
     });
     revalidatePath("/games");
-    return { ok: true, won: out.won, elapsedMs: out.elapsed, errMs: out.err, netCents: out.netCents, mult: out.mult, dealer, feeCents: out.feeCents, skimCents: out.skimCents, tavCents: out.tavCents };
+    return { ok: true, won: out.won, elapsedMs: out.elapsed, errMs: out.err, gradedMs: out.round.targetMs + out.round.jitterMs, netCents: out.netCents, mult: out.mult, dealer, feeCents: out.feeCents, skimCents: out.skimCents, tavCents: out.tavCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Stop failed" };
   }

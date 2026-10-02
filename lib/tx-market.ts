@@ -271,17 +271,21 @@ async function fillStop(
   let rest = proceedsCents;
   const debtRepay = Math.min(rest, p.debtCents);
   rest -= debtRepay;
-  rest -= Math.min(TRADE_FEE_CENTS, rest);
+  const feeCharge = Math.min(TRADE_FEE_CENTS, rest);
+  rest -= feeCharge;
   const pctNote = trig.pct < 100 && trig.shares < trig.held - 1e-9 ? ` (${trig.pct}%)` : "";
   const label = `${trig.kind === "tp" ? "Take-profit" : "Stop-loss"} ${trig.outcome.toUpperCase()} @ ${trig.at.toFixed(2)}${pctNote}: ${m.question.slice(0, 50)}`;
   const skim = Math.min(rest, await garnishDebt(tx, p.userId, rest, label));
   rest -= skim;
-  if (rest > 0) await credit(tx, p.userId, rest, "sell", m.id, label);
+  // Sell row shows proceeds net of debt/vow only — the fee gets its own
+  // "fee" ledger row (net balance delta is unchanged).
+  if (rest + feeCharge > 0) await credit(tx, p.userId, rest + feeCharge, "sell", m.id, label);
   else {
     // Zero-proceeds fills still need a ledger row or the exit looks silent.
     const [w] = await tx.select({ balanceCents: schema.user.balanceCents }).from(schema.user).where(eq(schema.user.id, p.userId)).limit(1);
     await tx.insert(schema.ledger).values({ userId: p.userId, amountCents: 0, balanceAfterCents: w?.balanceCents ?? 0, kind: "sell", marketId: m.id, memo: label });
   }
+  if (feeCharge > 0) await credit(tx, p.userId, -feeCharge, "fee", m.id, `Close order fee — ${label}`);
   await tx.insert(schema.trade).values({
     marketId: m.id,
     userId: p.userId,

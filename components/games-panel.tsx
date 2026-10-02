@@ -603,6 +603,9 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
   const [round, setRound] = useState(0); // mounts a fresh TimerDigits per round — no stale digits
   const [net, setNet] = useState<Net>(null);
   const [dealer, setDealer] = useState<Persona | null>(null);
+  // Server-graded readout shown after settle: elapsed, miss distance, and the
+  // jittered target the round was actually graded against — the checker.
+  const [miss, setMiss] = useState<{ elapsed: number; err: number; graded: number } | null>(null);
   const tokenRef = useRef<Promise<string | null> | null>(null);
   const t0 = useRef(0);
   const targetMs = Number(target) * 1000;
@@ -612,6 +615,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
     // background and is only needed when the player stops.
     setNet(null);
     setDealer(null);
+    setMiss(null);
     t0.current = performance.now();
     setRound((r) => r + 1);
     setPhase("running");
@@ -640,6 +644,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
     }).then((r) => {
       if (!r) return;
       setDealer(r.dealer ?? null);
+      if (r.errMs !== undefined) setMiss({ elapsed: r.elapsedMs ?? mine, err: r.errMs, graded: r.gradedMs ?? targetMs });
       setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won: (r.netCents ?? 0) > 0, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents });
       dealerWinFx(r.dealer, (r.netCents ?? 0) > 0, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
     });
@@ -653,6 +658,12 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx }: GameProps)
       stage={
         <div className="flex flex-col items-center gap-2">
           <TimerDigits key={round} phase={phase} clockRef={t0} frozen={frozen} targetMs={targetMs} lang={lang ?? "en"} />
+          {phase === "done" && miss && (
+            <div className="num text-[11.5px] text-mute">
+              {(miss.elapsed / 1000).toFixed(2)}s · {t.offBy(miss.err)}
+              <span className="text-faint"> · {t.timerGradedVs((miss.graded / 1000).toFixed(2))}</span>
+            </div>
+          )}
           <ResultTag net={phase === "done" ? net : null} lang={lang} />
           <DealerTag dealer={dealer} won={phase === "done" ? net?.won : null} />
         </div>
