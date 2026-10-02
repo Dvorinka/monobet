@@ -1,19 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { blessedChancePct, WALL_BLESSED_RE, BLESS_BASE_PCT, BLESS_MAX_PCT } from "./games";
+import { blessedChancePct, WALL_BLESSED_RE, BLESS_PER_PRAYER_PCT, BLESS_MAX_PCT } from "./games";
 
 describe("blessedChancePct — prayer-scaled rig for Bibi's table", () => {
-  it("starts at the base chance with no prayers", () => {
-    expect(blessedChancePct(0)).toBe(BLESS_BASE_PCT);
+  it("does nothing for players with no wall nodes", () => {
+    expect(blessedChancePct(0)).toBe(0);
   });
   it("grows one step per prayer", () => {
-    expect(blessedChancePct(3)).toBe(BLESS_BASE_PCT + 18);
+    expect(blessedChancePct(1)).toBe(BLESS_PER_PRAYER_PCT);
+    expect(blessedChancePct(3)).toBe(3 * BLESS_PER_PRAYER_PCT);
   });
   it("caps instead of ever promising a sure thing", () => {
     expect(blessedChancePct(10_000)).toBe(BLESS_MAX_PCT);
-    expect(blessedChancePct(10_000)).toBeLessThan(50);
+    expect(blessedChancePct(10_000)).toBeLessThanOrEqual(10);
   });
-  it("never dips below the base for negative counts", () => {
-    expect(blessedChancePct(-5)).toBe(BLESS_BASE_PCT);
+  it("never dips below zero for negative counts", () => {
+    expect(blessedChancePct(-5)).toBe(0);
   });
 });
 
