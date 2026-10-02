@@ -9,6 +9,7 @@ import { getT } from "@/lib/i18n";
 import { SearchBox } from "@/components/search-box";
 import { AnimatedMoney } from "@/components/animated-number";
 import { UserMenu } from "@/components/user-menu";
+import { MobileNav } from "@/components/mobile-nav";
 import { ClaimButton } from "@/components/claim-button";
 import { Button } from "@/components/ui/primitives";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -46,6 +47,7 @@ export async function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur border-b border-line">
       <div className="mx-auto max-w-6xl px-3 sm:px-4 h-14 flex items-center gap-2 sm:gap-4">
+        <MobileNav lang={lang} signedIn={!!user} username={user?.username ?? user?.name} isAdminUser={!!user && isAdmin(user)} />
         <Link href="/" className="flex items-center gap-2 shrink-0 group/logo">
           <LogoMark className="transition-transform duration-300 group-hover/logo:rotate-[-6deg] group-hover/logo:scale-105" />
           <span className="font-bold text-[17px] tracking-tight hidden sm:block">MonoBet</span>
