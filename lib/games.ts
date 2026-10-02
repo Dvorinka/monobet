@@ -15,11 +15,21 @@ export function gameLevCap(
   const raw = Math.max(1, Math.round(per ?? cfg?.gameMaxLev ?? 10));
   return Math.min(raw, GAME_LEVERAGES[GAME_LEVERAGES.length - 1]);
 }
+// Effective base-stake cap for a game: per-game override wins, else the
+// global cap; never below the min bet. Bets are stake, not notional.
+export function gameBetCap(
+  cfg: { gameMaxBetCents?: number | null; gameBetCaps?: Record<string, number> | null } | undefined,
+  game: string
+): number {
+  const per = cfg?.gameBetCaps?.[game];
+  return Math.max(100, Math.round(per ?? cfg?.gameMaxBetCents ?? MAX_GAME_STAKE_CENTS));
+}
 // Flat house fee on every round — charged up front with the stake, tracked
 // under ledger kind "fee" so admin can see it apart from game P&L.
 export const GAME_FEE_CENTS = 100;
-// Stake cap — the player's own money per round. Leverage still amplifies the
-// notional up to MAX_GAME_WAGER_CENTS, so lev 10 only fits a Ɱ1k stake.
+// Stake cap — the player's own money per round; the live default comes from
+// casino_config.game_max_bet_cents (this constant is the schema default).
+// Leverage still amplifies the notional up to MAX_GAME_WAGER_CENTS.
 export const MAX_GAME_STAKE_CENTS = 100_000;
 // Notional sanity cap — the stake times leverage can't exceed this.
 export const MAX_GAME_WAGER_CENTS = 100_000_00;
@@ -93,11 +103,13 @@ export const VOW_CHOICES_BPS = [0, 1000, 2000, 3000]; // 0/10/20/30% of wins
 // Coin flip: 50/50, house keeps ~2%.
 export const COINFLIP_MULT = 1.96;
 
-// Dice: roll 1–6, win on roll > `over`. Fair odds 6/(6−over), ~4% house edge.
+// Dice: roll 1–6, win on roll > `over`. Fair odds 6/(6−over), ~8% house edge —
+// dice is the classic leverage vehicle, so it carries a deeper cut than a coin
+// flip: levered margin makes low-edge, high-hit games the sharp-money magnet.
 export const DICE_MIN_OVER = 2;
 export const DICE_MAX_OVER = 5;
 export function diceMult(over: number) {
-  return (6 / (6 - over)) * 0.96;
+  return (6 / (6 - over)) * 0.92;
 }
 export function diceWinChance(over: number) {
   return (6 - over) / 6;
@@ -143,10 +155,12 @@ export function timerRevealMs(targetMs: number) {
 }
 
 // Limbo: pick a target multiplier; the crash point follows 0.99/(1−u) so
-// P(win) = 0.99/target. Paying target×0.98 leaves a ~3% house edge.
-// The roll itself is generated server-side (crypto randomInt) in actions.ts.
-export const LIMBO_MIN = 1.05;
+// P(win) = 0.99/target. Paying target×0.96 leaves a ~5% house edge.
+// Min target 1.10 keeps the ~95%-chance floor plays out — they read as rigged
+// and barely earn anyway. The roll itself is generated server-side.
+export const LIMBO_MIN = 1.1;
 export const LIMBO_MAX = 50;
+export const LIMBO_PAYOUT = 0.96; // win pays target × this
 export function limboWinChance(target: number) {
   return 0.99 / target;
 }
@@ -156,26 +170,54 @@ export function limboWinChance(target: number) {
 export const WHEEL_SEGMENTS = [0, 1.5, 0.5, 0, 2.5, 0, 0.8, 0, 5, 0, 1.2, 0.6] as const;
 export const WHEEL_STEP = 360 / WHEEL_SEGMENTS.length;
 
-// Plinko — a ball falls through 12 rows of pins, each bounce 50/50 left/right,
-// and lands in one of 13 pockets. Edges pay the most; the table is symmetric
-// and unimodal, so "nudge toward the middle" always lowers the payout (rig)
-// and "nudge outward" always raises it (bless/luck). RTP ≈ 95.9%.
-export const PLINKO_ROWS = 12;
-export const PLINKO_MULT = [40, 11, 3.7, 1.8, 0.9, 0.6, 0.5, 0.6, 0.9, 1.8, 3.7, 11, 40] as const;
+// Plinko — a ball falls through `rows` rows of pins, each bounce 50/50
+// left/right, and lands in one of rows+1 pockets. Edges pay the most; the
+// table is symmetric and unimodal, so "nudge toward the middle" always lowers
+// the payout (rig) and "nudge outward" always raises it (bless/luck).
+// Rows are player-selectable; more rows spread the same RTP over a wider,
+// lumpier board. RTP ≈ 84% at every size.
+export const PLINKO_ROWS = 12; // canonical board — duels and default
+export const PLINKO_ROW_CHOICES = [8, 10, 12, 14, 16] as const;
+// Payout model: mult_k = A · fair_k^0.64 where fair_k = 2^n/C(n,k) — the
+// exponent shapes the canned 12-row curve (center ≈0.5, edges fat), and A is
+// solved so each board's RTP lands on target before rounding.
+const PLINKO_RTP = 0.84;
+const PLINKO_SHAPE = 0.64;
+function choose(n: number, k: number): number {
+  let r = 1;
+  for (let i = 0; i < k; i++) r = (r * (n - i)) / (i + 1);
+  return r;
+}
+const plinkoTables = new Map<number, number[]>();
+export function plinkoMults(rows: number): number[] {
+  const cached = plinkoTables.get(rows);
+  if (cached) return cached;
+  const pockets = rows + 1;
+  const fair = Array.from({ length: pockets }, (_, k) => 2 ** rows / choose(rows, k));
+  const shaped = fair.map((f) => f ** PLINKO_SHAPE);
+  const evPerPath = shaped.reduce((a, s, k) => a + choose(rows, k) * s, 0);
+  const scale = (PLINKO_RTP * 2 ** rows) / evPerPath;
+  const table = shaped.map((s) => Math.max(0, Math.round(scale * s * 100) / 100));
+  plinkoTables.set(rows, table);
+  return table;
+}
+// The 12-row table stays an export for duels/legacy reads — generated by the
+// same model, so it matches plinkoMults(12) (≈[40,11,3.7,1.8,…] shape).
+export const PLINKO_MULT = plinkoMults(PLINKO_ROWS);
 export const PLINKO_CENTER = PLINKO_ROWS / 2;
 export function plinkoBucket(path: number[]) {
   return path.reduce((a, step) => a + (step ? 1 : 0), 0);
 }
 // Rebuild a valid path for a given pocket — used when rig/luck moves the
 // landing, so the replayed animation still matches the settled outcome.
-export function plinkoPathForBucket(bucket: number, rand: (n: number) => number) {
-  const order = Array.from({ length: PLINKO_ROWS }, (_, i) => i);
+export function plinkoPathForBucket(bucket: number, rand: (n: number) => number, rows = PLINKO_ROWS) {
+  const order = Array.from({ length: rows }, (_, i) => i);
   for (let i = order.length - 1; i > 0; i--) {
     const j = rand(i + 1);
     [order[i], order[j]] = [order[j], order[i]];
   }
   const rights = new Set(order.slice(0, bucket));
-  return Array.from({ length: PLINKO_ROWS }, (_, i) => (rights.has(i) ? 1 : 0));
+  return Array.from({ length: rows }, (_, i) => (rights.has(i) ? 1 : 0));
 }
 
 // Duels — claim is the classic agreed bet; the rest are server-resolved

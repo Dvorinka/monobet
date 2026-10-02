@@ -54,9 +54,16 @@ export function groupLiquidationValueCents(
 // new leverage). The leveraged top-up is also bought with a one-off funding
 // fee (like a broker's spread), charged up front.
 export const LEV_FEE_BPS = 500; // default 5% of the borrowed notional — admin-tunable
+// Funding fee steps up with leverage — bigger borrows pay a bigger rate:
+// every full 5× of leverage multiplies the configured bps (2–5× → 1×bps,
+// 6–10× → 2×bps, 11–15× → 3×bps …). No borrowed leg, no fee (1× is free).
+export const LEV_TIER = 5;
+export function levFeeBpsEff(leverage: number, bps = LEV_FEE_BPS): number {
+  return bps * Math.ceil(Math.max(0, leverage) / LEV_TIER);
+}
 export function levFeeCents(betCents: number, leverage: number, bps = LEV_FEE_BPS): number {
   if (leverage <= 1) return 0;
-  return Math.round(betCents * (leverage - 1) * (bps / 10_000));
+  return Math.round(betCents * (leverage - 1) * (levFeeBpsEff(leverage, bps) / 10_000));
 }
 // Raw (unfloored) return: stake back plus amplified profit — can go negative
 // at sub-1x multipliers under leverage; the negative part is the unpaid

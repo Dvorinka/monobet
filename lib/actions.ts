@@ -3,13 +3,13 @@
 import { db, schema } from "@/lib/db";
 import { eq, ne, and, sql, desc, asc, isNull, inArray, gte } from "drizzle-orm";
 import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
-import { GAME_LEVERAGES, gameLevCap, GAME_FEE_CENTS, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_WINDOW_MS, GAME_DAILY_LIMIT_MS, GAME_IDLE_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_MULT, PLINKO_CENTER, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, DUEL_GAME_KEY, DUEL_TIMER_MS, type DuelKind, type DuelMove, type RpsMove, type Persona } from "@/lib/games";
+import { GAME_LEVERAGES, gameLevCap, gameBetCap, GAME_FEE_CENTS, MAX_GAME_WAGER_CENTS, MAX_GAME_STAKE_CENTS, GAME_WINDOW_MS, GAME_DAILY_LIMIT_MS, GAME_IDLE_MS, COINFLIP_MULT, diceMult, DICE_MIN_OVER, DICE_MAX_OVER, TIMER_TARGETS, timerMult, timerJitterRangeMs, GAME_KEYS, type GameKey, cardOrder, cardIsRed, cardLabel, REDBLACK_MULT, hiloMult, hiloWinRanks, type HiloDir, LIMBO_MIN, LIMBO_MAX, LIMBO_PAYOUT, WHEEL_SEGMENTS, PLINKO_ROWS, PLINKO_ROW_CHOICES, plinkoMults, PLINKO_MULT, plinkoBucket, plinkoPathForBucket, SLOT_SYMBOLS, SLOT_TOTAL_WEIGHT, slotDraw, slotPayout, handTotal, isNatural, BJ_WIN_MULT, BJ_NATURAL_MULT, BJ_DECKS, evalPerfectPairs, evalTwentyOnePlusThree, dealerFx, blessedChancePct, TAV_BONUS_PCT, TAV_COOLDOWN_MS, WALL_COOLDOWN_MS, WALL_FEE_MIN_CENTS, WALL_FEE_DEBT_PCT, WALL_CLEAR_MIN_PCT, WALL_CLEAR_MAX_PCT, WALL_SILENT_PCT, WALL_MIRACLE_PER_MILLE, WALL_BACKFIRE_PCT, WALL_BLESSED_RE, WALL_BLESSED_SILENT_PCT, WALL_BLESSED_MIRACLE_PER_MILLE, WALL_BLESSED_CLEAR_MAX_PCT, VOW_CHOICES_BPS, DUEL_KINDS, RPS_MOVES, RPS_BEATS, DUEL_NAMES, DUEL_GAME_KEY, DUEL_TIMER_MS, type DuelKind, type DuelMove, type RpsMove, type Persona } from "@/lib/games";
 import { revalidatePath, updateTag } from "next/cache";
 import { requireUser, requireAdmin, isAdmin } from "@/lib/session";
 import { SUPER_ADMIN_EMAIL } from "@/lib/auth";
 import { yesPrice, tradeCost, sharesForSpend, qForProb, multiCoords, multiPrices, multiTradeCost, multiSharesForSpend, multiQForProb, houseSeedCents, MAX_TRADE_CENTS, MAX_TRADE_SPEND_CENTS, MIN_TRADE_CENTS, TRADE_FEE_CENTS } from "@/lib/lmsr";
 import { loanFor, liquidationValueCents, groupLiquidationValueCents, shouldLiquidate, levFeeCents, levWinCents, levWinRawCents, LEV_FEE_BPS } from "@/lib/liq";
-import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, garnishDebt, runStops, runGroupStops, addDebt, releaseDebt, type Tx } from "@/lib/tx-market";
+import { toNum, credit, lockUser, lockMarket, checkLiquidations, checkGroupLiquidations, garnishDebt, runStops, runGroupStops, addDebt, releaseDebt, ping, type Tx } from "@/lib/tx-market";
 import { resetEconomyTx } from "@/lib/economy-reset";
 import { accruedDebtCents, LOAN_PRESETS_CENTS, LOAN_OFFER_COUNT, LOAN_OFFER_TTL_MS, rollRateBps, DEBT_CAP_CENTS, GAME_DEBT_RATE_BPS } from "@/lib/loans";
 import { marketYesPrice, getMarketBetCount, getStatsSince } from "@/lib/queries";
@@ -94,24 +94,6 @@ async function optionMarkPrice(tx: Tx, m: typeof schema.market.$inferSelect): Pr
   return prices[i];
 }
 
-// Zero-amount ledger row the header bell reads — for events the user didn't
-// trigger themselves (settlements, invites, admin actions).
-async function ping(tx: Pick<Tx, "select" | "insert">, userId: string, memo: string, marketId: string | null = null) {
-  const [w] = await tx
-    .select({ balanceCents: schema.user.balanceCents })
-    .from(schema.user)
-    .where(eq(schema.user.id, userId))
-    .limit(1);
-  await tx.insert(schema.ledger).values({
-    userId,
-    amountCents: 0,
-    balanceAfterCents: w?.balanceCents ?? 0,
-    kind: "notify",
-    marketId,
-    memo,
-  });
-}
-
 // Short random market slug — "/market/7kx9q2mp". Unambiguous alphabet.
 const SLUG_ABC = "abcdefghjkmnpqrstuvwxyz23456789";
 function newSlug(len = 8): string {
@@ -182,6 +164,7 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
         closesAt: nextClose,
         recurDays: parent.recurDays,
         maxLeverage: parent.maxLeverage,
+        maxBetCents: parent.maxBetCents,
         imageUrl: parent.imageUrl,
       })
       .returning({ id: schema.market.id });
@@ -231,6 +214,7 @@ async function syncGroupStatus(tx: Tx, m: typeof schema.market.$inferSelect) {
           opensAt: nextOpen,
           closesAt: nextClose,
           maxLeverage: parent.maxLeverage,
+          maxBetCents: parent.maxBetCents,
         })
         .returning({ id: schema.market.id });
       await tx.insert(schema.pricePoint).values({ marketId: child.id, yesPrice: pi.toFixed(5) });
@@ -297,7 +281,7 @@ export async function placeTrade(input: {
       if (m.closesAt && new Date(m.closesAt) <= new Date()) throw new Error("Market is closed");
       const cur = await lockUser(tx, u.id);
       const [levCfg] = await tx
-        .select({ tMax: schema.casinoConfig.tradeMaxLev, feeBps: schema.casinoConfig.levFeeBps })
+        .select({ tMax: schema.casinoConfig.tradeMaxLev, feeBps: schema.casinoConfig.levFeeBps, maxSpend: schema.casinoConfig.tradeMaxSpendCents })
         .from(schema.casinoConfig)
         .where(eq(schema.casinoConfig.id, "house"));
 
@@ -323,7 +307,9 @@ export async function placeTrade(input: {
         const spend = Math.round(input.spendCents ?? 0);
         const leverage = Math.round(input.leverage ?? 1);
         if (!Number.isFinite(spend) || spend < MIN_TRADE_CENTS) throw new Error("Minimum trade is Ɱ 10");
-        if (spend > MAX_TRADE_SPEND_CENTS) throw new Error("Max trade is Ɱ 5 000");
+        // Per-market ceiling wins when set; otherwise the global config cap.
+        const spendCap = m.maxBetCents ?? levCfg?.maxSpend ?? MAX_TRADE_SPEND_CENTS;
+        if (spend > spendCap) throw new Error(`Max trade here is Ɱ ${(spendCap / 100).toFixed(0)}`);
         if (!TRADE_LEVERAGES.includes(leverage)) throw new Error("Bad leverage");
         const levCap = Math.min(m.maxLeverage, levCfg?.tMax ?? 100);
         if (leverage > levCap) throw new Error(`Max leverage here is ${levCap}×`);
@@ -888,17 +874,24 @@ export async function setLeverageConfig(input: {
   tradeMaxLev: number;
   levFeeBps: number;
   gameLevCaps: Record<string, number | null>;
+  gameMaxBetCents: number;
+  tradeMaxSpendCents: number;
+  gameBetCaps: Record<string, number | null>;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     await requireAdmin();
     const gMax = Math.round(Number(input.gameMaxLev));
     const tMax = Math.round(Number(input.tradeMaxLev));
     const feeBps = Math.round(Number(input.levFeeBps));
+    const gBet = Math.round(Number(input.gameMaxBetCents));
+    const tSpend = Math.round(Number(input.tradeMaxSpendCents));
     const leverMax = GAME_LEVERAGES[GAME_LEVERAGES.length - 1];
     const tradeLeverMax = TRADE_LEVERAGES[TRADE_LEVERAGES.length - 1];
     if (!Number.isFinite(gMax) || gMax < 1 || gMax > leverMax) throw new Error(`Game cap 1–${leverMax}× only`);
     if (!Number.isFinite(tMax) || tMax < 1 || tMax > tradeLeverMax) throw new Error(`Market cap 1–${tradeLeverMax}× only`);
     if (!Number.isFinite(feeBps) || feeBps < 0 || feeBps > 5000) throw new Error("Funding fee 0–50% only");
+    if (!Number.isFinite(gBet) || gBet < 100 || gBet > 100_000_000) throw new Error("Game max bet Ɱ1–Ɱ1,000,000 only");
+    if (!Number.isFinite(tSpend) || tSpend < 1000 || tSpend > 100_000_000) throw new Error("Market max trade Ɱ10–Ɱ1,000,000 only");
     const caps: Record<string, number> = {};
     for (const [k, v] of Object.entries(input.gameLevCaps ?? {})) {
       if (!GAME_KEYS.includes(k as GameKey) || v == null) continue;
@@ -906,13 +899,27 @@ export async function setLeverageConfig(input: {
       if (!Number.isFinite(n) || n < 1 || n > leverMax) throw new Error(`Per-game cap 1–${leverMax}× only`);
       if (n !== gMax) caps[k] = n; // same-as-global entries are noise
     }
+    const betCaps: Record<string, number> = {};
+    for (const [k, v] of Object.entries(input.gameBetCaps ?? {})) {
+      if (!GAME_KEYS.includes(k as GameKey) || v == null) continue;
+      const n = Math.round(Number(v));
+      if (!Number.isFinite(n) || n < 100 || n > 100_000_000) throw new Error("Per-game max bet Ɱ1–Ɱ1,000,000 only");
+      if (n !== gBet) betCaps[k] = n;
+    }
+    const set = {
+      gameMaxLev: gMax,
+      tradeMaxLev: tMax,
+      levFeeBps: feeBps,
+      gameLevCaps: Object.keys(caps).length ? caps : null,
+      gameMaxBetCents: gBet,
+      tradeMaxSpendCents: tSpend,
+      gameBetCaps: Object.keys(betCaps).length ? betCaps : null,
+      updatedAt: new Date(),
+    };
     await db
       .insert(schema.casinoConfig)
-      .values({ id: "house", gameMaxLev: gMax, tradeMaxLev: tMax, levFeeBps: feeBps, gameLevCaps: Object.keys(caps).length ? caps : null })
-      .onConflictDoUpdate({
-        target: schema.casinoConfig.id,
-        set: { gameMaxLev: gMax, tradeMaxLev: tMax, levFeeBps: feeBps, gameLevCaps: Object.keys(caps).length ? caps : null, updatedAt: new Date() },
-      });
+      .values({ id: "house", ...set })
+      .onConflictDoUpdate({ target: schema.casinoConfig.id, set });
     revalidatePath("/admin");
     revalidatePath("/games");
     return { ok: true };
@@ -1096,6 +1103,7 @@ export async function proposeMarket(input: {
   optionProbs?: number[]; // per-option opening odds in %, parallel to outcomes
   recurDays?: number; // auto-clone the market this many days after close
   maxLeverage?: number; // leverage ceiling for buys — defaults to 10x
+  maxBetCents?: number | null; // own-cash spend cap per order — null = global
 }): Promise<{ ok: boolean; error?: string; slug?: string; live?: boolean }> {
   try {
     const u = await requireUser();
@@ -1127,6 +1135,14 @@ export async function proposeMarket(input: {
     // Per-market ceiling can't exceed the global cap — the ticket intersects
     // both anyway, but storing the effective value keeps admins honest.
     const maxLeverage = Math.min(TRADE_LEVERAGES.includes(input.maxLeverage ?? 10) ? input.maxLeverage! : 10, levCfg?.tMax ?? 100);
+    const maxBetCents =
+      input.maxBetCents == null
+        ? null
+        : (() => {
+            const n = Math.round(Number(input.maxBetCents));
+            if (!Number.isFinite(n) || n < 1000 || n > 100_000_000) throw new Error("Max trade Ɱ10–Ɱ1,000,000 only");
+            return n;
+          })();
     const marketImage = input.imageUrl?.trim() || null;
     if (marketImage) {
       const isData = /^data:image\/(jpeg|png|webp);base64,/.test(marketImage) || /^data:image\/svg\+xml[;,]/.test(marketImage);
@@ -1176,6 +1192,7 @@ export async function proposeMarket(input: {
             closesAt,
             recurDays,
             maxLeverage,
+            maxBetCents,
             imageUrl: marketImage,
           })
           .returning({ id: schema.market.id, slug: schema.market.slug });
@@ -1213,6 +1230,7 @@ export async function proposeMarket(input: {
               opensAt,
               closesAt,
               maxLeverage,
+              maxBetCents,
             })
             .returning({ id: schema.market.id });
           await tx.insert(schema.pricePoint).values({ marketId: child.id, yesPrice: pi.toFixed(5) });
@@ -1239,6 +1257,7 @@ export async function proposeMarket(input: {
           closesAt,
           recurDays,
           maxLeverage,
+          maxBetCents,
           imageUrl: marketImage,
         })
         .returning({ id: schema.market.id, slug: schema.market.slug });
@@ -1302,6 +1321,7 @@ export async function updateMarket(input: {
   b?: number;
   recurDays?: number | null;
   maxLeverage?: number;
+  maxBetCents?: number | null; // undefined keeps the stored cap; null = global
   options?: { id: string; label: string; imageUrl?: string }[];
 }): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -1355,6 +1375,18 @@ export async function updateMarket(input: {
         : m[0].maxLeverage,
       levCfg?.tMax ?? 100
     );
+    // Spend ceiling — same live-edit rules as leverage; undefined keeps the
+    // stored value, null resets to the global config cap.
+    const maxBetCents =
+      input.maxBetCents === undefined
+        ? m[0].maxBetCents
+        : input.maxBetCents === null
+          ? null
+          : (() => {
+              const n = Math.round(Number(input.maxBetCents));
+              if (!Number.isFinite(n) || n < 1000 || n > 100_000_000) throw new Error("Max trade Ɱ10–Ɱ1,000,000 only");
+              return n;
+            })();
 
     // Option renames/image swaps are display-only — positions and the book key
     // on the option's id, not its label. Each entry must name a real child.
@@ -1398,6 +1430,7 @@ export async function updateMarket(input: {
           opensAt,
           recurDays,
           maxLeverage,
+          maxBetCents,
           b: bChanged ? input.b! : m[0].b,
         })
         .where(eq(schema.market.id, input.marketId));
@@ -1408,7 +1441,7 @@ export async function updateMarket(input: {
       if (m[0].kind === "group") {
         await tx
           .update(schema.market)
-          .set({ category, closesAt, opensAt, maxLeverage, b: bChanged ? input.b! : m[0].b })
+          .set({ category, closesAt, opensAt, maxLeverage, maxBetCents, b: bChanged ? input.b! : m[0].b })
           .where(eq(schema.market.parentId, input.marketId));
         for (const o of optionEdits) {
           await tx
@@ -2583,14 +2616,16 @@ const RIG_PCT = 35; // rigged dealers flip ~⅓ of player wins
 async function stakeGame(tx: Tx, userId: string, betCents: number, leverage: number, label: string, game: GameKey): Promise<number> {
   const wager = Math.round(betCents * leverage);
   if (wager > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
-  // Kill-switch + leverage knobs ride the same config row.
+  // Kill-switch + leverage/stake knobs ride the same config row.
   const [cfg] = await tx
-    .select({ d: schema.casinoConfig.disabledGames, gMax: schema.casinoConfig.gameMaxLev, per: schema.casinoConfig.gameLevCaps, feeBps: schema.casinoConfig.levFeeBps })
+    .select({ d: schema.casinoConfig.disabledGames, gMax: schema.casinoConfig.gameMaxLev, per: schema.casinoConfig.gameLevCaps, feeBps: schema.casinoConfig.levFeeBps, gBet: schema.casinoConfig.gameMaxBetCents, betCaps: schema.casinoConfig.gameBetCaps })
     .from(schema.casinoConfig)
     .where(eq(schema.casinoConfig.id, "house"));
   if (cfg?.d?.includes(game)) throw new Error("This game is temporarily disabled");
   const cap = gameLevCap(cfg ? { gameMaxLev: cfg.gMax, gameLevCaps: cfg.per } : undefined, game);
   if (leverage > cap) throw new Error(`Max leverage here is ${cap}×`);
+  const betCap = gameBetCap(cfg ? { gameMaxBetCents: cfg.gBet, gameBetCaps: cfg.betCaps } : undefined, game);
+  if (betCents > betCap) throw new Error(`Max bet here is Ɱ ${(betCap / 100).toFixed(0)}`);
   const fee = levFeeCents(betCents, leverage, cfg?.feeBps ?? LEV_FEE_BPS);
   // Credit check + charge both run on the locked row — the pre-tx snapshot
   // could be a debt repayment stale.
@@ -2742,7 +2777,9 @@ function checkBet(betCents: number, leverage: number) {
   const bet = Math.round(betCents);
   const lev = Math.round(leverage);
   if (!Number.isFinite(bet) || bet < MIN_BET_CENTS) throw new Error("Minimum bet is Ɱ 1");
-  if (bet > MAX_GAME_STAKE_CENTS) throw new Error("Max bet is Ɱ 1 000");
+  // Stake ceiling lives in stakeGame — it reads the admin-configured cap
+  // (game_max_bet_cents / game_bet_caps), which this cheap pre-check can't see.
+  if (bet > MAX_GAME_WAGER_CENTS) throw new Error("Bet too large");
   if (!GAME_LEVERAGES.includes(lev as (typeof GAME_LEVERAGES)[number])) throw new Error("Bad leverage");
   return { bet, lev };
 }
@@ -3080,7 +3117,7 @@ export async function playLimbo(input: {
       won = false;
     }
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, won, target * 0.98, `Limbo ≥${target}x → ${roll.toFixed(2)}x`, dealer, undefined, "limbo")
+      settleGame(tx, u.id, bet, lev, won, target * LIMBO_PAYOUT, `Limbo ≥${target}x → ${roll.toFixed(2)}x`, dealer, undefined, "limbo")
     );
     revalidatePath("/games");
     return { ok: true, won, roll: Math.round(roll * 100) / 100, netCents, dealer, feeCents, skimCents, tavCents };
@@ -3207,30 +3244,34 @@ export async function playSlots(input: {
 export async function playPlinko(input: {
   betCents: number;
   leverage: number;
+  rows?: number; // pin rows — player picks the board size
   dealerId?: string;
-}): Promise<{ ok: boolean; error?: string; path?: number[]; bucket?: number; mult?: number; netCents?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
+}): Promise<{ ok: boolean; error?: string; path?: number[]; bucket?: number; mult?: number; rows?: number; netCents?: number; dealer?: Persona; feeCents?: number; skimCents?: number; tavCents?: number }> {
   try {
     const u = await requireUser();
     await assertNotSpam(u.id, "game");
     const { bet, lev } = checkBet(input.betCents, input.leverage);
-    let path = Array.from({ length: PLINKO_ROWS }, () => (randomInt(2) === 1 ? 1 : 0));
+    const rows = PLINKO_ROW_CHOICES.includes(input.rows as (typeof PLINKO_ROW_CHOICES)[number]) ? input.rows! : PLINKO_ROWS;
+    const mults = plinkoMults(rows);
+    const center = rows / 2;
+    let path = Array.from({ length: rows }, () => (randomInt(2) === 1 ? 1 : 0));
     let bucket = plinkoBucket(path);
-    let mult = PLINKO_MULT[bucket];
+    let mult = mults[bucket];
     // Walk toward the middle until the pocket stops paying, walk outward until
     // it does — bounded so a nudge always terminates at the board's edge.
     const spoil = (k: number) => {
-      while (k !== PLINKO_CENTER && PLINKO_MULT[k] > 1) k += k < PLINKO_CENTER ? 1 : -1;
+      while (k !== center && mults[k] > 1) k += k < center ? 1 : -1;
       return k;
     };
     const rescue = (k: number) => {
-      while (k > 0 && k < PLINKO_ROWS && PLINKO_MULT[k] <= 1)
-        k += k < PLINKO_CENTER ? -1 : k > PLINKO_CENTER ? 1 : randomInt(2) ? -1 : 1;
+      while (k > 0 && k < rows && mults[k] <= 1)
+        k += k < center ? -1 : k > center ? 1 : randomInt(2) ? -1 : 1;
       return k;
     };
     const move = (k: number) => {
       bucket = k;
-      path = plinkoPathForBucket(k, randomInt);
-      mult = PLINKO_MULT[k];
+      path = plinkoPathForBucket(k, randomInt, rows);
+      mult = mults[k];
     };
     const dealer = await pickDealer(input.dealerId);
     if (dealerFx(dealer).rigged && mult > 1 && randomInt(100) < RIG_PCT) move(spoil(bucket));
@@ -3240,10 +3281,10 @@ export async function playPlinko(input: {
     if (luck === "win") move(rescue(bucket));
     else if (luck === "lose") move(spoil(bucket));
     const { netCents, feeCents, skimCents, tavCents } = await db.transaction(async (tx) =>
-      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Plinko → pocket ${bucket} ×${mult}`, dealer, undefined, "plinko")
+      settleGame(tx, u.id, bet, lev, mult > 0, mult, `Plinko ${rows}r → pocket ${bucket} ×${mult}`, dealer, undefined, "plinko")
     );
     revalidatePath("/games");
-    return { ok: true, path, bucket, mult, netCents, dealer, feeCents, skimCents, tavCents };
+    return { ok: true, path, bucket, mult, rows, netCents, dealer, feeCents, skimCents, tavCents };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Drop failed" };
   }

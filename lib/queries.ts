@@ -515,6 +515,9 @@ export async function getHouseStats() {
         tradeMaxLev: schema.casinoConfig.tradeMaxLev,
         levFeeBps: schema.casinoConfig.levFeeBps,
         gameLevCaps: schema.casinoConfig.gameLevCaps,
+        gameMaxBetCents: schema.casinoConfig.gameMaxBetCents,
+        tradeMaxSpendCents: schema.casinoConfig.tradeMaxSpendCents,
+        gameBetCaps: schema.casinoConfig.gameBetCaps,
       })
       .from(schema.casinoConfig)
       .where(eq(schema.casinoConfig.id, "house")),
@@ -587,6 +590,9 @@ export async function getHouseStats() {
       tradeMaxLev: cfg[0]?.tradeMaxLev ?? 10,
       levFeeBps: cfg[0]?.levFeeBps ?? 500,
       gameLevCaps: cfg[0]?.gameLevCaps ?? {},
+      gameMaxBetCents: cfg[0]?.gameMaxBetCents ?? 100000,
+      tradeMaxSpendCents: cfg[0]?.tradeMaxSpendCents ?? 500000,
+      gameBetCaps: cfg[0]?.gameBetCaps ?? {},
     },
     // Bank position on loans: cash repaid + garnished wins + live debt claims
     // still on the books, minus cash lent out. Debt forgiven by the wall or
@@ -1113,6 +1119,9 @@ export async function getLevConfig(): Promise<{
   tradeMaxLev: number;
   levFeeBps: number;
   gameLevCaps: Record<string, number> | null;
+  gameMaxBetCents: number;
+  tradeMaxSpendCents: number;
+  gameBetCaps: Record<string, number> | null;
 }> {
   const [cfg] = await db
     .select({
@@ -1120,6 +1129,9 @@ export async function getLevConfig(): Promise<{
       tradeMaxLev: schema.casinoConfig.tradeMaxLev,
       levFeeBps: schema.casinoConfig.levFeeBps,
       gameLevCaps: schema.casinoConfig.gameLevCaps,
+      gameMaxBetCents: schema.casinoConfig.gameMaxBetCents,
+      tradeMaxSpendCents: schema.casinoConfig.tradeMaxSpendCents,
+      gameBetCaps: schema.casinoConfig.gameBetCaps,
     })
     .from(schema.casinoConfig)
     .where(eq(schema.casinoConfig.id, "house"))
@@ -1129,6 +1141,9 @@ export async function getLevConfig(): Promise<{
     tradeMaxLev: cfg?.tradeMaxLev ?? 10,
     levFeeBps: cfg?.levFeeBps ?? 500,
     gameLevCaps: cfg?.gameLevCaps ?? null,
+    gameMaxBetCents: cfg?.gameMaxBetCents ?? 100000,
+    tradeMaxSpendCents: cfg?.tradeMaxSpendCents ?? 500000,
+    gameBetCaps: cfg?.gameBetCaps ?? null,
   };
 }
 

@@ -43,6 +43,24 @@ export async function credit(
   return u.balanceCents;
 }
 
+// Zero-amount ledger row the header bell reads — for events the user didn't
+// trigger themselves (settlements, liquidations, invites, admin actions).
+export async function ping(tx: Pick<Tx, "select" | "insert">, userId: string, memo: string, marketId: string | null = null) {
+  const [w] = await tx
+    .select({ balanceCents: schema.user.balanceCents })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+    .limit(1);
+  await tx.insert(schema.ledger).values({
+    userId,
+    amountCents: 0,
+    balanceAfterCents: w?.balanceCents ?? 0,
+    kind: "notify",
+    marketId,
+    memo,
+  });
+}
+
 export async function lockMarket(tx: Tx, marketId: string) {
   const rows = await tx
     .select()
@@ -159,8 +177,11 @@ export async function checkLiquidations(tx: Tx, marketId: string) {
       qn -= n;
       const equity = valueCents - p.debtCents;
       await lockUser(tx, p.userId);
+      const title = m.question.slice(0, 50);
+      const nums = `sold for Ɱ${(valueCents / 100).toFixed(0)} vs loan Ɱ${(p.debtCents / 100).toFixed(0)}`;
       if (equity > 0) {
-        await credit(tx, p.userId, equity, "liq", marketId, `Liquidated: ${m.question.slice(0, 60)}`);
+        await credit(tx, p.userId, equity, "liq", marketId, `Liquidated (${nums}): ${title}`);
+        await ping(tx, p.userId, `Position liquidated in “${title}” — the market moved and your shares' sell value (${nums}) fell under the loan. Ɱ${(equity / 100).toFixed(2)} returned.`, marketId);
       } else {
         // A wipeout is silent without a row — tell them the position died.
         const [w] = await tx.select({ balanceCents: schema.user.balanceCents }).from(schema.user).where(eq(schema.user.id, p.userId)).limit(1);
@@ -170,12 +191,19 @@ export async function checkLiquidations(tx: Tx, marketId: string) {
           balanceAfterCents: w?.balanceCents ?? 0,
           kind: "liq",
           marketId,
-          memo: `Liquidated (total loss): ${m.question.slice(0, 60)}`,
+          memo: `Liquidated (total loss, ${nums}): ${title}`,
         });
         // A violent gap can liquidate below the loan — the uncovered part of
         // the margin becomes account debt, same as a busted game round.
         if (equity < 0)
-          await addDebt(tx, p.userId, -equity, GAME_DEBT_RATE_BPS, `Liquidation shortfall: ${m.question.slice(0, 60)}`);
+          await addDebt(tx, p.userId, -equity, GAME_DEBT_RATE_BPS, `Liquidation shortfall: ${title}`);
+        await ping(
+          tx,
+          p.userId,
+          `Position liquidated in “${title}” — sell value ${nums}; your collateral is gone` +
+            (equity < 0 ? ` and the unpaid Ɱ${(-equity / 100).toFixed(2)} of the loan is now debt.` : "."),
+          marketId
+        );
       }
       await tx
         .delete(schema.position)
@@ -222,8 +250,11 @@ export async function checkGroupLiquidations(
         book[i].dirty = true;
         const equity = valueCents - p.debtCents;
         await lockUser(tx, p.userId);
+        const title = m.question.slice(0, 50);
+        const nums = `sold for Ɱ${(valueCents / 100).toFixed(0)} vs loan Ɱ${(p.debtCents / 100).toFixed(0)}`;
         if (equity > 0) {
-          await credit(tx, p.userId, equity, "liq", m.id, `Liquidated: ${m.question.slice(0, 60)}`);
+          await credit(tx, p.userId, equity, "liq", m.id, `Liquidated (${nums}): ${title}`);
+          await ping(tx, p.userId, `Position liquidated in “${title}” — the market moved and your shares' sell value (${nums}) fell under the loan. Ɱ${(equity / 100).toFixed(2)} returned.`, m.id);
         } else {
           // A wipeout is silent without a row — tell them the position died.
           const [w] = await tx.select({ balanceCents: schema.user.balanceCents }).from(schema.user).where(eq(schema.user.id, p.userId)).limit(1);
@@ -233,12 +264,19 @@ export async function checkGroupLiquidations(
             balanceAfterCents: w?.balanceCents ?? 0,
             kind: "liq",
             marketId: m.id,
-            memo: `Liquidated (total loss): ${m.question.slice(0, 60)}`,
+            memo: `Liquidated (total loss, ${nums}): ${title}`,
           });
           // A violent gap can liquidate below the loan — the uncovered part of
           // the margin becomes account debt, same as a busted game round.
           if (equity < 0)
-            await addDebt(tx, p.userId, -equity, GAME_DEBT_RATE_BPS, `Liquidation shortfall: ${m.question.slice(0, 60)}`);
+            await addDebt(tx, p.userId, -equity, GAME_DEBT_RATE_BPS, `Liquidation shortfall: ${title}`);
+          await ping(
+            tx,
+            p.userId,
+            `Position liquidated in “${title}” — sell value ${nums}; your collateral is gone` +
+              (equity < 0 ? ` and the unpaid Ɱ${(-equity / 100).toFixed(2)} of the loan is now debt.` : "."),
+            m.id
+          );
         }
         await tx
           .delete(schema.position)

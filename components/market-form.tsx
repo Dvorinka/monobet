@@ -56,6 +56,7 @@ export function MarketForm({
   const [optionOdds, setOptionOdds] = useState<Record<number, number>>({});
   const [liquidity, setLiquidity] = useState<number>(3000);
   const [maxLeverage, setMaxLeverage] = useState(10);
+  const [maxBet, setMaxBet] = useState(""); // Ɱ, blank = house default
   const [pending, start] = useTransition();
   const router = useRouter();
 
@@ -123,6 +124,7 @@ export function MarketForm({
               optionProbs: multi ? optionLines.map((_, i) => probFor(i)) : undefined,
               recurDays: Number(recurDays),
               maxLeverage,
+              maxBetCents: maxBet.trim() === "" ? null : Math.round(parseFloat(maxBet) * 100),
             });
             if (r.ok) {
               toast.success(t.live);
@@ -483,6 +485,26 @@ export function MarketForm({
             ))}
           </Select>
           <p className="mt-1 text-[11.5px] text-faint">{t.maxLevHint}</p>
+        </div>
+
+        <div>
+          <label className="text-[13px] font-medium text-mute" htmlFor="maxbet">
+            {t.maxBetLabel}
+          </label>
+          <div className="relative mt-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-mute font-semibold text-sm">Ɱ</span>
+            <Input
+              id="maxbet"
+              type="number"
+              min={10}
+              step="1"
+              placeholder={t.maxBetPlaceholder}
+              value={maxBet}
+              onChange={(e) => setMaxBet(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+          <p className="mt-1 text-[11.5px] text-faint">{t.maxBetHint}</p>
         </div>
 
         <div>
