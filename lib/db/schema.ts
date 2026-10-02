@@ -169,6 +169,9 @@ export const market = pgTable(
     recurDays: integer("recur_days"),
     // Creator-chosen leverage ceiling — options inherit the parent's value.
     maxLeverage: integer("max_leverage").notNull().default(10),
+    // Per-market spend ceiling (own cash per order) — null defers to the
+    // global casino_config.trade_max_spend_cents.
+    maxBetCents: integer("max_bet_cents"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Scheduled open — trades are blocked until opens_at; recurring copies
     // shift it forward by one period alongside closes_at.
@@ -579,6 +582,13 @@ export const casinoConfig = pgTable("casino_config", {
   tradeMaxLev: integer("trade_max_lev").notNull().default(10),
   levFeeBps: integer("lev_fee_bps").notNull().default(500),
   gameLevCaps: jsonb("game_lev_caps").$type<Record<string, number>>(),
+  // Stake ceilings — admin-settable. gameMaxBetCents is the default per-round
+  // base-stake cap, gameBetCaps overrides per game key, tradeMaxSpendCents
+  // caps a market order's own-cash spend; a market's max_bet_cents column can
+  // tighten that per market.
+  gameMaxBetCents: integer("game_max_bet_cents").notNull().default(100000),
+  tradeMaxSpendCents: integer("trade_max_spend_cents").notNull().default(500000),
+  gameBetCaps: jsonb("game_bet_caps").$type<Record<string, number>>(),
   // Economy resets move this forward: bank stats and balance-history charts
   // only count ledger rows after the epoch — whale-era churn stays in the
   // ledger for audit but out of the displayed numbers.

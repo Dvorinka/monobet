@@ -129,7 +129,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
     const related = sameCat.length > 0
       ? sameCat
       : (await listMarkets({ status: "live", limit: 8 })).filter((m) => m.id !== market.id).slice(0, 6);
-    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} liked={liked} likes={likes.get(market.id) ?? 0} selOpt={selOpt} selSide={selSide} tradeLevCap={levCfg.tradeMaxLev} levFeeBps={levCfg.levFeeBps} />;
+    return <GroupMarketView market={market} options={options} trades={trades} comments={comments} related={related} user={user} lang={lang} liked={liked} likes={likes.get(market.id) ?? 0} selOpt={selOpt} selSide={selSide} tradeLevCap={levCfg.tradeMaxLev} levFeeBps={levCfg.levFeeBps} levCfgSpend={levCfg.tradeMaxSpendCents} />;
   }
 
   const canManage = !!user && (isAdmin(user) || market.creatorId === user.id);
@@ -351,6 +351,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               stops={stops}
               maxLeverage={tradeLevCap(market)}
               levFeeBps={levCfg.levFeeBps}
+              maxSpendCents={market.maxBetCents ?? levCfg.tradeMaxSpendCents}
               lang={lang}
               opensAt={market.opensAt}
               sharedQ={sharedQ}
@@ -523,6 +524,7 @@ export default async function MarketPage({ params, searchParams }: { params: Pro
               stops={stops}
               maxLeverage={tradeLevCap(market)}
               levFeeBps={levCfg.levFeeBps}
+              maxSpendCents={market.maxBetCents ?? levCfg.tradeMaxSpendCents}
               lang={lang}
               opensAt={market.opensAt}
               sharedQ={sharedQ}
@@ -602,10 +604,12 @@ async function GroupMarketView({
   selSide,
   tradeLevCap,
   levFeeBps,
+  levCfgSpend,
 }: {
   market: Awaited<ReturnType<typeof getMarketBySlug>> & object;
   tradeLevCap: number;
   levFeeBps: number;
+  levCfgSpend: number;
   options: Awaited<ReturnType<typeof getGroupOptions>>;
   trades: Awaited<ReturnType<typeof getGroupTrades>>;
   comments: Awaited<ReturnType<typeof getComments>>;
@@ -746,6 +750,7 @@ async function GroupMarketView({
         signedIn={!!user}
         maxLeverage={Math.min(market.maxLeverage, tradeLevCap)}
         levFeeBps={levFeeBps}
+        maxSpendCents={market.maxBetCents ?? levCfgSpend}
         lang={lang}
         initialOpt={selOpt}
         initialSide={selSide}

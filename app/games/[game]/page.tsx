@@ -9,7 +9,7 @@ import { GameView, type GameSlug } from "@/components/games-panel";
 import { SessionChip } from "@/components/session-chip";
 import { LiveRefresher } from "@/components/live-refresher";
 import { listDealers, getDisabledGames, getLevConfig } from "@/lib/queries";
-import { GAME_KEYS, gameLevCap } from "@/lib/games";
+import { GAME_KEYS, gameLevCap, gameBetCap } from "@/lib/games";
 import { ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +55,7 @@ export default async function GamePage({ params }: { params: Promise<{ game: str
           inDebt={accruedDebtCents(user.debtCents, user.debtRateBps, user.debtSince) > 0}
           levCap={gameLevCap(levCfg, game)}
           levFeeBps={levCfg.levFeeBps}
+          maxBetCents={gameBetCap(levCfg, game)}
         />
       </div>
       <p className="mt-8 text-[12px] text-faint leading-relaxed">{t.fairNote}</p>

@@ -26,6 +26,7 @@ export function TradeTicket({
   heldNo,
   maxLeverage = 10,
   levFeeBps,
+  maxSpendCents = MAX_TRADE_SPEND_CENTS,
   lang,
   title,
   defaultOutcome,
@@ -46,6 +47,8 @@ export function TradeTicket({
   maxLeverage?: number;
   // Funding-fee rate in bps of borrowed notional — matches the server config.
   levFeeBps?: number;
+  // Own-cash spend ceiling — per-market cap when set, else the global config.
+  maxSpendCents?: number;
   lang?: Lang;
   // Optional header (e.g. the selected option label on group markets).
   title?: React.ReactNode;
@@ -76,7 +79,7 @@ export function TradeTicket({
   const sellShares = parseFloat(amount || "0");
 
   const lev = Math.min(Number(leverage), maxLeverage);
-  const overCap = side === "buy" && (spendCents > MAX_TRADE_SPEND_CENTS || spendCents * lev > MAX_TRADE_CENTS);
+  const overCap = side === "buy" && (spendCents > maxSpendCents || spendCents * lev > MAX_TRADE_CENTS);
   const est = useMemo(() => {
     if (side === "buy") {
       if (spendCents < MIN_TRADE_CENTS) return null;
@@ -180,7 +183,7 @@ export function TradeTicket({
             </button>
           ))}
           <button
-            onClick={() => setAmount(side === "buy" ? String(Math.max(0, Math.min((userBalanceCents ?? 0) - TRADE_FEE_CENTS, MAX_TRADE_SPEND_CENTS) / 100)) : held.toFixed(2))}
+            onClick={() => setAmount(side === "buy" ? String(Math.max(0, Math.min((userBalanceCents ?? 0) - TRADE_FEE_CENTS, maxSpendCents) / 100)) : held.toFixed(2))}
             className="flex-1 h-7 rounded-md bg-surface-2 text-[12px] font-semibold text-mute hover:bg-surface-3 hover:text-ink cursor-pointer"
           >
             {t.max}
@@ -188,7 +191,7 @@ export function TradeTicket({
         </div>
         {overCap && (
           <p className="mt-2 text-[12px] font-medium text-warn-strong">
-            {t.tradeLimit(fmtMonos(MAX_TRADE_SPEND_CENTS, { lang }))}
+            {t.tradeLimit(fmtMonos(maxSpendCents, { lang }))}
           </p>
         )}
         {side === "buy" && spendCents > 0 && spendCents < MIN_TRADE_CENTS && (

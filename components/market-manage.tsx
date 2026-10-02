@@ -42,6 +42,7 @@ export function MarketManagePanel({
     b: number;
     recurDays: number | null;
     maxLeverage: number;
+    maxBetCents?: number | null;
   };
   options?: { id: string; label: string; imageUrl: string | null }[];
   categories: string[];
@@ -69,6 +70,7 @@ export function MarketManagePanel({
   const [opts, setOpts] = useState((options ?? []).map((o) => ({ ...o, imageUrl: o.imageUrl ?? "" })));
   const [recurDays, setRecurDays] = useState(String(market.recurDays ?? 0));
   const [maxLeverage, setMaxLeverage] = useState(market.maxLeverage);
+  const [maxBet, setMaxBet] = useState(market.maxBetCents != null ? String(market.maxBetCents / 100) : ""); // Ɱ, blank = house default
   const [liquidity, setLiquidity] = useState(market.b);
   const [reason, setReason] = useState("");
 
@@ -158,6 +160,7 @@ export function MarketManagePanel({
                   closesAt: closesAt ? new Date(closesAt).toISOString() : "",
                   recurDays: Number(recurDays),
                   maxLeverage,
+                  maxBetCents: maxBet.trim() === "" ? null : Math.round(parseFloat(maxBet) * 100),
                   b: liquidity,
                   options: isGroup ? opts.map((o) => ({ id: o.id, label: o.label, imageUrl: o.imageUrl })) : undefined,
                 }),
@@ -324,6 +327,26 @@ export function MarketManagePanel({
                   </option>
                 ))}
               </Select>
+            </div>
+          )}
+
+          {market.kind !== "option" && (
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-faint">
+                {t.maxBetLabel}
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-mute font-semibold text-sm">Ɱ</span>
+                <Input
+                  type="number"
+                  min={10}
+                  step="1"
+                  placeholder={t.maxBetPlaceholder}
+                  value={maxBet}
+                  onChange={(e) => setMaxBet(e.target.value)}
+                  className="pl-8"
+                />
+              </div>
             </div>
           )}
 

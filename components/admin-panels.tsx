@@ -238,7 +238,15 @@ type HouseStats = {
   feesCents: { total: number; game: number; trade: number; levGame: number; levTrade: number };
   rigBps: number;
   disabledGames: string[];
-  lev: { gameMaxLev: number; tradeMaxLev: number; levFeeBps: number; gameLevCaps: Record<string, number> };
+  lev: {
+    gameMaxLev: number;
+    tradeMaxLev: number;
+    levFeeBps: number;
+    gameLevCaps: Record<string, number>;
+    gameMaxBetCents: number;
+    tradeMaxSpendCents: number;
+    gameBetCaps: Record<string, number>;
+  };
   loans: { count: number; disbursedCents: number; repaidCents: number; outstandingCents: number; positionCents: number };
 };
 
@@ -263,6 +271,12 @@ export function HousePanel({
   const [levFee, setLevFee] = useState((stats.lev.levFeeBps / 100).toFixed(0));
   const [levPer, setLevPer] = useState<Record<string, string>>(
     Object.fromEntries(Object.entries(stats.lev.gameLevCaps).map(([k, v]) => [k, String(v)]))
+  );
+  // Stake ceilings — Ɱ units in the inputs; per-game blank follows global.
+  const [betGame, setBetGame] = useState(String(stats.lev.gameMaxBetCents / 100));
+  const [betTrade, setBetTrade] = useState(String(stats.lev.tradeMaxSpendCents / 100));
+  const [betPer, setBetPer] = useState<Record<string, string>>(
+    Object.fromEntries(Object.entries(stats.lev.gameBetCaps).map(([k, v]) => [k, String(v / 100)]))
   );
   const houseGameName = (key: string) =>
     (({ Coin: t.gCoinFlip, Dice: t.gDice, Timer: t.gTimer, Limbo: t.gLimbo, Wheel: t.gWheel, Slots: t.gSlots, Plinko: t.gPlinko, Blackjack: t.gBlackjack, "Hi-Lo": t.gHilo, "Red/Black": t.gRedBlack, coinflip: t.gCoinFlip, dice: t.gDice, timer: t.gTimer, limbo: t.gLimbo, wheel: t.gWheel, slots: t.gSlots, plinko: t.gPlinko, blackjack: t.gBlackjack, hilo: t.gHilo, redblack: t.gRedBlack } as Record<string, string>)[key] ?? key);
@@ -434,6 +448,11 @@ export function HousePanel({
                   gameLevCaps: Object.fromEntries(
                     GAME_KEYS.map((g) => [g, levPer[g] === "" || levPer[g] == null ? null : Math.round(parseFloat(levPer[g]))])
                   ),
+                  gameMaxBetCents: Math.round(parseFloat(betGame || "1000") * 100),
+                  tradeMaxSpendCents: Math.round(parseFloat(betTrade || "5000") * 100),
+                  gameBetCaps: Object.fromEntries(
+                    GAME_KEYS.map((g) => [g, betPer[g] === "" || betPer[g] == null ? null : Math.round(parseFloat(betPer[g]) * 100)])
+                  ),
                 }),
               t.savedToast
             );
@@ -464,8 +483,35 @@ export function HousePanel({
                   max={100}
                   step="1"
                   placeholder={levGame}
+                  title={t.levCfgPerGameTitle}
                   value={levPer[g] ?? ""}
                   onChange={(e) => setLevPer((p) => ({ ...p, [g]: e.target.value }))}
+                />
+              </label>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.betCfgGames}</span>
+              <Input type="number" min={1} step="1" value={betGame} onChange={(e) => setBetGame(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.betCfgMarkets}</span>
+              <Input type="number" min={10} step="10" value={betTrade} onChange={(e) => setBetTrade(e.target.value)} />
+            </label>
+          </div>
+          <div className="grid grid-cols-5 gap-1.5">
+            {GAME_KEYS.map((g) => (
+              <label key={g} className="space-y-0.5">
+                <span className="block truncate text-[10.5px] font-medium text-mute">{houseGameName(g)} Ɱ</span>
+                <Input
+                  type="number"
+                  min={1}
+                  step="1"
+                  placeholder={betGame}
+                  title={t.betCfgPerGameTitle}
+                  value={betPer[g] ?? ""}
+                  onChange={(e) => setBetPer((p) => ({ ...p, [g]: e.target.value }))}
                 />
               </label>
             ))}

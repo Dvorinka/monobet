@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loanFor, LIQ_CUSHION, liqCushion, liquidationValueCents, shouldLiquidate, levFeeCents, levWinCents, levWinRawCents, LEV_FEE_BPS } from "./liq";
+import { loanFor, LIQ_CUSHION, liqCushion, liquidationValueCents, shouldLiquidate, levFeeCents, levFeeBpsEff, levWinCents, levWinRawCents, LEV_FEE_BPS } from "./liq";
 import { tradeCost, sharesForSpend } from "./lmsr";
 
 const B = 300;
@@ -77,12 +77,22 @@ describe("shouldLiquidate", () => {
 });
 
 describe("game margin (levFeeCents / levWinRawCents / levWinCents)", () => {
-  it("charges the configured bps of borrowed notional, nothing at 1x", () => {
-    expect(LEV_FEE_BPS).toBe(500);
+  it("charges nothing at 1x — unlevered play only pays the flat round fee", () => {
     expect(levFeeCents(10_000, 1)).toBe(0);
+    expect(levFeeCents(50_000, 1, 900)).toBe(0);
+    expect(levFeeBpsEff(1)).toBe(LEV_FEE_BPS); // quoted rate, just never charged
+  });
+
+  it("scales the rate by 5x tiers — bigger leverage pays progressively more", () => {
+    expect(LEV_FEE_BPS).toBe(500);
+    expect(levFeeBpsEff(2)).toBe(500); // tier 1
+    expect(levFeeBpsEff(5)).toBe(500);
+    expect(levFeeBpsEff(6)).toBe(1000); // tier 2
+    expect(levFeeBpsEff(10)).toBe(1000);
+    expect(levFeeBpsEff(25)).toBe(2500); // tier 5
     expect(levFeeCents(10_000, 5)).toBe(Math.round(10_000 * 4 * 0.05)); // Ɱ20
+    expect(levFeeCents(10_000, 10)).toBe(Math.round(10_000 * 9 * 0.1)); // Ɱ90
     expect(levFeeCents(10_000, 5, 200)).toBe(Math.round(10_000 * 4 * 0.02)); // custom rate
-    expect(levFeeCents(10_000, 100)).toBe(Math.round(10_000 * 99 * 0.05));
   });
 
   it("amplifies profit by leverage but always returns the stake", () => {

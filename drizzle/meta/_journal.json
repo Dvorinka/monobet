@@ -330,6 +330,13 @@
       "when": 1790926986378,
       "tag": "0046_levcfg",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790929990974,
+      "tag": "0047_betcaps",
+      "breakpoints": true
     }
   ]
 }

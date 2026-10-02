@@ -22,7 +22,7 @@ import {
   blackjackDouble,
   blackjackSurrender,
 } from "@/lib/actions";
-import { levFeeCents, levWinCents, LEV_FEE_BPS } from "@/lib/liq";
+import { levFeeCents, levFeeBpsEff, levWinCents, LEV_FEE_BPS } from "@/lib/liq";
 import {
   GAME_LEVERAGES,
   MAX_GAME_STAKE_CENTS,
@@ -36,11 +36,13 @@ import {
   timerTopMult,
   LIMBO_MIN,
   LIMBO_MAX,
+  LIMBO_PAYOUT,
   limboWinChance,
   WHEEL_SEGMENTS,
   WHEEL_STEP,
   PLINKO_ROWS,
-  PLINKO_MULT,
+  PLINKO_ROW_CHOICES,
+  plinkoMults,
   SLOT_SYMBOLS,
   SLOT_TRIPLE,
   BJ_NATURAL_MULT,
@@ -208,6 +210,7 @@ function BetControls({
   winPreview,
   levCap,
   feeBps,
+  maxBet,
 }: {
   bet: string;
   setBet: (v: string) => void;
@@ -225,6 +228,8 @@ function BetControls({
   levCap?: number;
   // Funding-fee rate in bps of borrowed notional — matches the server config.
   feeBps?: number;
+  // Effective base-stake ceiling in cents (global or per-game override).
+  maxBet?: number;
 }) {
   const t = getT(lang ?? "en");
   const betCents = Math.round(parseFloat(bet || "0") * 100);
@@ -244,11 +249,11 @@ function BetControls({
   // AND leaves the borrowed notional as debt — show the true exposure.
   const borrowed = betCents * (levN - 1);
   const atRisk = betCents + sides + fee + borrowed;
-  // Max stake: balance must cover stake + side bets + the funding fee, and
-  // the borrowed notional stays under the house cap.
+  // Max stake: balance must cover stake + side bets + the tiered funding fee,
+  // and the configured per-game base-stake ceiling still applies.
   const maxCents = Math.min(
-    Math.floor((balanceCents - sides) / (1 + ((levN - 1) * bps) / 10_000)),
-    MAX_GAME_STAKE_CENTS // base stake ceiling — leverage can't stretch it
+    Math.floor((balanceCents - sides) / (1 + ((levN - 1) * levFeeBpsEff(levN, bps)) / 10_000)),
+    maxBet ?? MAX_GAME_STAKE_CENTS // base stake ceiling — leverage can't stretch it
   );
   const clampBet = (v: string) => {
     const n = parseFloat(v);
@@ -365,9 +370,9 @@ function GameCard({
 
 // ---------- coin flip ----------
 
-type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; inDebt?: boolean; demo?: boolean; onWinFx?: (amt: number, fx: WinFx, tavCents?: number) => void; levCap?: number; feeBps?: number };
+type GameProps = { balanceCents: number; lang?: Lang; dealerId?: string; inDebt?: boolean; demo?: boolean; onWinFx?: (amt: number, fx: WinFx, tavCents?: number) => void; levCap?: number; feeBps?: number; maxBet?: number };
 
-function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
+function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps, maxBet }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [pick, setPick] = useState<"heads" | "tails">("heads");
@@ -447,7 +452,7 @@ function CoinFlipCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, lev
             value={pick}
             onChange={(v) => setPick(v)}
           />
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || spinning} lang={lang} winPreview={{ mult: COINFLIP_MULT }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} maxBet={maxBet} disabled={pending || spinning} lang={lang} winPreview={{ mult: COINFLIP_MULT }} />
           <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={flip}>
             {spinning ? t.flipping : t.flip}
           </Button>
@@ -478,7 +483,7 @@ function DiceFace({ value, rolling }: { value: number; rolling: boolean }) {
   );
 }
 
-function DiceCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
+function DiceCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps, maxBet }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [over, setOver] = useState(3);
@@ -549,7 +554,7 @@ function DiceCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap,
               className="w-full accent-brand cursor-pointer"
             />
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || rolling} lang={lang} winPreview={{ mult: diceMult(over) }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} maxBet={maxBet} disabled={pending || rolling} lang={lang} winPreview={{ mult: diceMult(over) }} />
           <Button className="w-full" size="lg" disabled={pending || rolling || !parseFloat(bet)} onClick={roll}>
             {rolling ? t.rolling : t.roll}
           </Button>
@@ -612,7 +617,7 @@ function TimerDigits({ phase, clockRef, frozen, targetMs, lang }: {
   );
 }
 
-function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx, levCap, feeBps }: GameProps) {
+function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx, levCap, feeBps, maxBet }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [target, setTarget] = useState(String(TIMER_TARGETS[0] / 1000));
@@ -730,7 +735,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx, levCap, feeB
               </table>
             </div>
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || phase === "running"} lang={lang} winPreview={{ mult: timerTopMult(targetMs), max: true }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} maxBet={maxBet} disabled={pending || phase === "running"} lang={lang} winPreview={{ mult: timerTopMult(targetMs), max: true }} />
           {phase === "running" ? (
             // Stop is never gated on `pending` — while the start request is
             // still in flight the stop queues on the token promise instead
@@ -752,7 +757,7 @@ function TimerCard({ balanceCents, lang, dealerId, inDebt, onWinFx, levCap, feeB
 
 // ---------- limbo ----------
 
-function LimboCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
+function LimboCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps, maxBet }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [target, setTarget] = useState(2);
@@ -775,7 +780,7 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap
       // Wins crash above the target (sometimes way above), losses under it.
       const roll = demoHit() ? target * (1 + Math.random() * 1.5) : 1 + Math.random() * (target - 1);
       const won = roll >= target;
-      const fake: Awaited<ReturnType<typeof playLimbo>> = { ...demoBase, ok: true, roll, won, netCents: demoNet(bc * levN, won, target * 0.98) };
+      const fake: Awaited<ReturnType<typeof playLimbo>> = { ...demoBase, ok: true, roll, won, netCents: demoNet(bc * levN, won, target * LIMBO_PAYOUT) };
       return demoDelay(fake);
     }).then(
       (r) => {
@@ -847,7 +852,7 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap
             <div className="flex items-center justify-between text-[12px] font-medium text-mute mb-1">
               <span>{t.targetX(target.toFixed(2))}</span>
               <span className="num">
-                {(limboWinChance(target) * 100).toFixed(1)}% · {(target * 0.98).toFixed(2)}×
+                {(limboWinChance(target) * 100).toFixed(1)}% · {(target * LIMBO_PAYOUT).toFixed(2)}×
               </span>
             </div>
             <input
@@ -860,7 +865,7 @@ function LimboCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap
               className="w-full accent-brand cursor-pointer"
             />
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || busy} lang={lang} winPreview={{ mult: target * 0.98 }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} maxBet={maxBet} disabled={pending || busy} lang={lang} winPreview={{ mult: target * LIMBO_PAYOUT }} />
           <Button className="w-full" size="lg" disabled={pending || busy || !parseFloat(bet)} onClick={play}>
             {busy ? t.launching : t.launch}
           </Button>
@@ -880,7 +885,7 @@ function wheelColor(m: number, i: number) {
   return i % 2 ? "var(--color-brand-strong)" : "var(--color-brand)";
 }
 
-function WheelCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
+function WheelCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps, maxBet }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -980,7 +985,7 @@ function WheelCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap
       }
       controls={
         <>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || spinning} lang={lang} winPreview={{ mult: Math.max(...WHEEL_SEGMENTS), max: true }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} maxBet={maxBet} disabled={pending || spinning} lang={lang} winPreview={{ mult: Math.max(...WHEEL_SEGMENTS), max: true }} />
           <Button className="w-full" size="lg" disabled={pending || spinning || !parseFloat(bet)} onClick={spin}>
             {spinning ? t.spinning : t.spin}
           </Button>
@@ -1008,7 +1013,7 @@ function buildStrip(prevSym: number, final: number): number[] {
   return cells;
 }
 
-function SlotsCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
+function SlotsCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps, maxBet }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -1149,7 +1154,7 @@ function SlotsCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap
       }
       controls={
         <>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || spinning} lang={lang} winPreview={{ mult: SLOT_TRIPLE[0], max: true }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} maxBet={maxBet} disabled={pending || spinning} lang={lang} winPreview={{ mult: SLOT_TRIPLE[0], max: true }} />
           <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet)} onClick={spin}>
             {spinning ? t.spinning : t.spin}
           </Button>
@@ -1211,7 +1216,7 @@ function PlayingCard({ v, hidden }: { v?: number; hidden?: boolean }) {
 type BjStep = "p" | "d" | "hole";
 const BJ_REVEAL_MS = 460;
 
-function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx, levCap, feeBps }: GameProps) {
+function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx, levCap, feeBps, maxBet }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -1409,7 +1414,7 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx, levCap, 
         <>
           {!playing && (
             <>
-              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending} lang={lang} sideCents={(pp ? Math.round(parseFloat(ppAmt || "0") * 100) : 0) + (t3 ? Math.round(parseFloat(t3Amt || "0") * 100) : 0)} winPreview={{ mult: BJ_NATURAL_MULT, max: true }} />
+              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} maxBet={maxBet} disabled={pending} lang={lang} sideCents={(pp ? Math.round(parseFloat(ppAmt || "0") * 100) : 0) + (t3 ? Math.round(parseFloat(t3Amt || "0") * 100) : 0)} winPreview={{ mult: BJ_NATURAL_MULT, max: true }} />
               <div className="flex gap-1.5">
                 {([
                   { on: pp, set: setPp, amt: ppAmt, setAmt: setPpAmt, name: "PP", desc: t.bjSidePP },
@@ -1482,55 +1487,62 @@ function BlackjackCard({ balanceCents, lang, dealerId, inDebt, onWinFx, levCap, 
 
 // ---------- plinko ----------
 
-// Board geometry — 12 peg rows as a triangle, pockets underneath. The ball's
-// x at row r is (rights so far − r/2) peg-spacings off center, so a path of
-// 0/1 steps maps onto a visible zigzag that ends over pocket `bucket`.
+// Board geometry — `rows` peg rows as a triangle, pockets underneath. The
+// ball's x at row r is (rights so far − r/2) peg-spacings off center, so a
+// path of 0/1 steps maps onto a visible zigzag that ends over pocket
+// `bucket`. Peg spacing shrinks for bigger boards so any row count fits the
+// same viewBox.
 const PK_TOP = 24;
-const PK_ROW = 19;
+const PK_BOTTOM = 260;
 const PK_SEG_MS = 68; // one peg-to-pocket hop
-const pkX = (k: number, r: number) => 140 + (k - r / 2) * 20;
-const pkY = (r: number) => (r >= PLINKO_ROWS ? 260 : PK_TOP + r * PK_ROW);
+const pkGap = (rows: number) => Math.min(30, 240 / rows);
+const pkRowH = (rows: number) => (PK_BOTTOM - PK_TOP) / rows;
+const pkX = (k: number, r: number, rows: number) => 140 + (k - r / 2) * pkGap(rows);
+const pkY = (r: number, rows: number) => (r >= rows ? PK_BOTTOM : PK_TOP + r * pkRowH(rows));
 
 type Ball = { id: number; path: number[]; bucket: number; t: number };
 
 // Continuous position along the zigzag: t counts rows, the fraction eases
 // into each hop with a small arc off the peg.
-function pkPos(path: number[], t: number) {
-  const seg = Math.min(Math.max(t, 0), PLINKO_ROWS);
-  const r = Math.min(Math.floor(seg), PLINKO_ROWS);
+function pkPos(path: number[], t: number, rows: number) {
+  const seg = Math.min(Math.max(t, 0), rows);
+  const r = Math.min(Math.floor(seg), rows);
   const f = seg - r;
   let rights = 0;
   for (let i = 0; i < r && i < path.length; i++) rights += path[i];
-  const r1 = Math.min(r + 1, PLINKO_ROWS);
+  const r1 = Math.min(r + 1, rows);
   const rights1 = rights + (path[r] ?? 0);
   const e = f * f * (3 - 2 * f);
   return {
-    x: pkX(rights, r) + (pkX(rights1, r1) - pkX(rights, r)) * e,
-    y: pkY(r) + (pkY(r1) - pkY(r)) * e - Math.sin(f * Math.PI) * 5,
+    x: pkX(rights, r, rows) + (pkX(rights1, r1, rows) - pkX(rights, r, rows)) * e,
+    y: pkY(r, rows) + (pkY(r1, rows) - pkY(r, rows)) * e - Math.sin(f * Math.PI) * 5,
   };
 }
 
 const PK_MAX_BALLS = 16;
 const PK_MAX_AIRBORNE = 8;
 
-function PlinkoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
+function PlinkoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps, maxBet }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
   const [lev, setLev] = useState("1");
+  const [rows, setRows] = useState(PLINKO_ROWS);
   const [balls, setBalls] = useState<Ball[]>([]);
   const [net, setNet] = useState<Net>(null);
   const [dealer, setDealer] = useState<Persona | null>(null);
   const nextId = useRef(1);
+  const mults = plinkoMults(rows);
+  const gap = pkGap(rows);
 
-  const airborne = balls.filter((b) => b.t < PLINKO_ROWS).length;
+  const airborne = balls.filter((b) => b.t < rows).length;
   const dropping = airborne > 0;
 
-  // One ticker advances every live ball — t lands on PLINKO_ROWS in the pocket.
+  // One ticker advances every live ball — t lands on `rows` in the pocket.
   useEffect(() => {
-    if (!balls.some((b) => b.t < PLINKO_ROWS)) return;
+    if (!balls.some((b) => b.t < b.path.length)) return;
     const id = setInterval(
-      () => setBalls((bs) => bs.map((b) => (b.t < PLINKO_ROWS ? { ...b, t: Math.min(b.t + 28 / PK_SEG_MS, PLINKO_ROWS) } : b))),
+      () => setBalls((bs) => bs.map((b) => (b.t < b.path.length ? { ...b, t: Math.min(b.t + 28 / PK_SEG_MS, b.path.length) } : b))),
       28
     );
     return () => clearInterval(id);
@@ -1541,17 +1553,18 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCa
     const bc = Math.round(parseFloat(bet || "0") * 100);
     const levN = Number(lockedLev(lev, inDebt));
     run(() => {
-      if (!demo) return playPlinko({ dealerId, betCents: bc, leverage: levN });
-      // Wins land in paying pockets (mostly the modest 1.8×/3.7× ones);
-      // losses drop into the sub-1× middle.
-      const bucket = demoHit() ? [3, 9, 2, 10, 3, 9, 1, 11, 0, 12][ri(10)] : 4 + ri(5);
-      const path: (0 | 1)[] = Array.from({ length: PLINKO_ROWS }, (_, i) => (i < bucket ? 1 : 0));
-      for (let i = PLINKO_ROWS - 1; i > 0; i--) {
+      if (!demo) return playPlinko({ dealerId, betCents: bc, leverage: levN, rows });
+      // Wins land in paying pockets, losses drop into the sub-1× middle.
+      const bucket = demoHit()
+        ? Math.random() < 0.5 ? ri(3) : rows - ri(3)
+        : Math.max(0, Math.min(rows, Math.round(rows / 2 + (ri(5) - 2))));
+      const path: (0 | 1)[] = Array.from({ length: rows }, (_, i) => (i < bucket ? 1 : 0));
+      for (let i = rows - 1; i > 0; i--) {
         const j = ri(i + 1);
         [path[i], path[j]] = [path[j], path[i]];
       }
-      const mult = PLINKO_MULT[bucket];
-      const fake: Awaited<ReturnType<typeof playPlinko>> = { ...demoBase, ok: true, path, bucket, mult, netCents: Math.round(bc * levN * (mult - 1)) };
+      const mult = mults[bucket];
+      const fake: Awaited<ReturnType<typeof playPlinko>> = { ...demoBase, ok: true, path, bucket, mult, rows, netCents: Math.round(bc * levN * (mult - 1)) };
       return demoDelay(fake);
     }).then((r) => {
       const path = r?.path;
@@ -1566,11 +1579,11 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCa
         const won = (r.mult ?? 0) > 1;
         setNet({ stamp: Date.now(), netCents: r.netCents ?? 0, won, feeCents: r.feeCents, stakeCents: bc, skimCents: r.skimCents, demo });
         dealerWinFx(r.dealer, won, (r.netCents ?? 0) + bc + (r.feeCents ?? 0) + (r.skimCents ?? 0), onWinFx, r.tavCents);
-      }, PLINKO_ROWS * PK_SEG_MS + 300);
+      }, rows * PK_SEG_MS + 300);
     });
   };
 
-  const landed = new Set(balls.filter((b) => b.t >= PLINKO_ROWS).map((b) => b.bucket));
+  const landed = new Set(balls.filter((b) => b.t >= b.path.length).map((b) => b.bucket));
 
   return (
     <GameCard
@@ -1581,34 +1594,35 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCa
         <div className="flex flex-col items-center gap-2">
           <svg viewBox="0 0 280 300" className="w-full max-w-[280px]" role="img" aria-label="Plinko">
             {/* pegs */}
-            {Array.from({ length: PLINKO_ROWS }, (_, r) =>
+            {Array.from({ length: rows }, (_, r) =>
               Array.from({ length: r + 1 }, (_, j) => (
-                <circle key={`${r}-${j}`} cx={pkX(j, r)} cy={PK_TOP + r * PK_ROW} r={2.4} fill="var(--color-faint)" />
+                <circle key={`${r}-${j}`} cx={pkX(j, r, rows)} cy={PK_TOP + r * pkRowH(rows)} r={Math.max(1.6, gap * 0.12)} fill="var(--color-faint)" />
               ))
             )}
             {/* pockets */}
-            {PLINKO_MULT.map((m, k) => {
+            {mults.map((m, k) => {
               const hit = landed.has(k);
               const big = m >= 10;
               const pays = m > 1;
+              const pw = gap - 1.5;
               return (
                 <g key={k}>
                   <rect
-                    x={pkX(k, PLINKO_ROWS) - 9.5}
+                    x={pkX(k, rows, rows) - pw / 2}
                     y={248}
-                    width={19}
+                    width={pw}
                     height={44}
-                    rx={5}
+                    rx={4}
                     fill={big ? "var(--color-brand)" : pays ? "var(--color-yes-soft)" : "var(--color-surface-3)"}
                     stroke={hit ? "var(--color-ink)" : "transparent"}
                     strokeWidth={hit ? 2 : 0}
                     style={hit ? { filter: "drop-shadow(0 0 6px var(--color-brand))" } : undefined}
                   />
                   <text
-                    x={pkX(k, PLINKO_ROWS)}
+                    x={pkX(k, rows, rows)}
                     y={286}
                     textAnchor="middle"
-                    fontSize={7.5}
+                    fontSize={pw < 17 ? 5.5 : 7.5}
                     fontWeight={700}
                     fill={big ? "var(--color-brand-on)" : pays ? "var(--color-yes-strong)" : "var(--color-mute)"}
                     className="num"
@@ -1620,8 +1634,8 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCa
             })}
             {/* balls — continuous hop interpolation, several live at once */}
             {balls.map((b) => {
-              const p = pkPos(b.path, b.t);
-              const down = b.t >= PLINKO_ROWS;
+              const p = pkPos(b.path, b.t, rows);
+              const down = b.t >= b.path.length;
               return (
                 <g key={b.id} transform={`translate(${p.x}, ${p.y})`} style={down ? undefined : { filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.35))" }}>
                   <circle r={down ? 5.5 : 6.5} fill={down ? "var(--color-mute)" : "var(--color-brand)"} />
@@ -1636,16 +1650,25 @@ function PlinkoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCa
       }
       controls={
         <>
+          <div>
+            <div className="text-[12px] font-medium text-mute mb-1">{t.plinkoRows}</div>
+            <Segmented
+              options={PLINKO_ROW_CHOICES.map((v) => ({ value: String(v), label: String(v) }))}
+              value={String(rows)}
+              onChange={(v) => setRows(Number(v))}
+              disabled={dropping}
+            />
+          </div>
           <BetControls
             bet={bet}
             setBet={setBet}
             lev={lockedLev(lev, inDebt)}
             setLev={setLev}
             balanceCents={balanceCents}
-            locked={inDebt} levCap={levCap} feeBps={feeBps}
+            locked={inDebt} levCap={levCap} feeBps={feeBps} maxBet={maxBet}
             disabled={pending}
             lang={lang}
-            winPreview={{ mult: PLINKO_MULT[0], max: true }}
+            winPreview={{ mult: mults[0], max: true }}
           />
           <Button className="w-full" size="lg" disabled={airborne >= PK_MAX_AIRBORNE || !parseFloat(bet)} onClick={drop}>
             {t.plinkoDrop}
@@ -1675,7 +1698,7 @@ function BigCard({ v, hidden }: { v?: number; hidden?: boolean }) {
   );
 }
 
-function RedBlackCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
+function RedBlackCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps, maxBet }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [pick, setPick] = useState<"red" | "black">("red");
@@ -1751,7 +1774,7 @@ function RedBlackCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, lev
               <span className="text-[17px]">♠♣</span> {t.rbBlack}
             </button>
           </div>
-          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending || drawing} lang={lang} winPreview={{ mult: REDBLACK_MULT }} />
+          <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} maxBet={maxBet} disabled={pending || drawing} lang={lang} winPreview={{ mult: REDBLACK_MULT }} />
           <Button className="w-full" size="lg" disabled={pending || drawing || !parseFloat(bet)} onClick={play}>
             {drawing ? t.drawing : t.draw}
           </Button>
@@ -1761,7 +1784,7 @@ function RedBlackCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, lev
   );
 }
 
-function HiLoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps }: GameProps) {
+function HiLoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap, feeBps, maxBet }: GameProps) {
   const t = getT(lang ?? "en");
   const { pending, run } = useGame(lang);
   const [bet, setBet] = useState("10");
@@ -1863,7 +1886,7 @@ function HiLoCard({ balanceCents, lang, dealerId, inDebt, demo, onWinFx, levCap,
             </>
           ) : (
             <>
-              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} disabled={pending} lang={lang} />
+              <BetControls bet={bet} setBet={setBet} lev={lockedLev(lev, inDebt)} setLev={setLev} balanceCents={balanceCents} locked={inDebt} levCap={levCap} feeBps={feeBps} maxBet={maxBet} disabled={pending} lang={lang} />
               <Button className="w-full" size="lg" disabled={pending || !parseFloat(bet)} onClick={deal}>
                 {t.bjDeal}
               </Button>
@@ -2134,6 +2157,7 @@ export function GameView({
   inDebt,
   levCap,
   levFeeBps,
+  maxBetCents,
 }: {
   game: GameSlug;
   balanceCents: number;
@@ -2142,6 +2166,7 @@ export function GameView({
   inDebt?: boolean;
   levCap?: number;
   levFeeBps?: number;
+  maxBetCents?: number;
 }) {
   const t = getT(lang ?? "en");
   const Game = GAME_COMPONENTS[game];
@@ -2239,7 +2264,7 @@ export function GameView({
           {t.demoNotice}
         </div>
       )}
-      <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt} demo={demo && demoOk} levCap={levCap} feeBps={levFeeBps}
+      <Game balanceCents={balanceCents} lang={lang} dealerId={dealerId} inDebt={inDebt} demo={demo && demoOk} levCap={levCap} feeBps={levFeeBps} maxBet={maxBetCents}
         onWinFx={(amt, fx, tav) => { if (!fxOff) setSplash({ amt, fx, tav }); }} />
       {/* Dealer celebrations run inside a bounded card, not the viewport —
           any click dismisses. */}
