@@ -108,8 +108,8 @@ export const COINFLIP_MULT = 1.96;
 // flip: levered margin makes low-edge, high-hit games the sharp-money magnet.
 export const DICE_MIN_OVER = 2;
 export const DICE_MAX_OVER = 5;
-export function diceMult(over: number) {
-  return (6 / (6 - over)) * 0.92;
+export function diceMult(over: number, pay = 0.92) {
+  return (6 / (6 - over)) * pay;
 }
 export function diceWinChance(over: number) {
   return (6 - over) / 6;

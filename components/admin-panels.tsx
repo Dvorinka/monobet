@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, Input, Select, Badge } from "@/components/ui/primitives";
-import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminRenameUser, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer, setCasinoRig, setUserLuck, setGameEnabled, setLeverageConfig, resetJackpot, adminResetEconomy } from "@/lib/actions";
+import { approveMarket, rejectMarket, resolveMarket, cancelMarket, grantBalance, createCategory, renameCategory, deleteCategory, reorderCategories, deleteMarket, adminCreateUser, adminSetUserBanned, adminSetCommentsBanned, adminSetUserRole, adminRenameUser, adminResetUserPassword, adminSettleDuel, adminDeleteUser, adminUpsertDealer, adminDeleteDealer, adminToggleDealer, setCasinoRig, setUserLuck, setGameEnabled, setLeverageConfig, setGameRules, resetJackpot, adminResetEconomy } from "@/lib/actions";
 import { GAME_KEYS } from "@/lib/games";
 import { fmtMonos, fmtDate } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -247,6 +247,20 @@ type HouseStats = {
     tradeMaxSpendCents: number;
     gameBetCaps: Record<string, number>;
   };
+  rules: {
+    autobetEnabled: boolean;
+    gameDailyLimitMs: number;
+    gameIdleMs: number;
+    gameFeeCents: number;
+    tradeFeeCents: number;
+    debtRateBps: number;
+    referralRoyaltyBps: number;
+    referralRoyaltyCapCents: number;
+    dicePayBps: number;
+    limboPayBps: number;
+    limboMinX100: number;
+    minTradeCents: number;
+  };
   loans: { count: number; disbursedCents: number; repaidCents: number; outstandingCents: number; positionCents: number };
 };
 
@@ -278,6 +292,19 @@ export function HousePanel({
   const [betPer, setBetPer] = useState<Record<string, string>>(
     Object.fromEntries(Object.entries(stats.lev.gameBetCaps).map(([k, v]) => [k, String(v / 100)]))
   );
+  // House rules — the former hardcodes, now admin-tunable.
+  const [ruleAutobet, setRuleAutobet] = useState(stats.rules.autobetEnabled);
+  const [ruleDaily, setRuleDaily] = useState((stats.rules.gameDailyLimitMs / 3_600_000).toString());
+  const [ruleIdle, setRuleIdle] = useState((stats.rules.gameIdleMs / 60_000).toString());
+  const [ruleGameFee, setRuleGameFee] = useState((stats.rules.gameFeeCents / 100).toString());
+  const [ruleTradeFee, setRuleTradeFee] = useState((stats.rules.tradeFeeCents / 100).toString());
+  const [ruleApr, setRuleApr] = useState((stats.rules.debtRateBps / 100).toString());
+  const [ruleRoyPct, setRuleRoyPct] = useState((stats.rules.referralRoyaltyBps / 100).toString());
+  const [ruleRoyCap, setRuleRoyCap] = useState((stats.rules.referralRoyaltyCapCents / 100).toString());
+  const [ruleDicePay, setRuleDicePay] = useState((stats.rules.dicePayBps / 100).toString());
+  const [ruleLimboPay, setRuleLimboPay] = useState((stats.rules.limboPayBps / 100).toString());
+  const [ruleLimboMin, setRuleLimboMin] = useState((stats.rules.limboMinX100 / 100).toString());
+  const [ruleMinTrade, setRuleMinTrade] = useState((stats.rules.minTradeCents / 100).toString());
   const houseGameName = (key: string) =>
     (({ Coin: t.gCoinFlip, Dice: t.gDice, Timer: t.gTimer, Limbo: t.gLimbo, Wheel: t.gWheel, Slots: t.gSlots, Plinko: t.gPlinko, Blackjack: t.gBlackjack, "Hi-Lo": t.gHilo, "Red/Black": t.gRedBlack, coinflip: t.gCoinFlip, dice: t.gDice, timer: t.gTimer, limbo: t.gLimbo, wheel: t.gWheel, slots: t.gSlots, plinko: t.gPlinko, blackjack: t.gBlackjack, hilo: t.gHilo, redblack: t.gRedBlack } as Record<string, string>)[key] ?? key);
   const luckyUsers = users.filter((u) => u.luckBps !== 0);
@@ -518,6 +545,97 @@ export function HousePanel({
           </div>
           <div className="flex items-center justify-between gap-2">
             <p className="text-[11px] text-faint">{t.levCfgNote}</p>
+            <Button size="sm" disabled={pending}>{t.save}</Button>
+          </div>
+        </form>
+
+        <form
+          className="rounded-xl border border-line bg-surface-2 p-3 space-y-2 sm:col-span-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(
+              () =>
+                setGameRules({
+                  autobetEnabled: ruleAutobet,
+                  gameDailyLimitMs: Math.round(parseFloat(ruleDaily || "2") * 3_600_000),
+                  gameIdleMs: Math.round(parseFloat(ruleIdle || "30") * 60_000),
+                  gameFeeCents: Math.round(parseFloat(ruleGameFee || "0") * 100),
+                  tradeFeeCents: Math.round(parseFloat(ruleTradeFee || "0") * 100),
+                  debtRateBps: Math.round(parseFloat(ruleApr || "0") * 100),
+                  referralRoyaltyBps: Math.round(parseFloat(ruleRoyPct || "0") * 100),
+                  referralRoyaltyCapCents: Math.round(parseFloat(ruleRoyCap || "0") * 100),
+                  dicePayBps: Math.round(parseFloat(ruleDicePay || "92") * 100),
+                  limboPayBps: Math.round(parseFloat(ruleLimboPay || "96") * 100),
+                  limboMinX100: Math.round(parseFloat(ruleLimboMin || "1.1") * 100),
+                  minTradeCents: Math.round(parseFloat(ruleMinTrade || "0") * 100),
+                }),
+              t.savedToast
+            );
+          }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[12px] font-bold text-ink">{t.rulesTitle}</div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <span className="text-[11px] font-medium text-mute" title={t.rulesAutobetDesc}>{t.rulesAutobet}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={ruleAutobet}
+                onClick={() => setRuleAutobet((v) => !v)}
+                className={cn("relative h-5 w-9 rounded-full transition-colors cursor-pointer", ruleAutobet ? "bg-brand" : "bg-surface-3")}
+              >
+                <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform", ruleAutobet ? "translate-x-[18px]" : "translate-x-0.5")} />
+              </button>
+            </label>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.rulesDaily}</span>
+              <Input type="number" min={0.05} max={24} step="0.5" value={ruleDaily} onChange={(e) => setRuleDaily(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.rulesIdle}</span>
+              <Input type="number" min={1} max={1440} step="1" value={ruleIdle} onChange={(e) => setRuleIdle(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.rulesGameFee}</span>
+              <Input type="number" min={0} max={1000} step="0.5" value={ruleGameFee} onChange={(e) => setRuleGameFee(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.rulesTradeFee}</span>
+              <Input type="number" min={0} max={1000} step="0.5" value={ruleTradeFee} onChange={(e) => setRuleTradeFee(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.rulesApr}</span>
+              <Input type="number" min={0} max={1000} step="1" value={ruleApr} onChange={(e) => setRuleApr(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.rulesRoyPct}</span>
+              <Input type="number" min={0} max={100} step="0.5" value={ruleRoyPct} onChange={(e) => setRuleRoyPct(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.rulesRoyCap}</span>
+              <Input type="number" min={0} step="100" value={ruleRoyCap} onChange={(e) => setRuleRoyCap(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.rulesMinTrade}</span>
+              <Input type="number" min={0} step="1" value={ruleMinTrade} onChange={(e) => setRuleMinTrade(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.rulesDicePay}</span>
+              <Input type="number" min={10} max={100} step="0.5" value={ruleDicePay} onChange={(e) => setRuleDicePay(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.rulesLimboPay}</span>
+              <Input type="number" min={10} max={100} step="0.5" value={ruleLimboPay} onChange={(e) => setRuleLimboPay(e.target.value)} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] font-medium text-mute">{t.rulesLimboMin}</span>
+              <Input type="number" min={1.01} max={100} step="0.01" value={ruleLimboMin} onChange={(e) => setRuleLimboMin(e.target.value)} />
+            </label>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-faint">{t.rulesNote}</p>
             <Button size="sm" disabled={pending}>{t.save}</Button>
           </div>
         </form>

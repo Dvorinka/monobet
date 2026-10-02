@@ -43,6 +43,8 @@ export default async function GamePage({ params }: { params: Promise<{ game: str
           windowStart={user.gameSessionStart?.getTime() ?? null}
           lastPlayAt={user.gameLastPlayAt?.getTime() ?? null}
           playedMs={user.gamePlayedMs}
+          dailyMs={levCfg.gameDailyLimitMs}
+          idleMs={levCfg.gameIdleMs}
           lang={lang}
         />
       </div>
@@ -56,6 +58,7 @@ export default async function GamePage({ params }: { params: Promise<{ game: str
           levCap={gameLevCap(levCfg, game)}
           levFeeBps={levCfg.levFeeBps}
           maxBetCents={gameBetCap(levCfg, game)}
+          autobet={levCfg.autobetEnabled}
         />
       </div>
       <p className="mt-8 text-[12px] text-faint leading-relaxed">{t.fairNote}</p>

@@ -5,19 +5,25 @@ import { Hourglass } from "lucide-react";
 import { GAME_WINDOW_MS, GAME_DAILY_LIMIT_MS, GAME_IDLE_MS } from "@/lib/games";
 import { getT, type Lang } from "@/lib/i18n";
 
-// Daily-cap indicator: ticks down the 2h in-game budget of the rolling 24h
-// window. A ≥30min gap since the last stake means the clock stopped — the
-// chip then freezes instead of draining idle time. Renders nothing before
-// the first stake or after the window lapses — the next stake reopens it.
+// Daily-cap indicator: ticks down the in-game budget of the rolling 24h
+// window (admin-tunable — props fall back to the shipped defaults). A gap
+// past the idle threshold since the last stake means the clock stopped —
+// the chip then freezes instead of draining idle time. Renders nothing
+// before the first stake or after the window lapses — the next stake
+// reopens it.
 export function SessionChip({
   windowStart,
   lastPlayAt,
   playedMs,
+  dailyMs,
+  idleMs,
   lang,
 }: {
   windowStart: number | null;
   lastPlayAt: number | null;
   playedMs: number;
+  dailyMs?: number;
+  idleMs?: number;
   lang?: Lang;
 }) {
   const t = getT(lang ?? "en");
@@ -31,12 +37,14 @@ export function SessionChip({
   const windowEnd = windowStart + GAME_WINDOW_MS;
   if (now >= windowEnd) return null;
 
+  const limit = dailyMs ?? GAME_DAILY_LIMIT_MS;
+  const idle = idleMs ?? GAME_IDLE_MS;
   // In-game time = banked ms + the open stretch since the last stake (only
   // while it's under the idle gap — past that the clock already stopped).
-  const openStretch = lastPlayAt !== null && now - lastPlayAt < GAME_IDLE_MS ? now - lastPlayAt : 0;
+  const openStretch = lastPlayAt !== null && now - lastPlayAt < idle ? now - lastPlayAt : 0;
   const used = playedMs + openStretch;
-  const capped = used >= GAME_DAILY_LIMIT_MS;
-  const shown = capped ? windowEnd - now : GAME_DAILY_LIMIT_MS - used;
+  const capped = used >= limit;
+  const shown = capped ? windowEnd - now : limit - used;
   let hrs = Math.floor(shown / 3_600_000);
   let mins = Math.ceil((shown % 3_600_000) / 60000);
   if (mins === 60) { hrs += 1; mins = 0; }
