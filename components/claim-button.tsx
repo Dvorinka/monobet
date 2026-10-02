@@ -34,7 +34,7 @@ export function ClaimButton({ lang, nextAt }: { lang?: Lang; nextAt: number | nu
   return (
     <Link
       href="/rewards"
-      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-semibold transition-all duration-150
+      className="hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm font-semibold transition-all duration-150
         bg-brand-soft text-brand-strong hover:bg-brand active:scale-[0.97] hover:text-brand-on"
       title={cooling ? t.availableIn(Math.max(1, Math.ceil((nextAt - now) / 3600000))) : t.claimTitle}
     >

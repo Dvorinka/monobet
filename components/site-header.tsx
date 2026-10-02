@@ -65,13 +65,13 @@ export async function SiteHeader() {
           </Link>
         </nav>
 
-        <div className="flex-1 max-w-sm ml-auto">
+        <div className="ml-auto sm:flex-1 sm:max-w-sm">
           <SearchBox lang={lang} />
         </div>
 
         <Link
           href="/propose"
-          className="hidden sm:grid size-9 place-items-center rounded-lg bg-brand text-brand-on hover:bg-brand-strong transition-all duration-150 active:scale-[0.97] shrink-0"
+          className="grid size-9 place-items-center rounded-lg bg-brand text-brand-on hover:bg-brand-strong transition-all duration-150 active:scale-[0.97] shrink-0"
           title={t.newMarket}
           aria-label={t.newMarket}
         >
@@ -87,7 +87,7 @@ export async function SiteHeader() {
                 title={t.rewards}
               >
                 <Gift className="size-3.5" />
-                {fmtMonosShort(claimableCents)}
+                <span className="hidden sm:inline">{fmtMonosShort(claimableCents)}</span>
               </Link>
             )}
             <ClaimButton
