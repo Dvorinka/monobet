@@ -96,7 +96,7 @@ export async function SiteHeader() {
             />
             <Link
               href="/rewards"
-              className="num hidden sm:inline-flex items-center h-9 px-3 rounded-lg bg-surface-2 text-sm font-semibold hover:bg-surface-3"
+              className="num inline-flex items-center h-9 px-3 rounded-lg bg-surface-2 text-sm font-semibold hover:bg-surface-3"
               title={t.yourBalance}
             >
               <AnimatedMoney cents={user.balanceCents} lang={lang} short />
