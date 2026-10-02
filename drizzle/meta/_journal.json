@@ -337,6 +337,13 @@
       "when": 1790929990974,
       "tag": "0047_betcaps",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790932041322,
+      "tag": "0048_houserules",
+      "breakpoints": true
     }
   ]
 }

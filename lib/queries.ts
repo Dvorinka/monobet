@@ -518,6 +518,18 @@ export async function getHouseStats() {
         gameMaxBetCents: schema.casinoConfig.gameMaxBetCents,
         tradeMaxSpendCents: schema.casinoConfig.tradeMaxSpendCents,
         gameBetCaps: schema.casinoConfig.gameBetCaps,
+        autobetEnabled: schema.casinoConfig.autobetEnabled,
+        gameDailyLimitMs: schema.casinoConfig.gameDailyLimitMs,
+        gameIdleMs: schema.casinoConfig.gameIdleMs,
+        gameFeeCents: schema.casinoConfig.gameFeeCents,
+        tradeFeeCents: schema.casinoConfig.tradeFeeCents,
+        debtRateBps: schema.casinoConfig.debtRateBps,
+        referralRoyaltyBps: schema.casinoConfig.referralRoyaltyBps,
+        referralRoyaltyCapCents: schema.casinoConfig.referralRoyaltyCapCents,
+        dicePayBps: schema.casinoConfig.dicePayBps,
+        limboPayBps: schema.casinoConfig.limboPayBps,
+        limboMinX100: schema.casinoConfig.limboMinX100,
+        minTradeCents: schema.casinoConfig.minTradeCents,
       })
       .from(schema.casinoConfig)
       .where(eq(schema.casinoConfig.id, "house")),
@@ -593,6 +605,20 @@ export async function getHouseStats() {
       gameMaxBetCents: cfg[0]?.gameMaxBetCents ?? 100000,
       tradeMaxSpendCents: cfg[0]?.tradeMaxSpendCents ?? 500000,
       gameBetCaps: cfg[0]?.gameBetCaps ?? {},
+    },
+    rules: {
+      autobetEnabled: cfg[0]?.autobetEnabled ?? true,
+      gameDailyLimitMs: cfg[0]?.gameDailyLimitMs ?? 7_200_000,
+      gameIdleMs: cfg[0]?.gameIdleMs ?? 1_800_000,
+      gameFeeCents: cfg[0]?.gameFeeCents ?? 100,
+      tradeFeeCents: cfg[0]?.tradeFeeCents ?? 100,
+      debtRateBps: cfg[0]?.debtRateBps ?? 2000,
+      referralRoyaltyBps: cfg[0]?.referralRoyaltyBps ?? 500,
+      referralRoyaltyCapCents: cfg[0]?.referralRoyaltyCapCents ?? 200000,
+      dicePayBps: cfg[0]?.dicePayBps ?? 9200,
+      limboPayBps: cfg[0]?.limboPayBps ?? 9600,
+      limboMinX100: cfg[0]?.limboMinX100 ?? 110,
+      minTradeCents: cfg[0]?.minTradeCents ?? 1000,
     },
     // Bank position on loans: cash repaid + garnished wins + live debt claims
     // still on the books, minus cash lent out. Debt forgiven by the wall or
@@ -771,7 +797,13 @@ export async function getRewardsState(userId: string) {
   let referrals: { id: string; username: string | null; name: string | null; earnedCents: number; royaltyCents: number; paidCents: number }[] = [];
   if (refIds.length) {
     // Royalties count post-epoch earnings only — whale-era churn shouldn't
-    // mint referral money.
+    // mint referral money. Rate/cap are admin-tunable on the config row.
+    const [refCfg] = await db
+      .select({ bps: schema.casinoConfig.referralRoyaltyBps, cap: schema.casinoConfig.referralRoyaltyCapCents })
+      .from(schema.casinoConfig)
+      .where(eq(schema.casinoConfig.id, "house"));
+    const royBps = refCfg?.bps ?? REFERRAL_ROYALTY_BPS;
+    const royCap = refCfg?.cap ?? REFERRAL_ROYALTY_CAP_CENTS;
     const statsSince = await getStatsSince();
     const [earned, names] = await Promise.all([
       db
@@ -800,7 +832,7 @@ export async function getRewardsState(userId: string) {
         username: nameMap.get(id)?.username ?? null,
         name: nameMap.get(id)?.name ?? null,
         earnedCents: e,
-        royaltyCents: Math.min(Math.floor((e * REFERRAL_ROYALTY_BPS) / 10_000), REFERRAL_ROYALTY_CAP_CENTS),
+        royaltyCents: Math.min(Math.floor((e * royBps) / 10_000), royCap),
         paidCents: paidMap.get(id) ?? 0,
       };
     });
@@ -1122,6 +1154,16 @@ export async function getLevConfig(): Promise<{
   gameMaxBetCents: number;
   tradeMaxSpendCents: number;
   gameBetCaps: Record<string, number> | null;
+  autobetEnabled: boolean;
+  gameDailyLimitMs: number;
+  gameIdleMs: number;
+  gameFeeCents: number;
+  tradeFeeCents: number;
+  debtRateBps: number;
+  dicePayBps: number;
+  limboPayBps: number;
+  limboMinX100: number;
+  minTradeCents: number;
 }> {
   const [cfg] = await db
     .select({
@@ -1132,6 +1174,16 @@ export async function getLevConfig(): Promise<{
       gameMaxBetCents: schema.casinoConfig.gameMaxBetCents,
       tradeMaxSpendCents: schema.casinoConfig.tradeMaxSpendCents,
       gameBetCaps: schema.casinoConfig.gameBetCaps,
+      autobetEnabled: schema.casinoConfig.autobetEnabled,
+      gameDailyLimitMs: schema.casinoConfig.gameDailyLimitMs,
+      gameIdleMs: schema.casinoConfig.gameIdleMs,
+      gameFeeCents: schema.casinoConfig.gameFeeCents,
+      tradeFeeCents: schema.casinoConfig.tradeFeeCents,
+      debtRateBps: schema.casinoConfig.debtRateBps,
+      dicePayBps: schema.casinoConfig.dicePayBps,
+      limboPayBps: schema.casinoConfig.limboPayBps,
+      limboMinX100: schema.casinoConfig.limboMinX100,
+      minTradeCents: schema.casinoConfig.minTradeCents,
     })
     .from(schema.casinoConfig)
     .where(eq(schema.casinoConfig.id, "house"))
@@ -1144,6 +1196,16 @@ export async function getLevConfig(): Promise<{
     gameMaxBetCents: cfg?.gameMaxBetCents ?? 100000,
     tradeMaxSpendCents: cfg?.tradeMaxSpendCents ?? 500000,
     gameBetCaps: cfg?.gameBetCaps ?? null,
+    autobetEnabled: cfg?.autobetEnabled ?? true,
+    gameDailyLimitMs: cfg?.gameDailyLimitMs ?? 7_200_000,
+    gameIdleMs: cfg?.gameIdleMs ?? 1_800_000,
+    gameFeeCents: cfg?.gameFeeCents ?? 100,
+    tradeFeeCents: cfg?.tradeFeeCents ?? 100,
+    debtRateBps: cfg?.debtRateBps ?? 2000,
+    dicePayBps: cfg?.dicePayBps ?? 9200,
+    limboPayBps: cfg?.limboPayBps ?? 9600,
+    limboMinX100: cfg?.limboMinX100 ?? 110,
+    minTradeCents: cfg?.minTradeCents ?? 1000,
   };
 }
 

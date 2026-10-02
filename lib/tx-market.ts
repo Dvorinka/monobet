@@ -90,7 +90,9 @@ export async function lockUser(tx: Tx, userId: string) {
 export async function garnishDebt(tx: Tx, userId: string, profitCents: number, label: string): Promise<number> {
   const u = await lockUser(tx, userId);
   const debt = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince);
-  const skim = Math.min(Math.max(0, Math.round((profitCents * u.vowBps) / 10_000)), debt);
+  // Auto-repay overrides the vow slider — every win feeds the loan in full.
+  const vowBps = u.autoRepay ? 10_000 : u.vowBps;
+  const skim = Math.min(Math.max(0, Math.round((profitCents * vowBps) / 10_000)), debt);
   if (skim <= 0) return 0;
   const left = debt - skim;
   await tx
@@ -106,6 +108,31 @@ export async function garnishDebt(tx: Tx, userId: string, profitCents: number, l
     memo: `${label} — win repaid ${(skim / 100).toFixed(2)}Ɱ of debt`,
   });
   return skim;
+}
+
+// Auto-repay sweep: a debtor with the flag on pays down accrued debt from
+// spare balance at the top of each stake/order. Returns cents repaid — and
+// mutates the caller's row (balance, debt, rate) so downstream credit checks
+// see the post-sweep state, not the pre-sweep snapshot.
+export async function sweepDebt(
+  tx: Tx,
+  u: { id: string; balanceCents: number; debtCents: number; debtRateBps: number; debtSince: Date | null }
+): Promise<number> {
+  const now = new Date();
+  const debt = accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince, now);
+  const pay = Math.min(debt, Math.max(0, u.balanceCents));
+  if (pay <= 0) return 0;
+  const left = debt - pay;
+  await credit(tx, u.id, -pay, "repay", null, "Auto-repay — loan paid down");
+  await tx
+    .update(schema.user)
+    .set({ debtCents: left, debtRateBps: left > 0 ? u.debtRateBps : 0, debtSince: left > 0 ? now : null })
+    .where(eq(schema.user.id, u.id));
+  u.balanceCents -= pay;
+  u.debtCents = left;
+  u.debtRateBps = left > 0 ? u.debtRateBps : 0;
+  u.debtSince = left > 0 ? now : null;
+  return pay;
 }
 
 // Adds `addCents` of principal at `rateBps` — existing debt is accrued first
@@ -156,7 +183,7 @@ export async function releaseDebt(tx: Tx, userId: string, cents: number, memo: s
 // service the debt first, the remainder (if any) credits the user. Iterates
 // to a fixpoint — a liquidation late in the scan can push an earlier-passed
 // position under the cushion, so loop until a pass frees nothing.
-export async function checkLiquidations(tx: Tx, marketId: string) {
+export async function checkLiquidations(tx: Tx, marketId: string, debtRateBps = GAME_DEBT_RATE_BPS) {
   const m = await lockMarket(tx, marketId);
   let qy = toNum(m.qYes);
   let qn = toNum(m.qNo);
@@ -196,7 +223,7 @@ export async function checkLiquidations(tx: Tx, marketId: string) {
         // A violent gap can liquidate below the loan — the uncovered part of
         // the margin becomes account debt, same as a busted game round.
         if (equity < 0)
-          await addDebt(tx, p.userId, -equity, GAME_DEBT_RATE_BPS, `Liquidation shortfall: ${title}`);
+          await addDebt(tx, p.userId, -equity, debtRateBps, `Liquidation shortfall: ${title}`);
         await ping(
           tx,
           p.userId,
@@ -226,7 +253,8 @@ export async function checkLiquidations(tx: Tx, marketId: string) {
 // (the complement bundle) come off every sibling's via the shared math.
 export async function checkGroupLiquidations(
   tx: Tx,
-  book: { m: typeof schema.market.$inferSelect; qYes: number; qNo: number; dirty: boolean }[]
+  book: { m: typeof schema.market.$inferSelect; qYes: number; qNo: number; dirty: boolean }[],
+  debtRateBps = GAME_DEBT_RATE_BPS
 ) {
   const b = book[0]?.m.b ?? 300;
   let touched = false;
@@ -269,7 +297,7 @@ export async function checkGroupLiquidations(
           // A violent gap can liquidate below the loan — the uncovered part of
           // the margin becomes account debt, same as a busted game round.
           if (equity < 0)
-            await addDebt(tx, p.userId, -equity, GAME_DEBT_RATE_BPS, `Liquidation shortfall: ${title}`);
+            await addDebt(tx, p.userId, -equity, debtRateBps, `Liquidation shortfall: ${title}`);
           await ping(
             tx,
             p.userId,
@@ -355,12 +383,13 @@ async function fillStop(
   p: StopRow,
   trig: Trigger,
   proceedsCents: number,
-  execPrice: number
+  execPrice: number,
+  orderFee = TRADE_FEE_CENTS
 ) {
   let rest = proceedsCents;
   const debtRepay = Math.min(rest, p.debtCents);
   rest -= debtRepay;
-  const feeCharge = Math.min(TRADE_FEE_CENTS, rest);
+  const feeCharge = Math.min(orderFee, rest);
   rest -= feeCharge;
   const pctNote = trig.pct < 100 && trig.shares < trig.held - 1e-9 ? ` (${trig.pct}%)` : "";
   const label = `${trig.kind === "tp" ? "Take-profit" : "Stop-loss"} ${trig.outcome.toUpperCase()} @ ${trig.at.toFixed(2)}${pctNote}: ${m.question.slice(0, 50)}`;
@@ -414,7 +443,7 @@ async function fillStop(
 }
 
 // Binary market: sweep resting stops against the live price until none trip.
-export async function runStops(tx: Tx, marketId: string) {
+export async function runStops(tx: Tx, marketId: string, orderFee = TRADE_FEE_CENTS) {
   const m = await lockMarket(tx, marketId);
   let qy = toNum(m.qYes);
   let qn = toNum(m.qNo);
@@ -440,7 +469,7 @@ export async function runStops(tx: Tx, marketId: string) {
       if (trig.outcome === "yes") qy -= trig.shares;
       else qn -= trig.shares;
       const newPy = yesPrice(qy, qn, m.b);
-      await fillStop(tx, m, p, trig, proceedsCents, newPy);
+      await fillStop(tx, m, p, trig, proceedsCents, newPy, orderFee);
       await tx.insert(schema.pricePoint).values({ marketId, yesPrice: newPy.toFixed(5) });
       volAdd += proceedsCents;
       passTouched = true;
@@ -460,7 +489,8 @@ export async function runStops(tx: Tx, marketId: string) {
 // on one option reprices every sibling (siblings each get a fresh point).
 export async function runGroupStops(
   tx: Tx,
-  book: { m: typeof schema.market.$inferSelect; qYes: number; qNo: number; dirty: boolean }[]
+  book: { m: typeof schema.market.$inferSelect; qYes: number; qNo: number; dirty: boolean }[],
+  orderFee = TRADE_FEE_CENTS
 ) {
   const b = book[0]?.m.b ?? 300;
   for (let pass = 0; pass < STOP_MAX_PASSES; pass++) {
@@ -486,7 +516,7 @@ export async function runGroupStops(
         else book[i].qNo -= trig.shares;
         book[i].dirty = true;
         const newPrices = multiPrices(multiCoords(book), b);
-        await fillStop(tx, m, p, trig, proceedsCents, newPrices[i]);
+        await fillStop(tx, m, p, trig, proceedsCents, newPrices[i], orderFee);
         for (const [j, s] of book.entries()) {
           await tx.insert(schema.pricePoint).values({ marketId: s.m.id, yesPrice: newPrices[j].toFixed(5) });
         }

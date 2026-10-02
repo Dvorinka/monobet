@@ -16,6 +16,7 @@ export async function GET() {
       debtCents: schema.user.debtCents,
       debtRateBps: schema.user.debtRateBps,
       debtSince: schema.user.debtSince,
+      autoRepay: schema.user.autoRepay,
     })
     .from(schema.user)
     .where(eq(schema.user.id, session.user.id));
@@ -23,5 +24,6 @@ export async function GET() {
   return Response.json({
     balanceCents: u.balanceCents,
     debtCents: accruedDebtCents(u.debtCents, u.debtRateBps, u.debtSince),
+    autoRepay: u.autoRepay,
   });
 }

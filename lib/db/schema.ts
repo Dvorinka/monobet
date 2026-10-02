@@ -62,6 +62,9 @@ export const user = pgTable("user", {
   // share of every win (bps) garnished to debt until it's clear.
   wallPrayerAt: timestamp("wall_prayer_at", { withTimezone: true }),
   vowBps: integer("vow_bps").notNull().default(0),
+  // Auto-repay: when on, winnings feed the debt in full (vow = 100%) and each
+  // stake/trade first pays down the loan from spare balance.
+  autoRepay: boolean("auto_repay").notNull().default(false),
   // Admin-tuned luck: bps chance to rescue a loss into a win (− = unlucky).
   // Random games only — skill games (timer, blackjack) ignore it.
   luckBps: integer("luck_bps").notNull().default(0),
@@ -589,6 +592,22 @@ export const casinoConfig = pgTable("casino_config", {
   gameMaxBetCents: integer("game_max_bet_cents").notNull().default(100000),
   tradeMaxSpendCents: integer("trade_max_spend_cents").notNull().default(500000),
   gameBetCaps: jsonb("game_bet_caps").$type<Record<string, number>>(),
+  // House rules — formerly hardcoded, now admin-tunable. autobetEnabled gates
+  // the autobet UI; the session clock caps in-game ms per 24h window, with
+  // idleMs the gap that pauses it. Fee columns are the flat round/order fees;
+  // debtRateBps is the loan APR; dice/limbo pay columns scale the fair odds.
+  autobetEnabled: boolean("autobet_enabled").notNull().default(true),
+  gameDailyLimitMs: integer("game_daily_limit_ms").notNull().default(7_200_000),
+  gameIdleMs: integer("game_idle_ms").notNull().default(1_800_000),
+  gameFeeCents: integer("game_fee_cents").notNull().default(100),
+  tradeFeeCents: integer("trade_fee_cents").notNull().default(100),
+  debtRateBps: integer("debt_rate_bps").notNull().default(2000),
+  referralRoyaltyBps: integer("referral_royalty_bps").notNull().default(500),
+  referralRoyaltyCapCents: integer("referral_royalty_cap_cents").notNull().default(200_000),
+  dicePayBps: integer("dice_pay_bps").notNull().default(9200),
+  limboPayBps: integer("limbo_pay_bps").notNull().default(9600),
+  limboMinX100: integer("limbo_min_x100").notNull().default(110),
+  minTradeCents: integer("min_trade_cents").notNull().default(1000),
   // Economy resets move this forward: bank stats and balance-history charts
   // only count ledger rows after the epoch — whale-era churn stays in the
   // ledger for audit but out of the displayed numbers.
